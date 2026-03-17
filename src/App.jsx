@@ -1,35 +1,35 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { useAuth } from './contexts/AuthContext'
+import Login from './pages/Login'
+import Cadastro from './pages/Cadastro'
+import Dashboard from './pages/Dashboard'
+import Propriedades from './pages/Propriedades'
+import Lavouras from './pages/Lavouras'
+import Safras from './pages/Safras'
+import Patrimonio from './pages/Patrimonio'
+import Financeiro from './pages/Financeiro'
+import Layout from './components/Layout'
 
-function App() {
-  const [count, setCount] = useState(0)
-
-  return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.jsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+function RotaProtegida({ children }) {
+  const { usuario } = useAuth()
+  return usuario ? children : <Navigate to="/login" />
 }
 
-export default App
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/cadastro" element={<Cadastro />} />
+        <Route path="/" element={<RotaProtegida><Layout /></RotaProtegida>}>
+          <Route index element={<Dashboard />} />
+          <Route path="propriedades" element={<Propriedades />} />
+          <Route path="lavouras" element={<Lavouras />} />
+          <Route path="safras" element={<Safras />} />
+          <Route path="patrimonio" element={<Patrimonio />} />
+          <Route path="financeiro" element={<Financeiro />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
+  )
+}
