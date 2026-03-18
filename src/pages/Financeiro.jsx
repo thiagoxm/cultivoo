@@ -1,57 +1,260 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { collection, query, where, getDocs, addDoc, deleteDoc, doc, updateDoc } from 'firebase/firestore'
 import { db } from '../services/firebase'
 import { useAuth } from '../contexts/AuthContext'
-import { Plus, Trash2, TrendingUp, TrendingDown, CheckCircle } from 'lucide-react'
+import { Plus, Trash2, TrendingUp, TrendingDown, Pencil, CheckCircle, Search } from 'lucide-react'
+import { format, parseISO, isValid } from 'date-fns'
+import { ptBR } from 'date-fns/locale'
+import {
+  ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid,
+  Tooltip, Legend, ResponsiveContainer
+} from 'recharts'
 
-const tiposReceita = ['Venda de grãos', 'Venda de gado', 'Arrendamento', 'Subsídio', 'Outro']
-const tiposDespesa = ['Insumos', 'Combustível', 'Manutenção', 'Mão de obra', 'Arrendamento', 'Financiamento', 'Outro']
-const abas = ['Lançamentos', 'Contas a pagar/receber', 'Fluxo de caixa']
+// ─── Estrutura de categorias e tipos ───────────────────────────────────────
+const CATEGORIAS_DESPESA = {
+  'Administrativo': ['Pessoal', 'Contabilidade', 'Consultoria', 'Arrendamento', 'Financiamento', 'Outros'],
+  'Máquinas e Equipamentos': ['Combustível', 'Manutenção', 'Outros'],
+  'Insumos': ['Sementes / Mudas', 'Adubos', 'Fertilizantes', 'Defensivos', 'Outros'],
+  'Cultivo': ['Preparação do Solo', 'Plantio', 'Manejo e Tratos Agrícolas', 'Colheita', 'Outros'],
+}
 
+const ABAS = ['Lançamentos', 'Contas a Pagar', 'Contas a Receber', 'Fluxo de Caixa']
+
+const ANO_ATUAL = new Date().getFullYear()
+const MES_ATUAL = new Date().getMonth() + 1
+const ANOS = Array.from({ length: 6 }, (_, i) => ANO_ATUAL - 2 + i)
+const MESES = [
+  { v: 1, l: 'Janeiro' }, { v: 2, l: 'Fevereiro' }, { v: 3, l: 'Março' },
+  { v: 4, l: 'Abril' }, { v: 5, l: 'Maio' }, { v: 6, l: 'Junho' },
+  { v: 7, l: 'Julho' }, { v: 8, l: 'Agosto' }, { v: 9, l: 'Setembro' },
+  { v: 10, l: 'Outubro' }, { v: 11, l: 'Novembro' }, { v: 12, l: 'Dezembro' },
+]
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+function formatarMoeda(valor) {
+  return Number(valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function mascaraMoeda(valor) {
+  const nums = valor.replace(/\D/g, '')
+  if (!nums) return ''
+  const n = (parseInt(nums, 10) / 100).toFixed(2)
+  return 'R$ ' + n.replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+}
+
+function desmascarar(valor) {
+  if (!valor) return ''
+  return valor.replace(/[R$\s.]/g, '').replace(',', '.')
+}
+
+function formatarDataBR(dataISO) {
+  if (!dataISO) return ''
+  try { return format(parseISO(dataISO), 'dd/MM/yyyy', { locale: ptBR }) } catch { return dataISO }
+}
+
+function dataParaISO(dataBR) {
+  if (!dataBR) return ''
+  const [d, m, y] = dataBR.split('/')
+  if (!d || !m || !y) return dataBR
+  return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
+}
+
+function mascaraData(valor) {
+  const nums = valor.replace(/\D/g, '').slice(0, 8)
+  if (nums.length <= 2) return nums
+  if (nums.length <= 4) return `${nums.slice(0, 2)}/${nums.slice(2)}`
+  return `${nums.slice(0, 2)}/${nums.slice(2, 4)}/${nums.slice(4)}`
+}
+
+function filtrarPorPeriodo(lista, filtro) {
+  const { tipo, ano, mes, dataInicio, dataFim, safraId } = filtro
+  return lista.filter(l => {
+    const dataRef = l.data || l.vencimento
+    if (tipo === 'safra') return safraId ? l.safraId === safraId : true
+    if (!dataRef) return false
+    const [y, m] = dataRef.split('-')
+    if (tipo === 'anual') return y === String(ano)
+    if (tipo === 'mensal') return y === String(ano) && m === String(mes).padStart(2, '0')
+    if (tipo === 'personalizado') {
+      if (dataInicio && dataRef < dataInicio) return false
+      if (dataFim && dataRef > dataFim) return false
+      return true
+    }
+    return true
+  })
+}
+
+function agruparPorMes(lista) {
+  const grupos = {}
+  lista.forEach(l => {
+    const dataRef = l.data || l.vencimento || ''
+    const chave = dataRef.substring(0, 7)
+    if (!grupos[chave]) grupos[chave] = []
+    grupos[chave].push(l)
+  })
+  return Object.entries(grupos).sort((a, b) => b[0].localeCompare(a[0]))
+}
+
+function nomeMes(chave) {
+  if (!chave) return ''
+  const [y, m] = chave.split('-')
+  try {
+    return format(new Date(Number(y), Number(m) - 1), 'MMMM yyyy', { locale: ptBR })
+  } catch { return chave }
+}
+
+function estaVencido(dataISO) {
+  if (!dataISO) return false
+  return new Date(dataISO + 'T00:00:00') < new Date(new Date().toDateString())
+}
+
+// ─── Form padrão ────────────────────────────────────────────────────────────
+const FORM_PADRAO = {
+  descricao: '', tipo: 'despesa', categoria: '', tipoDespesa: '',
+  data: '', valorMask: '', notaRef: '', propriedadeId: '',
+  safraId: '', vencimentoMask: '', status: 'pendente',
+  ehConta: false, patrimonioId: ''
+}
+
+// ─── Componente principal ───────────────────────────────────────────────────
 export default function Financeiro() {
   const { usuario } = useAuth()
   const [aba, setAba] = useState('Lançamentos')
   const [lista, setLista] = useState([])
   const [propriedades, setPropriedades] = useState([])
   const [safras, setSafras] = useState([])
+  const [patrimonios, setPatrimonios] = useState([])
   const [modal, setModal] = useState(false)
-  const [filtroTipo, setFiltroTipo] = useState('todos')
-  const [form, setForm] = useState({
-    descricao: '', tipo: 'despesa', categoria: '',
-    data: '', valor: '', notaFiscal: '', propriedadeId: '',
-    safraId: '', vencimento: '', status: 'pendente', ehConta: false
-  })
+  const [editando, setEditando] = useState(null)
+  const [form, setForm] = useState(FORM_PADRAO)
   const [loading, setLoading] = useState(false)
+  const [buscaPatrimonio, setBuscaPatrimonio] = useState('')
+  const [filtro, setFiltro] = useState({
+    tipo: 'anual', ano: ANO_ATUAL, mes: MES_ATUAL,
+    dataInicio: '', dataFim: '', safraId: ''
+  })
 
   async function carregar() {
     const uid = usuario.uid
-    const [finSnap, propSnap, safSnap] = await Promise.all([
-      getDocs(query(collection(db, 'financeiro'), where('uid', '==', uid))),
-      getDocs(query(collection(db, 'propriedades'), where('uid', '==', uid))),
-      getDocs(query(collection(db, 'safras'), where('uid', '==', uid))),
+    const q = (col) => query(collection(db, col), where('uid', '==', uid))
+    const [finSnap, propSnap, safSnap, patSnap] = await Promise.all([
+      getDocs(q('financeiro')),
+      getDocs(q('propriedades')),
+      getDocs(q('safras')),
+      getDocs(q('patrimonios')),
     ])
     setLista(finSnap.docs.map(d => ({ id: d.id, ...d.data() })))
     setPropriedades(propSnap.docs.map(d => ({ id: d.id, ...d.data() })))
     setSafras(safSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+    setPatrimonios(patSnap.docs.map(d => ({ id: d.id, ...d.data() })))
   }
 
   useEffect(() => { carregar() }, [])
 
+  // ─── Dados filtrados ───────────────────────────────────────────────────────
+  const listaFiltrada = useMemo(() => filtrarPorPeriodo(lista, filtro), [lista, filtro])
+  const lancamentos = useMemo(() => listaFiltrada.filter(l => !l.ehConta), [listaFiltrada])
+  const contasPagar = useMemo(() => listaFiltrada.filter(l => l.ehConta && l.tipo === 'despesa' && l.status !== 'pago'), [listaFiltrada])
+  const contasReceber = useMemo(() => listaFiltrada.filter(l => l.ehConta && l.tipo === 'receita' && l.status !== 'recebido'), [listaFiltrada])
+
+  const totalReceitas = useMemo(() => lancamentos.filter(l => l.tipo === 'receita').reduce((a, b) => a + (Number(b.valor) || 0), 0), [lancamentos])
+  const totalDespesas = useMemo(() => lancamentos.filter(l => l.tipo === 'despesa').reduce((a, b) => a + (Number(b.valor) || 0), 0), [lancamentos])
+  const saldo = totalReceitas - totalDespesas
+
+  // ─── Fluxo de caixa ────────────────────────────────────────────────────────
+  const dadosFluxo = useMemo(() => {
+    const mapa = {}
+    lancamentos.forEach(l => {
+      if (!l.data) return
+      const mes = l.data.substring(0, 7)
+      if (!mapa[mes]) mapa[mes] = { mes, receitas: 0, despesas: 0 }
+      if (l.tipo === 'receita') mapa[mes].receitas += Number(l.valor) || 0
+      else mapa[mes].despesas += Number(l.valor) || 0
+    })
+    const ordenado = Object.values(mapa).sort((a, b) => a.mes.localeCompare(b.mes))
+    let acumulado = 0
+    return ordenado.map(m => {
+      acumulado += m.receitas - m.despesas
+      const [y, mo] = m.mes.split('-')
+      return {
+        ...m,
+        label: format(new Date(Number(y), Number(mo) - 1), 'MMM/yy', { locale: ptBR }),
+        saldoAcumulado: acumulado,
+        despesasNeg: -m.despesas,
+      }
+    })
+  }, [lancamentos])
+
+  // ─── Patrimônios filtrados pela busca ──────────────────────────────────────
+  const patrimoniosFiltrados = patrimonios.filter(p =>
+    p.nome.toLowerCase().includes(buscaPatrimonio.toLowerCase())
+  )
+
+  // ─── Abrir modal ───────────────────────────────────────────────────────────
+  function abrirModal(ehConta = false, tipo = 'despesa') {
+    setEditando(null)
+    setForm({ ...FORM_PADRAO, ehConta, tipo })
+    setBuscaPatrimonio('')
+    setModal(true)
+  }
+
+  function abrirEdicao(item) {
+    setEditando(item.id)
+    setForm({
+      descricao: item.descricao || '',
+      tipo: item.tipo || 'despesa',
+      categoria: item.categoria || '',
+      tipoDespesa: item.tipoDespesa || '',
+      data: item.data ? formatarDataBR(item.data) : '',
+      valorMask: item.valor ? mascaraMoeda(String(Math.round(item.valor * 100))) : '',
+      notaRef: item.notaRef || '',
+      propriedadeId: item.propriedadeId || '',
+      safraId: item.safraId || '',
+      vencimentoMask: item.vencimento ? formatarDataBR(item.vencimento) : '',
+      status: item.status || 'pendente',
+      ehConta: item.ehConta || false,
+      patrimonioId: item.patrimonioId || '',
+    })
+    setBuscaPatrimonio('')
+    setModal(true)
+  }
+
+  // ─── Salvar / atualizar ────────────────────────────────────────────────────
   async function salvar(e) {
     e.preventDefault()
     setLoading(true)
     const prop = propriedades.find(p => p.id === form.propriedadeId)
     const safra = safras.find(s => s.id === form.safraId)
-    await addDoc(collection(db, 'financeiro'), {
-      ...form,
-      valor: Number(form.valor),
+    const patrimonio = patrimonios.find(p => p.id === form.patrimonioId)
+
+    const payload = {
+      descricao: form.descricao,
+      tipo: form.tipo,
+      categoria: form.categoria,
+      tipoDespesa: form.tipoDespesa || '',
+      data: form.ehConta ? '' : dataParaISO(form.data),
+      valor: parseFloat(desmascarar(form.valorMask)) || 0,
+      notaRef: form.notaRef,
+      propriedadeId: form.propriedadeId,
       propriedadeNome: prop?.nome || '',
+      safraId: form.safraId,
       safraNome: safra?.nome || '',
+      vencimento: form.ehConta ? dataParaISO(form.vencimentoMask) : '',
+      status: form.status,
+      ehConta: form.ehConta,
+      patrimonioId: form.patrimonioId || '',
+      patrimonioNome: patrimonio?.nome || '',
       uid: usuario.uid,
-      criadoEm: new Date()
-    })
+    }
+
+    if (editando) {
+      await updateDoc(doc(db, 'financeiro', editando), payload)
+    } else {
+      await addDoc(collection(db, 'financeiro'), { ...payload, criadoEm: new Date() })
+    }
     setModal(false)
-    setForm({ descricao: '', tipo: 'despesa', categoria: '', data: '', valor: '', notaFiscal: '', propriedadeId: '', safraId: '', vencimento: '', status: 'pendente', ehConta: false })
+    setEditando(null)
+    setForm(FORM_PADRAO)
     await carregar()
     setLoading(false)
   }
@@ -62,63 +265,128 @@ export default function Financeiro() {
     await carregar()
   }
 
-  async function marcarPago(id) {
-    await updateDoc(doc(db, 'financeiro', id), { status: 'pago' })
+  async function marcarStatus(id, novoStatus) {
+    await updateDoc(doc(db, 'financeiro', id), { status: novoStatus })
     await carregar()
   }
 
-  const lancamentos = lista.filter(l => !l.ehConta)
-  const contas = lista.filter(l => l.ehConta)
-  const totalReceitas = lancamentos.filter(l => l.tipo === 'receita').reduce((a, b) => a + (Number(b.valor) || 0), 0)
-  const totalDespesas = lancamentos.filter(l => l.tipo === 'despesa').reduce((a, b) => a + (Number(b.valor) || 0), 0)
-
-  // Fluxo de caixa por mês
-  const fluxo = {}
-  lancamentos.forEach(l => {
-    if (!l.data) return
-    const mes = l.data.substring(0, 7)
-    if (!fluxo[mes]) fluxo[mes] = { receitas: 0, despesas: 0 }
-    if (l.tipo === 'receita') fluxo[mes].receitas += Number(l.valor) || 0
-    else fluxo[mes].despesas += Number(l.valor) || 0
-  })
-  const fluxoOrdenado = Object.entries(fluxo).sort((a, b) => a[0].localeCompare(b[0]))
-
-  const listaFiltrada = filtroTipo === 'todos' ? lancamentos
-    : lancamentos.filter(l => l.tipo === filtroTipo)
-
+  // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+
+      {/* Cabeçalho */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-gray-800">Financeiro</h1>
-        <button onClick={() => setModal(true)}
+        <button
+          onClick={() => abrirModal(aba === 'Contas a Pagar', aba === 'Contas a Pagar' ? 'despesa' : aba === 'Contas a Receber' ? 'receita' : 'despesa')}
           className="flex items-center gap-2 bg-green-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-800">
           <Plus size={16} /> Novo lançamento
         </button>
       </div>
 
-      {/* Resumo */}
-      <div className="grid grid-cols-2 gap-4">
+      {/* Filtro de período */}
+      <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+        <div className="flex flex-wrap gap-3 items-end">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Período</label>
+            <select value={filtro.tipo} onChange={e => setFiltro(f => ({ ...f, tipo: e.target.value }))}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+              <option value="anual">Anual</option>
+              <option value="mensal">Mensal</option>
+              <option value="safra">Por Safra</option>
+              <option value="personalizado">Personalizado</option>
+            </select>
+          </div>
+
+          {filtro.tipo === 'anual' && (
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Ano</label>
+              <select value={filtro.ano} onChange={e => setFiltro(f => ({ ...f, ano: Number(e.target.value) }))}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+                {ANOS.map(a => <option key={a}>{a}</option>)}
+              </select>
+            </div>
+          )}
+
+          {filtro.tipo === 'mensal' && (
+            <>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Mês</label>
+                <select value={filtro.mes} onChange={e => setFiltro(f => ({ ...f, mes: Number(e.target.value) }))}
+                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+                  {MESES.map(m => <option key={m.v} value={m.v}>{m.l}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Ano</label>
+                <select value={filtro.ano} onChange={e => setFiltro(f => ({ ...f, ano: Number(e.target.value) }))}
+                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+                  {ANOS.map(a => <option key={a}>{a}</option>)}
+                </select>
+              </div>
+            </>
+          )}
+
+          {filtro.tipo === 'safra' && (
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Safra</label>
+              <select value={filtro.safraId} onChange={e => setFiltro(f => ({ ...f, safraId: e.target.value }))}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                required>
+                <option value="">Selecione a safra...</option>
+                {safras.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+              </select>
+            </div>
+          )}
+
+          {filtro.tipo === 'personalizado' && (
+            <>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">De</label>
+                <input type="date" value={filtro.dataInicio}
+                  onChange={e => setFiltro(f => ({ ...f, dataInicio: e.target.value }))}
+                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Até</label>
+                <input type="date" value={filtro.dataFim}
+                  onChange={e => setFiltro(f => ({ ...f, dataFim: e.target.value }))}
+                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Cards resumo */}
+      <div className="grid grid-cols-3 gap-4">
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
           <div className="flex items-center gap-2 mb-1">
             <TrendingUp size={16} className="text-green-600" />
-            <p className="text-xs text-gray-500">Total receitas</p>
+            <p className="text-xs text-gray-500">Receitas</p>
           </div>
-          <p className="text-lg font-bold text-green-600">R$ {totalReceitas.toLocaleString('pt-BR')}</p>
+          <p className="text-lg font-bold text-green-600">R$ {formatarMoeda(totalReceitas)}</p>
         </div>
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
           <div className="flex items-center gap-2 mb-1">
             <TrendingDown size={16} className="text-red-500" />
-            <p className="text-xs text-gray-500">Total despesas</p>
+            <p className="text-xs text-gray-500">Despesas</p>
           </div>
-          <p className="text-lg font-bold text-red-500">R$ {totalDespesas.toLocaleString('pt-BR')}</p>
+          <p className="text-lg font-bold text-red-500">R$ {formatarMoeda(totalDespesas)}</p>
+        </div>
+        <div className={`rounded-xl p-4 shadow-sm border ${saldo >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+          <p className="text-xs text-gray-500 mb-1">Saldo</p>
+          <p className={`text-lg font-bold ${saldo >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+            {saldo < 0 ? '-' : ''} R$ {formatarMoeda(Math.abs(saldo))}
+          </p>
         </div>
       </div>
 
       {/* Abas */}
-      <div className="flex gap-2 border-b border-gray-200">
-        {abas.map(a => (
+      <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
+        {ABAS.map(a => (
           <button key={a} onClick={() => setAba(a)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            className={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
               aba === a ? 'border-green-600 text-green-700' : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}>
             {a}
@@ -126,190 +394,347 @@ export default function Financeiro() {
         ))}
       </div>
 
-      {/* Lançamentos */}
+      {/* ── Lançamentos ── */}
       {aba === 'Lançamentos' && (
         <div className="space-y-4">
-          <div className="flex gap-2">
-            {['todos', 'receita', 'despesa'].map(t => (
-              <button key={t} onClick={() => setFiltroTipo(t)}
-                className={`px-3 py-1 rounded-full text-xs font-medium capitalize transition-colors ${
-                  filtroTipo === t ? 'bg-green-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}>
-                {t === 'todos' ? 'Todos' : t === 'receita' ? 'Receitas' : 'Despesas'}
-              </button>
-            ))}
-          </div>
-          {listaFiltrada.length === 0 && (
+          {lancamentos.length === 0 && (
             <div className="bg-white rounded-xl p-10 text-center text-gray-400 shadow-sm border border-gray-100 text-sm">
-              Nenhum lançamento encontrado.
+              Nenhum lançamento no período selecionado.
             </div>
           )}
-          <div className="grid gap-3">
-            {listaFiltrada.map(l => (
-              <div key={l.id} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
-                    l.tipo === 'receita' ? 'bg-green-100' : 'bg-red-100'
-                  }`}>
-                    {l.tipo === 'receita'
-                      ? <TrendingUp size={16} className="text-green-600" />
-                      : <TrendingDown size={16} className="text-red-500" />}
+          {agruparPorMes(lancamentos).map(([chave, itens]) => (
+            <div key={chave}>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 capitalize">
+                {nomeMes(chave)}
+              </p>
+              <div className="space-y-2">
+                {itens.map(l => (
+                  <div key={l.id} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`w-9 h-9 rounded-lg flex-shrink-0 flex items-center justify-center ${
+                        l.tipo === 'receita' ? 'bg-green-100' : 'bg-red-100'
+                      }`}>
+                        {l.tipo === 'receita'
+                          ? <TrendingUp size={16} className="text-green-600" />
+                          : <TrendingDown size={16} className="text-red-500" />}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">{l.descricao}</p>
+                        <p className="text-xs text-gray-400 truncate">
+                          {l.categoria}{l.tipoDespesa ? ` · ${l.tipoDespesa}` : ''} · {formatarDataBR(l.data)}
+                        </p>
+                        {l.propriedadeNome && <p className="text-xs text-gray-400">{l.propriedadeNome}{l.safraNome ? ` · ${l.safraNome}` : ''}</p>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <p className={`text-sm font-bold ${l.tipo === 'receita' ? 'text-green-600' : 'text-red-500'}`}>
+                        {l.tipo === 'receita' ? '+' : '-'} R$ {formatarMoeda(l.valor)}
+                      </p>
+                      <button onClick={() => abrirEdicao(l)} className="text-gray-400 hover:text-blue-500 p-1">
+                        <Pencil size={15} />
+                      </button>
+                      <button onClick={() => excluir(l.id)} className="text-gray-400 hover:text-red-500 p-1">
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-800">{l.descricao}</p>
-                    <p className="text-xs text-gray-400">{l.categoria} · {l.data} · {l.propriedadeNome}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <p className={`text-sm font-bold ${l.tipo === 'receita' ? 'text-green-600' : 'text-red-500'}`}>
-                    {l.tipo === 'receita' ? '+' : '-'} R$ {Number(l.valor).toLocaleString('pt-BR')}
-                  </p>
-                  <button onClick={() => excluir(l.id)} className="text-red-300 hover:text-red-500">
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Contas a pagar/receber */}
-      {aba === 'Contas a pagar/receber' && (
-        <div className="space-y-3">
-          <button onClick={() => { setForm(f => ({ ...f, ehConta: true })); setModal(true) }}
-            className="flex items-center gap-2 border border-green-600 text-green-700 px-4 py-2 rounded-lg text-sm hover:bg-green-50">
-            <Plus size={16} /> Nova conta
-          </button>
-          {contas.length === 0 && (
-            <div className="bg-white rounded-xl p-10 text-center text-gray-400 shadow-sm border border-gray-100 text-sm">
-              Nenhuma conta cadastrada.
-            </div>
-          )}
-          {contas.map(c => (
-            <div key={c.id} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-800">{c.descricao}</p>
-                <p className="text-xs text-gray-400">Vence: {c.vencimento} · {c.tipo === 'receita' ? 'A receber' : 'A pagar'}</p>
-                <p className="text-sm font-bold text-gray-700 mt-1">R$ {Number(c.valor).toLocaleString('pt-BR')}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                {c.status === 'pendente' && (
-                  <button onClick={() => marcarPago(c.id)}
-                    className="text-xs bg-green-100 text-green-700 px-3 py-1 rounded-full hover:bg-green-200">
-                    Marcar pago
-                  </button>
-                )}
-                {c.status === 'pago' && (
-                  <span className="flex items-center gap-1 text-xs text-green-600">
-                    <CheckCircle size={14} /> Pago
-                  </span>
-                )}
-                <button onClick={() => excluir(c.id)} className="text-red-300 hover:text-red-500">
-                  <Trash2 size={16} />
-                </button>
+                ))}
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Fluxo de caixa */}
-      {aba === 'Fluxo de caixa' && (
-        <div className="space-y-3">
-          {fluxoOrdenado.length === 0 && (
+      {/* ── Contas a Pagar ── */}
+      {aba === 'Contas a Pagar' && (
+        <div className="space-y-4">
+          {contasPagar.length === 0 && (
             <div className="bg-white rounded-xl p-10 text-center text-gray-400 shadow-sm border border-gray-100 text-sm">
-              Nenhum dado disponível ainda.
+              Nenhuma conta a pagar pendente.
             </div>
           )}
-          {fluxoOrdenado.map(([mes, val]) => {
-            const saldo = val.receitas - val.despesas
-            const [ano, m] = mes.split('-')
-            const nomeMes = new Date(Number(ano), Number(m) - 1).toLocaleString('pt-BR', { month: 'long', year: 'numeric' })
-            return (
-              <div key={mes} className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
-                <p className="font-semibold text-gray-700 capitalize mb-3">{nomeMes}</p>
-                <div className="grid grid-cols-3 gap-3 text-center">
-                  <div>
-                    <p className="text-xs text-gray-400">Receitas</p>
-                    <p className="text-sm font-bold text-green-600">R$ {val.receitas.toLocaleString('pt-BR')}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-400">Despesas</p>
-                    <p className="text-sm font-bold text-red-500">R$ {val.despesas.toLocaleString('pt-BR')}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-400">Saldo</p>
-                    <p className={`text-sm font-bold ${saldo >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
-                      R$ {saldo.toLocaleString('pt-BR')}
-                    </p>
-                  </div>
-                </div>
+          {agruparPorMes(contasPagar).map(([chave, itens]) => (
+            <div key={chave}>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 capitalize">
+                {nomeMes(chave)}
+              </p>
+              <div className="space-y-2">
+                {itens.map(c => {
+                  const vencido = estaVencido(c.vencimento)
+                  return (
+                    <div key={c.id} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-800">{c.descricao}</p>
+                        <p className={`text-xs mt-0.5 ${vencido ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
+                          {vencido ? 'Vencido' : 'Vence'} em {formatarDataBR(c.vencimento)}
+                        </p>
+                        <p className="text-sm font-bold text-gray-700 mt-1">R$ {formatarMoeda(c.valor)}</p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <button onClick={() => marcarStatus(c.id, 'pago')}
+                          className="text-xs bg-green-100 text-green-700 px-3 py-1.5 rounded-full hover:bg-green-200 whitespace-nowrap">
+                          Marcar pago
+                        </button>
+                        <button onClick={() => abrirEdicao(c)} className="text-gray-400 hover:text-blue-500 p-1">
+                          <Pencil size={15} />
+                        </button>
+                        <button onClick={() => excluir(c.id)} className="text-gray-400 hover:text-red-500 p-1">
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
-            )
-          })}
+            </div>
+          ))}
         </div>
       )}
 
-      {/* Modal lançamento */}
+      {/* ── Contas a Receber ── */}
+      {aba === 'Contas a Receber' && (
+        <div className="space-y-4">
+          {contasReceber.length === 0 && (
+            <div className="bg-white rounded-xl p-10 text-center text-gray-400 shadow-sm border border-gray-100 text-sm">
+              Nenhuma conta a receber pendente.
+            </div>
+          )}
+          {agruparPorMes(contasReceber).map(([chave, itens]) => (
+            <div key={chave}>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 capitalize">
+                {nomeMes(chave)}
+              </p>
+              <div className="space-y-2">
+                {itens.map(c => {
+                  const vencido = estaVencido(c.vencimento)
+                  return (
+                    <div key={c.id} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-800">{c.descricao}</p>
+                        <p className={`text-xs mt-0.5 ${vencido ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
+                          {vencido ? 'Vencido' : 'Vence'} em {formatarDataBR(c.vencimento)}
+                        </p>
+                        <p className="text-sm font-bold text-gray-700 mt-1">R$ {formatarMoeda(c.valor)}</p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <button onClick={() => marcarStatus(c.id, 'recebido')}
+                          className="text-xs bg-blue-100 text-blue-700 px-3 py-1.5 rounded-full hover:bg-blue-200 whitespace-nowrap">
+                          Marcar recebido
+                        </button>
+                        <button onClick={() => abrirEdicao(c)} className="text-gray-400 hover:text-blue-500 p-1">
+                          <Pencil size={15} />
+                        </button>
+                        <button onClick={() => excluir(c.id)} className="text-gray-400 hover:text-red-500 p-1">
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Fluxo de Caixa ── */}
+      {aba === 'Fluxo de Caixa' && (
+        <div className="space-y-4">
+          {dadosFluxo.length === 0 && (
+            <div className="bg-white rounded-xl p-10 text-center text-gray-400 shadow-sm border border-gray-100 text-sm">
+              Nenhum dado disponível para o período.
+            </div>
+          )}
+          {dadosFluxo.length > 0 && (
+            <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+              <h2 className="font-semibold text-gray-700 mb-4">Fluxo de caixa</h2>
+              <ResponsiveContainer width="100%" height={320}>
+                <ComposedChart data={dadosFluxo} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `R$${(v / 1000).toFixed(0)}k`} />
+                  <Tooltip formatter={(value, name) => {
+                    const labels = { receitas: 'Receitas', despesasNeg: 'Despesas', saldoAcumulado: 'Saldo acumulado' }
+                    return [`R$ ${formatarMoeda(Math.abs(value))}`, labels[name] || name]
+                  }} />
+                  <Legend formatter={v => ({ receitas: 'Receitas', despesasNeg: 'Despesas', saldoAcumulado: 'Saldo acumulado' }[v] || v)} />
+                  <Bar dataKey="receitas" fill="#16a34a" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="despesasNeg" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                  <Line type="monotone" dataKey="saldoAcumulado" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+
+              {/* Tabela resumo */}
+              <div className="mt-4 space-y-2">
+                {dadosFluxo.map(m => (
+                  <div key={m.mes} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                    <p className="text-sm font-medium text-gray-700 capitalize w-24">{m.label}</p>
+                    <p className="text-xs text-green-600 w-28 text-right">+R$ {formatarMoeda(m.receitas)}</p>
+                    <p className="text-xs text-red-500 w-28 text-right">-R$ {formatarMoeda(m.despesas)}</p>
+                    <p className={`text-xs font-bold w-28 text-right ${m.saldoAcumulado >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                      R$ {formatarMoeda(m.saldoAcumulado)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Modal de criação/edição ── */}
       {modal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
-            <div className="p-5 border-b border-gray-100">
-              <h2 className="font-bold text-gray-800">{form.ehConta ? 'Nova conta' : 'Novo lançamento'}</h2>
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-xl max-h-[92vh] overflow-y-auto">
+            <div className="p-5 border-b border-gray-100 sticky top-0 bg-white z-10">
+              <h2 className="font-bold text-gray-800">
+                {editando ? 'Editar lançamento' : form.ehConta ? 'Nova conta' : 'Novo lançamento'}
+              </h2>
             </div>
-            <form onSubmit={salvar} className="p-5 space-y-3">
+            <form onSubmit={salvar} className="p-5 space-y-4">
+
+              {/* Tipo: Receita / Despesa */}
               <div className="flex gap-3">
                 {['despesa', 'receita'].map(t => (
-                  <button key={t} type="button" onClick={() => setForm(f => ({ ...f, tipo: t, categoria: '' }))}
-                    className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors capitalize ${
+                  <button key={t} type="button"
+                    onClick={() => setForm(f => ({ ...f, tipo: t, categoria: '', tipoDespesa: '' }))}
+                    className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
                       form.tipo === t
                         ? t === 'receita' ? 'bg-green-600 text-white border-green-600' : 'bg-red-500 text-white border-red-500'
-                        : 'border-gray-300 text-gray-600'
+                        : 'border-gray-300 text-gray-600 hover:bg-gray-50'
                     }`}>
                     {t === 'receita' ? 'Receita' : 'Despesa'}
                   </button>
                 ))}
               </div>
+
+              {/* É conta a pagar/receber? */}
+              <div className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3">
+                <span className="text-sm text-gray-700">
+                  {form.tipo === 'receita' ? 'Conta a receber' : 'Conta a pagar'}
+                </span>
+                <button type="button" onClick={() => setForm(f => ({ ...f, ehConta: !f.ehConta }))}
+                  className={`relative w-12 h-6 rounded-full transition-colors ${form.ehConta ? 'bg-green-600' : 'bg-gray-300'}`}>
+                  <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${form.ehConta ? 'translate-x-6' : 'translate-x-0.5'}`} />
+                </button>
+              </div>
+
+              {/* Descrição */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Descrição</label>
                 <input value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                   required />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
-                <select value={form.categoria} onChange={e => setForm(f => ({ ...f, categoria: e.target.value }))}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                  required>
-                  <option value="">Selecione...</option>
-                  {(form.tipo === 'receita' ? tiposReceita : tiposDespesa).map(c => <option key={c}>{c}</option>)}
-                </select>
-              </div>
+
+              {/* Categoria (apenas despesa) */}
+              {form.tipo === 'despesa' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
+                  <select value={form.categoria}
+                    onChange={e => setForm(f => ({ ...f, categoria: e.target.value, tipoDespesa: '' }))}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    required>
+                    <option value="">Selecione...</option>
+                    {Object.keys(CATEGORIAS_DESPESA).map(c => <option key={c}>{c}</option>)}
+                  </select>
+                </div>
+              )}
+
+              {/* Tipo de despesa */}
+              {form.tipo === 'despesa' && form.categoria && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
+                  <select value={form.tipoDespesa}
+                    onChange={e => setForm(f => ({ ...f, tipoDespesa: e.target.value }))}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    required>
+                    <option value="">Selecione...</option>
+                    {CATEGORIAS_DESPESA[form.categoria]?.map(t => <option key={t}>{t}</option>)}
+                  </select>
+                </div>
+              )}
+
+              {/* Patrimônio (apenas Máquinas e Equipamentos) */}
+              {form.tipo === 'despesa' && form.categoria === 'Máquinas e Equipamentos' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Vincular patrimônio (opcional)</label>
+                  <div className="relative mb-2">
+                    <Search size={14} className="absolute left-3 top-2.5 text-gray-400" />
+                    <input value={buscaPatrimonio} onChange={e => setBuscaPatrimonio(e.target.value)}
+                      placeholder="Buscar patrimônio..."
+                      className="w-full border border-gray-300 rounded-lg pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+                  </div>
+                  <select value={form.patrimonioId}
+                    onChange={e => setForm(f => ({ ...f, patrimonioId: e.target.value }))}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+                    <option value="">Nenhum</option>
+                    {patrimoniosFiltrados.map(p => <option key={p.id} value={p.id}>{p.nome} ({p.categoria})</option>)}
+                  </select>
+                </div>
+              )}
+
+              {/* Data */}
               <div className="grid grid-cols-2 gap-3">
+                {!form.ehConta && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Data</label>
+                    <input value={form.data}
+                      onChange={e => setForm(f => ({ ...f, data: mascaraData(e.target.value) }))}
+                      placeholder="dd/mm/aaaa" maxLength={10}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                      required />
+                  </div>
+                )}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    {form.ehConta ? 'Vencimento' : 'Data'}
-                  </label>
-                  <input type="date"
-                    value={form.ehConta ? form.vencimento : form.data}
-                    onChange={e => setForm(f => form.ehConta ? { ...f, vencimento: e.target.value } : { ...f, data: e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                    required />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Valor (R$)</label>
-                  <input type="number" value={form.valor} onChange={e => setForm(f => ({ ...f, valor: e.target.value }))}
-                    placeholder="0,00" min="0" step="0.01"
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Valor</label>
+                  <input value={form.valorMask}
+                    onChange={e => setForm(f => ({ ...f, valorMask: mascaraMoeda(e.target.value) }))}
+                    placeholder="R$ 0,00"
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                     required />
                 </div>
               </div>
+
+              {/* Vencimento + toggle status (apenas conta) */}
+              {form.ehConta && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Data de vencimento</label>
+                  <input value={form.vencimentoMask}
+                    onChange={e => setForm(f => ({ ...f, vencimentoMask: mascaraData(e.target.value) }))}
+                    placeholder="dd/mm/aaaa" maxLength={10}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    required />
+                  <div className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3 mt-2">
+                    <span className="text-sm text-gray-700">
+                      {form.status === 'pendente' ? 'Pendente' : form.tipo === 'receita' ? 'Recebido' : 'Pago'}
+                    </span>
+                    <button type="button"
+                      onClick={() => setForm(f => ({
+                        ...f, status: f.status === 'pendente'
+                          ? (f.tipo === 'receita' ? 'recebido' : 'pago')
+                          : 'pendente'
+                      }))}
+                      className={`relative w-12 h-6 rounded-full transition-colors ${
+                        form.status !== 'pendente' ? 'bg-green-600' : 'bg-gray-300'
+                      }`}>
+                      <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                        form.status !== 'pendente' ? 'translate-x-6' : 'translate-x-0.5'
+                      }`} />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Nº Doc. Referência */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Nº Nota fiscal</label>
-                <input value={form.notaFiscal} onChange={e => setForm(f => ({ ...f, notaFiscal: e.target.value }))}
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nº Doc. Referência</label>
+                <input value={form.notaRef} onChange={e => setForm(f => ({ ...f, notaRef: e.target.value }))}
+                  placeholder="Nota Fiscal, Cheque, Boleto, etc."
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
               </div>
+
+              {/* Propriedade */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Propriedade</label>
                 <select value={form.propriedadeId} onChange={e => setForm(f => ({ ...f, propriedadeId: e.target.value }))}
@@ -318,22 +743,27 @@ export default function Financeiro() {
                   {propriedades.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
                 </select>
               </div>
+
+              {/* Safra (obrigatória) */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Safra (opcional)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Safra <span className="text-red-500">*</span></label>
                 <select value={form.safraId} onChange={e => setForm(f => ({ ...f, safraId: e.target.value }))}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
-                  <option value="">Nenhuma</option>
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  required>
+                  <option value="">Selecione a safra...</option>
                   {safras.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
                 </select>
               </div>
+
+              {/* Botões */}
               <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setModal(false)}
+                <button type="button" onClick={() => { setModal(false); setEditando(null) }}
                   className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-lg text-sm hover:bg-gray-50">
                   Cancelar
                 </button>
                 <button type="submit" disabled={loading}
                   className="flex-1 bg-green-700 text-white py-2 rounded-lg text-sm hover:bg-green-800 disabled:opacity-50">
-                  {loading ? 'Salvando...' : 'Salvar'}
+                  {loading ? 'Salvando...' : editando ? 'Atualizar' : 'Salvar'}
                 </button>
               </div>
             </form>
