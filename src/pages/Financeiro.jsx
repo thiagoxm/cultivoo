@@ -2,15 +2,15 @@ import { useEffect, useState, useMemo } from 'react'
 import { collection, query, where, getDocs, addDoc, deleteDoc, doc, updateDoc } from 'firebase/firestore'
 import { db } from '../services/firebase'
 import { useAuth } from '../contexts/AuthContext'
-import { Plus, Trash2, TrendingUp, TrendingDown, Pencil, CheckCircle, Search } from 'lucide-react'
-import { format, parseISO, isValid } from 'date-fns'
+import { Plus, Trash2, TrendingUp, TrendingDown, Pencil } from 'lucide-react'
+import { format, parseISO } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer
 } from 'recharts'
 
-// ─── Estrutura de categorias e tipos ───────────────────────────────────────
+// ─── Estrutura de categorias ────────────────────────────────────────────────
 const CATEGORIAS_DESPESA = {
   'Administrativo': ['Pessoal', 'Contabilidade', 'Consultoria', 'Arrendamento', 'Financiamento', 'Outros'],
   'Máquinas e Equipamentos': ['Combustível', 'Manutenção', 'Outros'],
@@ -19,7 +19,6 @@ const CATEGORIAS_DESPESA = {
 }
 
 const ABAS = ['Lançamentos', 'Contas a Pagar', 'Contas a Receber', 'Fluxo de Caixa']
-
 const ANO_ATUAL = new Date().getFullYear()
 const MES_ATUAL = new Date().getMonth() + 1
 const ANOS = Array.from({ length: 6 }, (_, i) => ANO_ATUAL - 2 + i)
@@ -30,7 +29,7 @@ const MESES = [
   { v: 10, l: 'Outubro' }, { v: 11, l: 'Novembro' }, { v: 12, l: 'Dezembro' },
 ]
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 function formatarMoeda(valor) {
   return Number(valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
@@ -53,9 +52,9 @@ function formatarDataBR(dataISO) {
 }
 
 function dataParaISO(dataBR) {
-  if (!dataBR) return ''
+  if (!dataBR || dataBR.length < 10) return ''
   const [d, m, y] = dataBR.split('/')
-  if (!d || !m || !y) return dataBR
+  if (!d || !m || !y) return ''
   return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
 }
 
@@ -66,10 +65,15 @@ function mascaraData(valor) {
   return `${nums.slice(0, 2)}/${nums.slice(2, 4)}/${nums.slice(4)}`
 }
 
+function estaVencido(dataISO) {
+  if (!dataISO) return false
+  return new Date(dataISO + 'T00:00:00') < new Date(new Date().toDateString())
+}
+
 function filtrarPorPeriodo(lista, filtro) {
   const { tipo, ano, mes, dataInicio, dataFim, safraId } = filtro
   return lista.filter(l => {
-    const dataRef = l.data || l.vencimento
+    const dataRef = l.vencimento
     if (tipo === 'safra') return safraId ? l.safraId === safraId : true
     if (!dataRef) return false
     const [y, m] = dataRef.split('-')
@@ -87,8 +91,7 @@ function filtrarPorPeriodo(lista, filtro) {
 function agruparPorMes(lista) {
   const grupos = {}
   lista.forEach(l => {
-    const dataRef = l.data || l.vencimento || ''
-    const chave = dataRef.substring(0, 7)
+    const chave = (l.vencimento || '').substring(0, 7)
     if (!grupos[chave]) grupos[chave] = []
     grupos[chave].push(l)
   })
@@ -96,27 +99,19 @@ function agruparPorMes(lista) {
 }
 
 function nomeMes(chave) {
-  if (!chave) return ''
+  if (!chave) return 'Sem data'
   const [y, m] = chave.split('-')
-  try {
-    return format(new Date(Number(y), Number(m) - 1), 'MMMM yyyy', { locale: ptBR })
-  } catch { return chave }
+  try { return format(new Date(Number(y), Number(m) - 1), 'MMMM yyyy', { locale: ptBR }) } catch { return chave }
 }
 
-function estaVencido(dataISO) {
-  if (!dataISO) return false
-  return new Date(dataISO + 'T00:00:00') < new Date(new Date().toDateString())
-}
-
-// ─── Form padrão ────────────────────────────────────────────────────────────
+// ─── Form padrão ─────────────────────────────────────────────────────────────
 const FORM_PADRAO = {
   descricao: '', tipo: 'despesa', categoria: '', tipoDespesa: '',
-  data: '', valorMask: '', notaRef: '', propriedadeId: '',
-  safraId: '', vencimentoMask: '', status: 'pendente',
-  ehConta: false, patrimonioId: ''
+  vencimentoMask: '', valorMask: '', notaRef: '',
+  propriedadeId: '', safraId: '', status: 'pendente', patrimonioId: ''
 }
 
-// ─── Componente principal ───────────────────────────────────────────────────
+// ─── Componente principal ─────────────────────────────────────────────────────
 export default function Financeiro() {
   const { usuario } = useAuth()
   const [aba, setAba] = useState('Lançamentos')
@@ -128,7 +123,6 @@ export default function Financeiro() {
   const [editando, setEditando] = useState(null)
   const [form, setForm] = useState(FORM_PADRAO)
   const [loading, setLoading] = useState(false)
-  const [buscaPatrimonio, setBuscaPatrimonio] = useState('')
   const [filtro, setFiltro] = useState({
     tipo: 'anual', ano: ANO_ATUAL, mes: MES_ATUAL,
     dataInicio: '', dataFim: '', safraId: ''
@@ -151,22 +145,36 @@ export default function Financeiro() {
 
   useEffect(() => { carregar() }, [])
 
-  // ─── Dados filtrados ───────────────────────────────────────────────────────
+  // ─── Dados filtrados ──────────────────────────────────────────────────────
   const listaFiltrada = useMemo(() => filtrarPorPeriodo(lista, filtro), [lista, filtro])
-  const lancamentos = useMemo(() => listaFiltrada.filter(l => !l.ehConta), [listaFiltrada])
-  const contasPagar = useMemo(() => listaFiltrada.filter(l => l.ehConta && l.tipo === 'despesa' && l.status !== 'pago'), [listaFiltrada])
-  const contasReceber = useMemo(() => listaFiltrada.filter(l => l.ehConta && l.tipo === 'receita' && l.status !== 'recebido'), [listaFiltrada])
 
-  const totalReceitas = useMemo(() => lancamentos.filter(l => l.tipo === 'receita').reduce((a, b) => a + (Number(b.valor) || 0), 0), [lancamentos])
-  const totalDespesas = useMemo(() => lancamentos.filter(l => l.tipo === 'despesa').reduce((a, b) => a + (Number(b.valor) || 0), 0), [lancamentos])
+  // Item 1: lançamentos = TODOS os registros filtrados
+  const lancamentos = listaFiltrada
+
+  const contasPagar = useMemo(() =>
+    listaFiltrada.filter(l => l.tipo === 'despesa' && l.status === 'pendente'),
+    [listaFiltrada])
+
+  const contasReceber = useMemo(() =>
+    listaFiltrada.filter(l => l.tipo === 'receita' && l.status === 'pendente'),
+    [listaFiltrada])
+
+  const totalReceitas = useMemo(() =>
+    listaFiltrada.filter(l => l.tipo === 'receita').reduce((a, b) => a + (Number(b.valor) || 0), 0),
+    [listaFiltrada])
+
+  const totalDespesas = useMemo(() =>
+    listaFiltrada.filter(l => l.tipo === 'despesa').reduce((a, b) => a + (Number(b.valor) || 0), 0),
+    [listaFiltrada])
+
   const saldo = totalReceitas - totalDespesas
 
-  // ─── Fluxo de caixa ────────────────────────────────────────────────────────
+  // ─── Fluxo de caixa ───────────────────────────────────────────────────────
   const dadosFluxo = useMemo(() => {
     const mapa = {}
-    lancamentos.forEach(l => {
-      if (!l.data) return
-      const mes = l.data.substring(0, 7)
+    listaFiltrada.forEach(l => {
+      if (!l.vencimento) return
+      const mes = l.vencimento.substring(0, 7)
       if (!mapa[mes]) mapa[mes] = { mes, receitas: 0, despesas: 0 }
       if (l.tipo === 'receita') mapa[mes].receitas += Number(l.valor) || 0
       else mapa[mes].despesas += Number(l.valor) || 0
@@ -183,18 +191,12 @@ export default function Financeiro() {
         despesasNeg: -m.despesas,
       }
     })
-  }, [lancamentos])
+  }, [listaFiltrada])
 
-  // ─── Patrimônios filtrados pela busca ──────────────────────────────────────
-  const patrimoniosFiltrados = patrimonios.filter(p =>
-    p.nome.toLowerCase().includes(buscaPatrimonio.toLowerCase())
-  )
-
-  // ─── Abrir modal ───────────────────────────────────────────────────────────
-  function abrirModal(ehConta = false, tipo = 'despesa') {
+  // ─── Modal ────────────────────────────────────────────────────────────────
+  function abrirModal() {
     setEditando(null)
-    setForm({ ...FORM_PADRAO, ehConta, tipo })
-    setBuscaPatrimonio('')
+    setForm(FORM_PADRAO)
     setModal(true)
   }
 
@@ -205,21 +207,17 @@ export default function Financeiro() {
       tipo: item.tipo || 'despesa',
       categoria: item.categoria || '',
       tipoDespesa: item.tipoDespesa || '',
-      data: item.data ? formatarDataBR(item.data) : '',
-      valorMask: item.valor ? mascaraMoeda(String(Math.round(item.valor * 100))) : '',
+      vencimentoMask: item.vencimento ? formatarDataBR(item.vencimento) : '',
+      valorMask: item.valor ? mascaraMoeda(String(Math.round(Number(item.valor) * 100))) : '',
       notaRef: item.notaRef || '',
       propriedadeId: item.propriedadeId || '',
       safraId: item.safraId || '',
-      vencimentoMask: item.vencimento ? formatarDataBR(item.vencimento) : '',
       status: item.status || 'pendente',
-      ehConta: item.ehConta || false,
       patrimonioId: item.patrimonioId || '',
     })
-    setBuscaPatrimonio('')
     setModal(true)
   }
 
-  // ─── Salvar / atualizar ────────────────────────────────────────────────────
   async function salvar(e) {
     e.preventDefault()
     setLoading(true)
@@ -230,18 +228,16 @@ export default function Financeiro() {
     const payload = {
       descricao: form.descricao,
       tipo: form.tipo,
-      categoria: form.categoria,
+      categoria: form.tipo === 'receita' ? 'Receita Agrícola' : form.categoria,
       tipoDespesa: form.tipoDespesa || '',
-      data: form.ehConta ? '' : dataParaISO(form.data),
+      vencimento: dataParaISO(form.vencimentoMask),
       valor: parseFloat(desmascarar(form.valorMask)) || 0,
       notaRef: form.notaRef,
       propriedadeId: form.propriedadeId,
       propriedadeNome: prop?.nome || '',
       safraId: form.safraId,
       safraNome: safra?.nome || '',
-      vencimento: form.ehConta ? dataParaISO(form.vencimentoMask) : '',
       status: form.status,
-      ehConta: form.ehConta,
       patrimonioId: form.patrimonioId || '',
       patrimonioNome: patrimonio?.nome || '',
       uid: usuario.uid,
@@ -270,15 +266,92 @@ export default function Financeiro() {
     await carregar()
   }
 
-  // ─── Render ────────────────────────────────────────────────────────────────
+  // ─── Card compacto de lançamento ─────────────────────────────────────────
+  function CardLancamento({ l, mostrarAcoes = true }) {
+    const vencido = estaVencido(l.vencimento)
+    const isPago = l.status === 'pago' || l.status === 'recebido'
+    return (
+      <div className="bg-white rounded-lg px-4 py-2.5 shadow-sm border border-gray-100 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className={`w-7 h-7 rounded-md flex-shrink-0 flex items-center justify-center ${
+            l.tipo === 'receita' ? 'bg-green-100' : 'bg-red-100'
+          }`}>
+            {l.tipo === 'receita'
+              ? <TrendingUp size={13} className="text-green-600" />
+              : <TrendingDown size={13} className="text-red-500" />}
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-gray-800 truncate leading-tight">{l.descricao}</p>
+            <p className="text-xs text-gray-400 truncate leading-tight">
+              {l.categoria}{l.tipoDespesa ? ` · ${l.tipoDespesa}` : ''}
+              {l.vencimento ? ` · ${formatarDataBR(l.vencimento)}` : ''}
+              {vencido && !isPago ? <span className="text-red-400 ml-1">· Vencido</span> : null}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <p className={`text-sm font-bold ${l.tipo === 'receita' ? 'text-green-600' : 'text-red-500'}`}>
+            {l.tipo === 'receita' ? '+' : '-'}R${formatarMoeda(l.valor)}
+          </p>
+          {isPago && (
+            <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">
+              {l.status === 'recebido' ? 'Recebido' : 'Pago'}
+            </span>
+          )}
+          {mostrarAcoes && (
+            <>
+              <button onClick={() => abrirEdicao(l)} className="text-gray-300 hover:text-blue-500 p-0.5">
+                <Pencil size={13} />
+              </button>
+              <button onClick={() => excluir(l.id)} className="text-gray-300 hover:text-red-500 p-0.5">
+                <Trash2 size={13} />
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ─── Card compacto de conta ──────────────────────────────────────────────
+  function CardConta({ c, tipoAcao }) {
+    const vencido = estaVencido(c.vencimento)
+    const novoStatus = tipoAcao === 'receber' ? 'recebido' : 'pago'
+    const labelBtn = tipoAcao === 'receber' ? 'Marcar recebido' : 'Marcar pago'
+    return (
+      <div className="bg-white rounded-lg px-4 py-2.5 shadow-sm border border-gray-100 flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-gray-800 truncate leading-tight">{c.descricao}</p>
+          <p className={`text-xs leading-tight ${vencido ? 'text-red-400 font-medium' : 'text-gray-400'}`}>
+            {vencido ? 'Vencido' : 'Vence'} em {formatarDataBR(c.vencimento)}
+            {c.safraNome ? ` · ${c.safraNome}` : ''}
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <p className="text-sm font-bold text-gray-700">R${formatarMoeda(c.valor)}</p>
+          <button onClick={() => marcarStatus(c.id, novoStatus)}
+            className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full hover:bg-green-200 whitespace-nowrap">
+            {labelBtn}
+          </button>
+          <button onClick={() => abrirEdicao(c)} className="text-gray-300 hover:text-blue-500 p-0.5">
+            <Pencil size={13} />
+          </button>
+          <button onClick={() => excluir(c.id)} className="text-gray-300 hover:text-red-500 p-0.5">
+            <Trash2 size={13} />
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ─── Render ───────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
 
       {/* Cabeçalho */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-gray-800">Financeiro</h1>
-        <button
-          onClick={() => abrirModal(aba === 'Contas a Pagar', aba === 'Contas a Pagar' ? 'despesa' : aba === 'Contas a Receber' ? 'receita' : 'despesa')}
+        <button onClick={abrirModal}
           className="flex items-center gap-2 bg-green-700 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-800">
           <Plus size={16} /> Novo lançamento
         </button>
@@ -297,7 +370,6 @@ export default function Financeiro() {
               <option value="personalizado">Personalizado</option>
             </select>
           </div>
-
           {filtro.tipo === 'anual' && (
             <div>
               <label className="block text-xs text-gray-500 mb-1">Ano</label>
@@ -307,7 +379,6 @@ export default function Financeiro() {
               </select>
             </div>
           )}
-
           {filtro.tipo === 'mensal' && (
             <>
               <div>
@@ -326,19 +397,16 @@ export default function Financeiro() {
               </div>
             </>
           )}
-
           {filtro.tipo === 'safra' && (
             <div>
               <label className="block text-xs text-gray-500 mb-1">Safra</label>
               <select value={filtro.safraId} onChange={e => setFiltro(f => ({ ...f, safraId: e.target.value }))}
-                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                required>
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
                 <option value="">Selecione a safra...</option>
                 {safras.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
               </select>
             </div>
           )}
-
           {filtro.tipo === 'personalizado' && (
             <>
               <div>
@@ -362,22 +430,22 @@ export default function Financeiro() {
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
           <div className="flex items-center gap-2 mb-1">
-            <TrendingUp size={16} className="text-green-600" />
+            <TrendingUp size={15} className="text-green-600" />
             <p className="text-xs text-gray-500">Receitas</p>
           </div>
-          <p className="text-lg font-bold text-green-600">R$ {formatarMoeda(totalReceitas)}</p>
+          <p className="text-base font-bold text-green-600">R$ {formatarMoeda(totalReceitas)}</p>
         </div>
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
           <div className="flex items-center gap-2 mb-1">
-            <TrendingDown size={16} className="text-red-500" />
+            <TrendingDown size={15} className="text-red-500" />
             <p className="text-xs text-gray-500">Despesas</p>
           </div>
-          <p className="text-lg font-bold text-red-500">R$ {formatarMoeda(totalDespesas)}</p>
+          <p className="text-base font-bold text-red-500">R$ {formatarMoeda(totalDespesas)}</p>
         </div>
         <div className={`rounded-xl p-4 shadow-sm border ${saldo >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
           <p className="text-xs text-gray-500 mb-1">Saldo</p>
-          <p className={`text-lg font-bold ${saldo >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-            {saldo < 0 ? '-' : ''} R$ {formatarMoeda(Math.abs(saldo))}
+          <p className={`text-base font-bold ${saldo >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+            {saldo < 0 ? '-' : ''}R$ {formatarMoeda(Math.abs(saldo))}
           </p>
         </div>
       </div>
@@ -394,7 +462,7 @@ export default function Financeiro() {
         ))}
       </div>
 
-      {/* ── Lançamentos ── */}
+      {/* ── Lançamentos (todos) ── */}
       {aba === 'Lançamentos' && (
         <div className="space-y-4">
           {lancamentos.length === 0 && (
@@ -404,41 +472,11 @@ export default function Financeiro() {
           )}
           {agruparPorMes(lancamentos).map(([chave, itens]) => (
             <div key={chave}>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 capitalize">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5 capitalize">
                 {nomeMes(chave)}
               </p>
-              <div className="space-y-2">
-                {itens.map(l => (
-                  <div key={l.id} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className={`w-9 h-9 rounded-lg flex-shrink-0 flex items-center justify-center ${
-                        l.tipo === 'receita' ? 'bg-green-100' : 'bg-red-100'
-                      }`}>
-                        {l.tipo === 'receita'
-                          ? <TrendingUp size={16} className="text-green-600" />
-                          : <TrendingDown size={16} className="text-red-500" />}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-gray-800 truncate">{l.descricao}</p>
-                        <p className="text-xs text-gray-400 truncate">
-                          {l.categoria}{l.tipoDespesa ? ` · ${l.tipoDespesa}` : ''} · {formatarDataBR(l.data)}
-                        </p>
-                        {l.propriedadeNome && <p className="text-xs text-gray-400">{l.propriedadeNome}{l.safraNome ? ` · ${l.safraNome}` : ''}</p>}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <p className={`text-sm font-bold ${l.tipo === 'receita' ? 'text-green-600' : 'text-red-500'}`}>
-                        {l.tipo === 'receita' ? '+' : '-'} R$ {formatarMoeda(l.valor)}
-                      </p>
-                      <button onClick={() => abrirEdicao(l)} className="text-gray-400 hover:text-blue-500 p-1">
-                        <Pencil size={15} />
-                      </button>
-                      <button onClick={() => excluir(l.id)} className="text-gray-400 hover:text-red-500 p-1">
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
+              <div className="space-y-1.5">
+                {itens.map(l => <CardLancamento key={l.id} l={l} />)}
               </div>
             </div>
           ))}
@@ -455,36 +493,11 @@ export default function Financeiro() {
           )}
           {agruparPorMes(contasPagar).map(([chave, itens]) => (
             <div key={chave}>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 capitalize">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5 capitalize">
                 {nomeMes(chave)}
               </p>
-              <div className="space-y-2">
-                {itens.map(c => {
-                  const vencido = estaVencido(c.vencimento)
-                  return (
-                    <div key={c.id} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-gray-800">{c.descricao}</p>
-                        <p className={`text-xs mt-0.5 ${vencido ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
-                          {vencido ? 'Vencido' : 'Vence'} em {formatarDataBR(c.vencimento)}
-                        </p>
-                        <p className="text-sm font-bold text-gray-700 mt-1">R$ {formatarMoeda(c.valor)}</p>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <button onClick={() => marcarStatus(c.id, 'pago')}
-                          className="text-xs bg-green-100 text-green-700 px-3 py-1.5 rounded-full hover:bg-green-200 whitespace-nowrap">
-                          Marcar pago
-                        </button>
-                        <button onClick={() => abrirEdicao(c)} className="text-gray-400 hover:text-blue-500 p-1">
-                          <Pencil size={15} />
-                        </button>
-                        <button onClick={() => excluir(c.id)} className="text-gray-400 hover:text-red-500 p-1">
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    </div>
-                  )
-                })}
+              <div className="space-y-1.5">
+                {itens.map(c => <CardConta key={c.id} c={c} tipoAcao="pagar" />)}
               </div>
             </div>
           ))}
@@ -501,36 +514,11 @@ export default function Financeiro() {
           )}
           {agruparPorMes(contasReceber).map(([chave, itens]) => (
             <div key={chave}>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 capitalize">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5 capitalize">
                 {nomeMes(chave)}
               </p>
-              <div className="space-y-2">
-                {itens.map(c => {
-                  const vencido = estaVencido(c.vencimento)
-                  return (
-                    <div key={c.id} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-gray-800">{c.descricao}</p>
-                        <p className={`text-xs mt-0.5 ${vencido ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
-                          {vencido ? 'Vencido' : 'Vence'} em {formatarDataBR(c.vencimento)}
-                        </p>
-                        <p className="text-sm font-bold text-gray-700 mt-1">R$ {formatarMoeda(c.valor)}</p>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <button onClick={() => marcarStatus(c.id, 'recebido')}
-                          className="text-xs bg-blue-100 text-blue-700 px-3 py-1.5 rounded-full hover:bg-blue-200 whitespace-nowrap">
-                          Marcar recebido
-                        </button>
-                        <button onClick={() => abrirEdicao(c)} className="text-gray-400 hover:text-blue-500 p-1">
-                          <Pencil size={15} />
-                        </button>
-                        <button onClick={() => excluir(c.id)} className="text-gray-400 hover:text-red-500 p-1">
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    </div>
-                  )
-                })}
+              <div className="space-y-1.5">
+                {itens.map(c => <CardConta key={c.id} c={c} tipoAcao="receber" />)}
               </div>
             </div>
           ))}
@@ -548,8 +536,8 @@ export default function Financeiro() {
           {dadosFluxo.length > 0 && (
             <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
               <h2 className="font-semibold text-gray-700 mb-4">Fluxo de caixa</h2>
-              <ResponsiveContainer width="100%" height={320}>
-                <ComposedChart data={dadosFluxo} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
+              <ResponsiveContainer width="100%" height={300}>
+                <ComposedChart data={dadosFluxo} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="label" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `R$${(v / 1000).toFixed(0)}k`} />
@@ -563,12 +551,10 @@ export default function Financeiro() {
                   <Line type="monotone" dataKey="saldoAcumulado" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} />
                 </ComposedChart>
               </ResponsiveContainer>
-
-              {/* Tabela resumo */}
-              <div className="mt-4 space-y-2">
+              <div className="mt-3 space-y-1.5">
                 {dadosFluxo.map(m => (
-                  <div key={m.mes} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-                    <p className="text-sm font-medium text-gray-700 capitalize w-24">{m.label}</p>
+                  <div key={m.mes} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+                    <p className="text-sm font-medium text-gray-700 capitalize w-20">{m.label}</p>
                     <p className="text-xs text-green-600 w-28 text-right">+R$ {formatarMoeda(m.receitas)}</p>
                     <p className="text-xs text-red-500 w-28 text-right">-R$ {formatarMoeda(m.despesas)}</p>
                     <p className={`text-xs font-bold w-28 text-right ${m.saldoAcumulado >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
@@ -582,18 +568,18 @@ export default function Financeiro() {
         </div>
       )}
 
-      {/* ── Modal de criação/edição ── */}
+      {/* ── Modal criação/edição ── */}
       {modal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-xl max-h-[92vh] overflow-y-auto">
             <div className="p-5 border-b border-gray-100 sticky top-0 bg-white z-10">
               <h2 className="font-bold text-gray-800">
-                {editando ? 'Editar lançamento' : form.ehConta ? 'Nova conta' : 'Novo lançamento'}
+                {editando ? 'Editar lançamento' : 'Novo lançamento'}
               </h2>
             </div>
             <form onSubmit={salvar} className="p-5 space-y-4">
 
-              {/* Tipo: Receita / Despesa */}
+              {/* Tipo receita/despesa */}
               <div className="flex gap-3">
                 {['despesa', 'receita'].map(t => (
                   <button key={t} type="button"
@@ -606,17 +592,6 @@ export default function Financeiro() {
                     {t === 'receita' ? 'Receita' : 'Despesa'}
                   </button>
                 ))}
-              </div>
-
-              {/* É conta a pagar/receber? */}
-              <div className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3">
-                <span className="text-sm text-gray-700">
-                  {form.tipo === 'receita' ? 'Conta a receber' : 'Conta a pagar'}
-                </span>
-                <button type="button" onClick={() => setForm(f => ({ ...f, ehConta: !f.ehConta }))}
-                  className={`relative w-12 h-6 rounded-full transition-colors ${form.ehConta ? 'bg-green-600' : 'bg-gray-300'}`}>
-                  <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${form.ehConta ? 'translate-x-6' : 'translate-x-0.5'}`} />
-                </button>
               </div>
 
               {/* Descrição */}
@@ -655,37 +630,32 @@ export default function Financeiro() {
                 </div>
               )}
 
-              {/* Patrimônio (apenas Máquinas e Equipamentos) */}
+              {/* Patrimônio (Máquinas e Equipamentos) */}
               {form.tipo === 'despesa' && form.categoria === 'Máquinas e Equipamentos' && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Vincular patrimônio (opcional)</label>
-                  <div className="relative mb-2">
-                    <Search size={14} className="absolute left-3 top-2.5 text-gray-400" />
-                    <input value={buscaPatrimonio} onChange={e => setBuscaPatrimonio(e.target.value)}
-                      placeholder="Buscar patrimônio..."
-                      className="w-full border border-gray-300 rounded-lg pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
-                  </div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Patrimônio vinculado (opcional)</label>
                   <select value={form.patrimonioId}
                     onChange={e => setForm(f => ({ ...f, patrimonioId: e.target.value }))}
+                    size={patrimonios.length > 5 ? 5 : undefined}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
                     <option value="">Nenhum</option>
-                    {patrimoniosFiltrados.map(p => <option key={p.id} value={p.id}>{p.nome} ({p.categoria})</option>)}
+                    {patrimonios.map(p => (
+                      <option key={p.id} value={p.id}>{p.nome} — {p.categoria}</option>
+                    ))}
                   </select>
                 </div>
               )}
 
-              {/* Data */}
+              {/* Data de vencimento + valor */}
               <div className="grid grid-cols-2 gap-3">
-                {!form.ehConta && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Data</label>
-                    <input value={form.data}
-                      onChange={e => setForm(f => ({ ...f, data: mascaraData(e.target.value) }))}
-                      placeholder="dd/mm/aaaa" maxLength={10}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                      required />
-                  </div>
-                )}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Data</label>
+                  <input value={form.vencimentoMask}
+                    onChange={e => setForm(f => ({ ...f, vencimentoMask: mascaraData(e.target.value) }))}
+                    placeholder="dd/mm/aaaa" maxLength={10}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    required />
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Valor</label>
                   <input value={form.valorMask}
@@ -696,35 +666,26 @@ export default function Financeiro() {
                 </div>
               </div>
 
-              {/* Vencimento + toggle status (apenas conta) */}
-              {form.ehConta && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Data de vencimento</label>
-                  <input value={form.vencimentoMask}
-                    onChange={e => setForm(f => ({ ...f, vencimentoMask: mascaraData(e.target.value) }))}
-                    placeholder="dd/mm/aaaa" maxLength={10}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                    required />
-                  <div className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3 mt-2">
-                    <span className="text-sm text-gray-700">
-                      {form.status === 'pendente' ? 'Pendente' : form.tipo === 'receita' ? 'Recebido' : 'Pago'}
-                    </span>
-                    <button type="button"
-                      onClick={() => setForm(f => ({
-                        ...f, status: f.status === 'pendente'
-                          ? (f.tipo === 'receita' ? 'recebido' : 'pago')
-                          : 'pendente'
-                      }))}
-                      className={`relative w-12 h-6 rounded-full transition-colors ${
-                        form.status !== 'pendente' ? 'bg-green-600' : 'bg-gray-300'
-                      }`}>
-                      <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                        form.status !== 'pendente' ? 'translate-x-6' : 'translate-x-0.5'
-                      }`} />
-                    </button>
-                  </div>
-                </div>
-              )}
+              {/* Toggle status */}
+              <div className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3">
+                <span className="text-sm text-gray-500">Pendente</span>
+                <button type="button"
+                  onClick={() => setForm(f => ({
+                    ...f, status: f.status === 'pendente'
+                      ? (f.tipo === 'receita' ? 'recebido' : 'pago')
+                      : 'pendente'
+                  }))}
+                  className={`relative w-12 h-6 rounded-full transition-colors ${
+                    form.status !== 'pendente' ? 'bg-green-600' : 'bg-gray-300'
+                  }`}>
+                  <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                    form.status !== 'pendente' ? 'translate-x-6' : 'translate-x-0.5'
+                  }`} />
+                </button>
+                <span className="text-sm text-gray-700">
+                  {form.tipo === 'receita' ? 'Recebido' : 'Pago'}
+                </span>
+              </div>
 
               {/* Nº Doc. Referência */}
               <div>
@@ -737,7 +698,8 @@ export default function Financeiro() {
               {/* Propriedade */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Propriedade</label>
-                <select value={form.propriedadeId} onChange={e => setForm(f => ({ ...f, propriedadeId: e.target.value }))}
+                <select value={form.propriedadeId}
+                  onChange={e => setForm(f => ({ ...f, propriedadeId: e.target.value }))}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
                   <option value="">Selecione...</option>
                   {propriedades.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
@@ -746,8 +708,11 @@ export default function Financeiro() {
 
               {/* Safra (obrigatória) */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Safra <span className="text-red-500">*</span></label>
-                <select value={form.safraId} onChange={e => setForm(f => ({ ...f, safraId: e.target.value }))}
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Safra <span className="text-red-500">*</span>
+                </label>
+                <select value={form.safraId}
+                  onChange={e => setForm(f => ({ ...f, safraId: e.target.value }))}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                   required>
                   <option value="">Selecione a safra...</option>
@@ -756,7 +721,7 @@ export default function Financeiro() {
               </div>
 
               {/* Botões */}
-              <div className="flex gap-3 pt-2">
+              <div className="flex gap-3 pt-1">
                 <button type="button" onClick={() => { setModal(false); setEditando(null) }}
                   className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-lg text-sm hover:bg-gray-50">
                   Cancelar
