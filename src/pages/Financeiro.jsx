@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo, useRef } from 'react'
 import { collection, query, where, getDocs, addDoc, deleteDoc, doc, updateDoc } from 'firebase/firestore'
 import { db } from '../services/firebase'
 import { useAuth } from '../contexts/AuthContext'
-import { Plus, Trash2, TrendingUp, TrendingDown, Pencil, FileSpreadsheet, Sparkles, X, Upload, CheckCircle, Building2, Tractor, FlaskConical, Sprout } from 'lucide-react'
+import { Plus, Trash2, TrendingUp, TrendingDown, Pencil, FileSpreadsheet, Sparkles, X, Upload, CheckCircle, Building2, Tractor, ShoppingCart, Sprout } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import * as XLSX from 'xlsx'
@@ -106,7 +106,7 @@ function IconeCategoria({ categoria, tipo, size = 13 }) {
   switch (categoria) {
     case 'Administrativo':        return <Building2 size={size} className="text-red-500" />
     case 'Máquinas e Equipamentos': return <Tractor size={size} className="text-red-500" />
-    case 'Insumos':               return <FlaskConical size={size} className="text-red-500" />
+    case 'Insumos':               return <ShoppingCart size={size} className="text-red-500" />
     case 'Cultivo':               return <Sprout size={size} className="text-red-500" />
     default:                      return <TrendingDown size={size} className="text-red-500" />
   }
