@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo, useRef } from 'react'
 import { collection, query, where, getDocs, addDoc, deleteDoc, doc, updateDoc } from 'firebase/firestore'
 import { db } from '../services/firebase'
 import { useAuth } from '../contexts/AuthContext'
-import { Plus, Trash2, TrendingUp, TrendingDown, Pencil, FileSpreadsheet, Sparkles, X, Upload, CheckCircle } from 'lucide-react'
+import { Plus, Trash2, TrendingUp, TrendingDown, Pencil, FileSpreadsheet, Sparkles, X, Upload, CheckCircle, Building2, Tractor, FlaskConical, Sprout } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import * as XLSX from 'xlsx'
@@ -99,6 +99,17 @@ function saldoDoGrupo(itens) {
   const rec = itens.filter(l => l.tipo === 'receita').reduce((a, b) => a + (Number(b.valor) || 0), 0)
   const des = itens.filter(l => l.tipo === 'despesa').reduce((a, b) => a + (Number(b.valor) || 0), 0)
   return rec - des
+}
+
+function IconeCategoria({ categoria, tipo, size = 13 }) {
+  if (tipo === 'receita') return <TrendingUp size={size} className="text-green-600" />
+  switch (categoria) {
+    case 'Administrativo':        return <Building2 size={size} className="text-red-500" />
+    case 'Máquinas e Equipamentos': return <Tractor size={size} className="text-red-500" />
+    case 'Insumos':               return <FlaskConical size={size} className="text-red-500" />
+    case 'Cultivo':               return <Sprout size={size} className="text-red-500" />
+    default:                      return <TrendingDown size={size} className="text-red-500" />
+  }
 }
 
 // ─── Form padrão ──────────────────────────────────────────────────────────────
@@ -286,64 +297,112 @@ export default function Financeiro() {
 
   // ─── Cards ─────────────────────────────────────────────────────────────────
   function CardLancamento({ l }) {
-    const vencido = estaVencido(l.vencimento)
-    const isPago = l.status === 'pago' || l.status === 'recebido'
-    return (
-      <div className="bg-white rounded-lg px-3 py-2 shadow-sm border border-gray-100 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className={`w-6 h-6 rounded-md flex-shrink-0 flex items-center justify-center ${l.tipo === 'receita' ? 'bg-green-100' : 'bg-red-100'}`}>
-            {l.tipo === 'receita' ? <TrendingUp size={12} className="text-green-600" /> : <TrendingDown size={12} className="text-red-500" />}
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-gray-800 truncate leading-tight">{l.descricao}</p>
-            <p className="text-xs text-gray-400 truncate leading-tight">
-              {l.categoria}{l.tipoDespesa ? ` · ${l.tipoDespesa}` : ''}
-              {l.vencimento ? ` · ${formatarDataBR(l.vencimento)}` : ''}
-              {vencido && !isPago ? <span className="text-red-400 ml-1">· Vencido</span> : null}
-            </p>
-          </div>
+  const vencido = estaVencido(l.vencimento)
+  const isPago = l.status === 'pago' || l.status === 'recebido'
+  return (
+    <div className="bg-white rounded-lg px-3 py-2 shadow-sm border border-gray-100 flex items-center justify-between gap-2">
+      <div className="flex items-center gap-2 min-w-0">
+        <div className={`w-7 h-7 rounded-md flex-shrink-0 flex items-center justify-center ${
+          l.tipo === 'receita' ? 'bg-green-100' : 'bg-red-100'
+        }`}>
+          <IconeCategoria categoria={l.categoria} tipo={l.tipo} size={14} />
         </div>
-        <div className="flex items-center gap-1 flex-shrink-0">
-          <p className={`text-sm font-bold whitespace-nowrap ${l.tipo === 'receita' ? 'text-green-600' : 'text-red-500'}`}>
-            {l.tipo === 'receita' ? '+' : '-'}R${formatarMoeda(l.valor)}
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-gray-800 truncate leading-tight">{l.descricao}</p>
+          {/* Mobile: apenas data */}
+          <p className="text-xs font-bold text-gray-600 leading-tight sm:hidden">
+            {formatarDataBR(l.vencimento)}
+            {vencido && !isPago ? <span className="text-red-400 font-normal ml-1">· Vencido</span> : null}
           </p>
-          {isPago && <span className="text-xs bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded-full hidden sm:inline">{l.status === 'recebido' ? 'Recebido' : 'Pago'}</span>}
-          <button onClick={() => abrirEdicao(l)} className="text-gray-300 hover:text-blue-500 p-0.5"><Pencil size={12} /></button>
-          <button onClick={() => excluir(l.id)} className="text-gray-300 hover:text-red-500 p-0.5"><Trash2 size={12} /></button>
+          {/* Desktop: data + detalhes */}
+          <p className="text-xs leading-tight hidden sm:block">
+            <span className="font-bold text-gray-600">{formatarDataBR(l.vencimento)}</span>
+            {l.categoria ? <span className="text-gray-400"> · {l.categoria}</span> : null}
+            {l.tipoDespesa ? <span className="text-gray-400"> · {l.tipoDespesa}</span> : null}
+            {vencido && !isPago ? <span className="text-red-400 ml-1">· Vencido</span> : null}
+          </p>
         </div>
       </div>
-    )
-  }
+      <div className="flex items-center gap-1 flex-shrink-0">
+        <p className={`text-sm font-bold whitespace-nowrap ${l.tipo === 'receita' ? 'text-green-600' : 'text-red-500'}`}>
+          {l.tipo === 'receita' ? '+' : '-'}R${formatarMoeda(l.valor)}
+        </p>
+        {isPago && (
+          <span className="text-xs bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded-full hidden sm:inline">
+            {l.status === 'recebido' ? 'Recebido' : 'Pago'}
+          </span>
+        )}
+        <button onClick={() => abrirEdicao(l)} className="text-gray-300 hover:text-blue-500 p-0.5"><Pencil size={12} /></button>
+        <button onClick={() => excluir(l.id)} className="text-gray-300 hover:text-red-500 p-0.5"><Trash2 size={12} /></button>
+      </div>
+    </div>
+  )
+}
 
   function CardConta({ c, tipoAcao }) {
-    const vencido = estaVencido(c.vencimento)
-    const labelBtn = tipoAcao === 'receber' ? 'Confirmar recebimento' : 'Confirmar pagamento'
-    const novoStatus = tipoAcao === 'receber' ? 'recebido' : 'pago'
-    return (
-      <div className="bg-white rounded-lg px-3 py-2 shadow-sm border border-gray-100 flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-gray-800 truncate leading-tight">{c.descricao}</p>
-          <p className={`text-xs leading-tight ${vencido ? 'text-red-400 font-medium' : 'text-gray-400'}`}>
-            {vencido ? 'Vencido' : 'Vence'} em {formatarDataBR(c.vencimento)}
-            {c.safraNome ? ` · ${c.safraNome}` : ''}
-          </p>
-        </div>
-        <div className="flex items-center gap-1 flex-shrink-0">
-          <p className="text-sm font-bold text-gray-700 whitespace-nowrap">R${formatarMoeda(c.valor)}</p>
-          <button
-            onClick={() => marcarStatus(c.id, novoStatus)}
-            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap font-medium text-white ${
-              tipoAcao === 'receber' ? 'bg-green-700 hover:bg-green-800' : 'bg-red-600 hover:bg-red-700'
-            }`}>
-            <CheckCircle size={13} />
-            {labelBtn}
-          </button>
-          <button onClick={() => abrirEdicao(c)} className="text-gray-300 hover:text-blue-500 p-0.5"><Pencil size={12} /></button>
-          <button onClick={() => excluir(c.id)} className="text-gray-300 hover:text-red-500 p-0.5"><Trash2 size={12} /></button>
-        </div>
+  const vencido = estaVencido(c.vencimento)
+  const labelBtn = tipoAcao === 'receber' ? 'Marcar recebido' : 'Marcar pago'
+  const novoStatus = tipoAcao === 'receber' ? 'recebido' : 'pago'
+  const corBtn = tipoAcao === 'receber'
+    ? 'bg-green-700 hover:bg-green-800'
+    : 'bg-red-600 hover:bg-red-700'
+
+  return (
+    <div className="bg-white rounded-lg px-3 py-2 shadow-sm border border-gray-100 flex items-center gap-2">
+      {/* Ícone */}
+      <div className={`w-7 h-7 rounded-md flex-shrink-0 flex items-center justify-center ${
+        tipoAcao === 'receber' ? 'bg-green-100' : 'bg-red-100'
+      }`}>
+        <IconeCategoria categoria={c.categoria} tipo={c.tipo} size={14} />
       </div>
-    )
-  }
+
+      {/* Conteúdo principal */}
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-gray-800 truncate leading-tight">{c.descricao}</p>
+        {/* Mobile: data + valor + botão abaixo */}
+        <div className="sm:hidden">
+          <p className={`text-xs font-bold leading-tight ${vencido ? 'text-red-400' : 'text-gray-600'}`}>
+            {vencido ? 'Vencido' : 'Vence'} em {formatarDataBR(c.vencimento)}
+          </p>
+          <div className="flex items-center justify-between mt-1.5 gap-2">
+            <p className="text-sm font-bold text-gray-700">R${formatarMoeda(c.valor)}</p>
+            <button
+              onClick={() => marcarStatus(c.id, novoStatus)}
+              className={`flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg transition-colors text-white font-medium ${corBtn}`}>
+              <CheckCircle size={12} />
+              {labelBtn}
+            </button>
+          </div>
+        </div>
+        {/* Desktop: data + safra na mesma linha */}
+        <p className={`text-xs leading-tight hidden sm:block ${vencido ? 'text-red-400 font-medium' : 'text-gray-400'}`}>
+          <span className="font-bold text-gray-600">{formatarDataBR(c.vencimento)}</span>
+          {vencido ? <span className="text-red-400"> · Vencido</span> : null}
+          {c.safraNome ? <span className="text-gray-400"> · {c.safraNome}</span> : null}
+        </p>
+      </div>
+
+      {/* Ações desktop */}
+      <div className="hidden sm:flex items-center gap-1 flex-shrink-0">
+        <p className="text-sm font-bold text-gray-700 whitespace-nowrap">R${formatarMoeda(c.valor)}</p>
+        <button
+          onClick={() => marcarStatus(c.id, novoStatus)}
+          className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap font-medium text-white ${corBtn}`}>
+          <CheckCircle size={13} />
+          {labelBtn}
+        </button>
+        <button onClick={() => abrirEdicao(c)} className="text-gray-300 hover:text-blue-500 p-0.5"><Pencil size={12} /></button>
+        <button onClick={() => excluir(c.id)} className="text-gray-300 hover:text-red-500 p-0.5"><Trash2 size={12} /></button>
+      </div>
+
+      {/* Editar/excluir mobile */}
+      <div className="flex sm:hidden flex-col gap-1 flex-shrink-0">
+        <button onClick={() => abrirEdicao(c)} className="text-gray-300 hover:text-blue-500 p-0.5"><Pencil size={12} /></button>
+        <button onClick={() => excluir(c.id)} className="text-gray-300 hover:text-red-500 p-0.5"><Trash2 size={12} /></button>
+      </div>
+    </div>
+  )
+}
 
   // ─── Render grupos com subtotal ────────────────────────────────────────────
   function GrupoMes({ chave, itens, renderCard }) {
