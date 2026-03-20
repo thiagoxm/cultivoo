@@ -1,1 +1,23 @@
 @import "tailwindcss";
+
+:root {
+  --cultivoo-50:  #F1F8F1;
+  --cultivoo-100: #DCEDC8;
+  --cultivoo-200: #A5D6A7;
+  --cultivoo-300: #81C784;
+  --cultivoo-400: #66BB6A;
+  --cultivoo-500: #4CAF50;
+  --cultivoo-600: #388E3C;
+  --cultivoo-700: #2E7D32;
+  --cultivoo-800: #1B5E20;
+  --cultivoo-900: #133A16;
+
+  --sidebar-bg:        #1B5E20;
+  --sidebar-hover:     #2E7D32;
+  --sidebar-active:    #388E3C;
+  --sidebar-border:    rgba(255,255,255,0.08);
+  --sidebar-text:      rgba(255,255,255,0.90);
+  --sidebar-text-muted:rgba(255,255,255,0.55);
+
+  --brand-gradient: linear-gradient(160deg, #66BB6A 0%, #1B5E20 100%);
+}

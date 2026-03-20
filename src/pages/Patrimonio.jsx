@@ -523,7 +523,8 @@ async function excluir(id, nome) {
                 Novo patrimônio
               </span>
               <button onClick={abrirModal}
-                className="w-11 h-11 rounded-full bg-green-600 text-white flex items-center justify-center shadow hover:bg-green-700 transition-colors">
+                className="w-11 h-11 rounded-full text-white flex items-center justify-center shadow hover:opacity-90 transition-all"
+                style={{ background: 'var(--brand-gradient)' }}>
                 <Plus size={18} />
               </button>
             </div>
@@ -531,8 +532,9 @@ async function excluir(id, nome) {
         )}
         <button onClick={() => setFabAberto(!fabAberto)}
           className={`w-14 h-14 rounded-full text-white flex items-center justify-center shadow-lg transition-all duration-200 ${
-            fabAberto ? 'bg-gray-600 rotate-45' : 'bg-green-700 hover:bg-green-800'
-          }`}>
+            fabAberto ? 'rotate-45' : ''
+          }`}
+          style={{ background: 'var(--brand-gradient)' }}>
           <Plus size={24} />
         </button>
       </div>

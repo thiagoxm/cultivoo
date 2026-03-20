@@ -3,7 +3,7 @@ import { signOut } from 'firebase/auth'
 import { auth } from '../services/firebase'
 import {
   LayoutDashboard, MapPin, Sprout, Layers,
-  Tractor, DollarSign, LogOut, Menu, X
+  Tractor, DollarSign, LogOut, Menu, X, Leaf
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -26,49 +26,84 @@ export default function Layout() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-50">
-      {/* Sidebar desktop */}
-      <aside className="hidden md:flex flex-col w-56 bg-green-800 text-white">
-        <div className="p-5 text-xl font-bold tracking-wide border-b border-green-700">
-          🌱 Cultivoo
+    <div className="flex h-screen bg-[#F1F8F1]">
+
+      {/* ── Sidebar desktop ── */}
+      <aside className="hidden md:flex flex-col w-60"
+        style={{ background: 'var(--sidebar-bg)' }}>
+
+        {/* Logo */}
+        <div className="flex items-center gap-3 px-5 py-5"
+          style={{ borderBottom: '1px solid var(--sidebar-border)' }}>
+          <div className="w-9 h-9 rounded-xl overflow-hidden flex-shrink-0 shadow-md">
+            <img src="/icon-192.png" alt="Cultivoo" className="w-full h-full object-cover" />
+          </div>
+          <div>
+            <p className="text-white font-bold text-base leading-tight tracking-wide">Cultivoo</p>
+            <p className="text-xs leading-tight" style={{ color: 'var(--sidebar-text-muted)' }}>
+              Gestão rural
+            </p>
+          </div>
         </div>
-        <nav className="flex-1 p-3 space-y-1">
+
+        {/* Menu */}
+        <nav className="flex-1 px-3 py-4 space-y-0.5">
           {menus.map(({ to, icon: Icon, label }) => (
             <NavLink
               key={to}
               to={to}
               end={to === '/'}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-                  isActive ? 'bg-green-600 font-medium' : 'hover:bg-green-700'
+                `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-150 ${
+                  isActive
+                    ? 'font-semibold shadow-sm'
+                    : 'hover:opacity-90'
                 }`
               }
+              style={({ isActive }) => ({
+                background: isActive ? 'var(--sidebar-active)' : 'transparent',
+                color: isActive ? '#fff' : 'var(--sidebar-text)',
+                boxShadow: isActive ? '0 2px 8px rgba(0,0,0,0.18)' : 'none',
+              })}
             >
-              <Icon size={18} />
+              <Icon size={17} />
               {label}
             </NavLink>
           ))}
         </nav>
+
+        {/* Rodapé */}
         <button
           onClick={sair}
-          className="flex items-center gap-3 px-6 py-4 text-sm hover:bg-green-700 border-t border-green-700"
-        >
-          <LogOut size={18} /> Sair
+          className="flex items-center gap-3 px-6 py-4 text-sm transition-opacity hover:opacity-75"
+          style={{
+            borderTop: '1px solid var(--sidebar-border)',
+            color: 'var(--sidebar-text-muted)'
+          }}>
+          <LogOut size={16} />
+          Sair
         </button>
       </aside>
 
-      {/* Mobile header */}
-      <div className="md:hidden fixed top-0 left-0 right-0 z-50 bg-green-800 text-white flex items-center justify-between px-4 py-3">
-        <span className="font-bold text-lg">🌱 Cultivoo</span>
-        <button onClick={() => setAberto(!aberto)}>
+      {/* ── Header mobile ── */}
+      <div className="md:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 py-3 shadow-md"
+        style={{ background: 'var(--sidebar-bg)' }}>
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-lg overflow-hidden">
+            <img src="/icon-192.png" alt="Cultivoo" className="w-full h-full object-cover" />
+          </div>
+          <span className="text-white font-bold text-base tracking-wide">Cultivoo</span>
+        </div>
+        <button onClick={() => setAberto(!aberto)} className="text-white p-1">
           {aberto ? <X size={22} /> : <Menu size={22} />}
         </button>
       </div>
 
-      {/* Mobile menu */}
+      {/* ── Menu mobile overlay ── */}
       {aberto && (
-        <div className="md:hidden fixed inset-0 z-40 bg-green-800 text-white pt-14">
-          <nav className="p-4 space-y-1">
+        <div className="md:hidden fixed inset-0 z-40 pt-14"
+          style={{ background: 'var(--sidebar-bg)' }}>
+          <nav className="px-4 py-4 space-y-1">
             {menus.map(({ to, icon: Icon, label }) => (
               <NavLink
                 key={to}
@@ -76,10 +111,14 @@ export default function Layout() {
                 end={to === '/'}
                 onClick={() => setAberto(false)}
                 className={({ isActive }) =>
-                  `flex items-center gap-3 px-4 py-3 rounded-lg text-base transition-colors ${
-                    isActive ? 'bg-green-600 font-medium' : 'hover:bg-green-700'
+                  `flex items-center gap-3 px-4 py-3 rounded-xl text-base transition-all ${
+                    isActive ? 'font-semibold' : ''
                   }`
                 }
+                style={({ isActive }) => ({
+                  background: isActive ? 'var(--sidebar-active)' : 'transparent',
+                  color: isActive ? '#fff' : 'var(--sidebar-text)',
+                })}
               >
                 <Icon size={20} />
                 {label}
@@ -87,15 +126,16 @@ export default function Layout() {
             ))}
             <button
               onClick={sair}
-              className="flex items-center gap-3 px-4 py-3 text-base hover:bg-green-700 w-full mt-4"
-            >
-              <LogOut size={20} /> Sair
+              className="flex items-center gap-3 px-4 py-3 text-base w-full mt-4 transition-opacity hover:opacity-75"
+              style={{ color: 'var(--sidebar-text-muted)' }}>
+              <LogOut size={20} />
+              Sair
             </button>
           </nav>
         </div>
       )}
 
-      {/* Conteúdo principal */}
+      {/* ── Conteúdo principal ── */}
       <main className="flex-1 overflow-y-auto pt-14 md:pt-0">
         <div className="max-w-5xl mx-auto p-4 md:p-8">
           <Outlet />
