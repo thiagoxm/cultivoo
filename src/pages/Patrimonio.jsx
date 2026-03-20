@@ -299,11 +299,17 @@ export default function Patrimonio() {
     setLoading(false)
   }
 
-  async function excluir(id) {
-    if (!confirm('Excluir este patrimônio?')) return
-    await deleteDoc(doc(db, 'patrimonios', id))
-    await carregar()
-  }
+  const [confirmacao, setConfirmacao] = useState(null)
+
+async function excluir(id, nome) {
+  setConfirmacao({
+    mensagem: `Deseja excluir "${nome}"?`,
+    onConfirmar: async () => {
+      await deleteDoc(doc(db, 'patrimonios', id))
+      await carregar()
+    }
+  })
+}
 
   // Tooltip customizado para o gráfico bridge
   function TooltipBridge({ active, payload }) {
@@ -320,6 +326,29 @@ export default function Patrimonio() {
       </div>
     )
   }
+
+  function ModalConfirmacao() {
+  if (!confirmacao) return null
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl p-6 space-y-4">
+        <h3 className="font-bold text-gray-800">Confirmar exclusão</h3>
+        <p className="text-sm text-gray-600">{confirmacao.mensagem}</p>
+        <p className="text-xs text-red-500">Esta ação não poderá ser desfeita.</p>
+        <div className="flex gap-3">
+          <button onClick={() => setConfirmacao(null)}
+            className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-lg text-sm hover:bg-gray-50">
+            Cancelar
+          </button>
+          <button onClick={() => { confirmacao.onConfirmar(); setConfirmacao(null) }}
+            className="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm hover:bg-red-700">
+            Excluir
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
   return (
     <div className="space-y-5 pb-24">
@@ -473,8 +502,8 @@ export default function Patrimonio() {
                       <button onClick={() => abrirEdicao(p)} className="text-gray-300 hover:text-blue-500 p-1">
                         <Pencil size={14} />
                       </button>
-                      <button onClick={() => excluir(p.id)} className="text-gray-300 hover:text-red-500 p-1">
-                        <Trash2 size={14} />
+                      <button onClick={() => excluir(p.id, p.nome)} className="text-gray-300 hover:text-red-500 p-1">
+                       <Trash2 size={14} />
                       </button>
                     </div>
                   </div>
@@ -712,6 +741,8 @@ export default function Patrimonio() {
           </div>
         </div>
       )}
+
+      <ModalConfirmacao />
     </div>
   )
 }

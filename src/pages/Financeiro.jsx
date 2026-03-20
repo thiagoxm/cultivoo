@@ -11,7 +11,6 @@ import {
   Tooltip, Legend, ResponsiveContainer
 } from 'recharts'
 
-// ─── Categorias ──────────────────────────────────────────────────────────────
 const CATEGORIAS_DESPESA = {
   'Administrativo': ['Pessoal', 'Contabilidade', 'Consultoria', 'Arrendamento', 'Financiamento', 'Outros'],
   'Máquinas e Equipamentos': ['Combustível', 'Manutenção', 'Outros'],
@@ -30,7 +29,6 @@ const MESES = [
   { v: 10, l: 'Outubro' }, { v: 11, l: 'Novembro' }, { v: 12, l: 'Dezembro' },
 ]
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 function formatarMoeda(valor) {
   return Number(valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
@@ -67,10 +65,7 @@ function estaVencido(dataISO) {
 function filtrarPorPeriodo(lista, filtro) {
   const { tipo, ano, mes, dataInicio, dataFim, safraId, propriedadeIds } = filtro
   return lista.filter(l => {
-    // Filtro de propriedade
     if (propriedadeIds?.length > 0 && !propriedadeIds.includes(l.propriedadeId)) return false
-
-    // Filtro de período
     const dataRef = l.vencimento
     if (tipo === 'safra') return safraId ? l.safraId === safraId : true
     if (!dataRef) return false
@@ -85,14 +80,30 @@ function filtrarPorPeriodo(lista, filtro) {
     return true
   })
 }
-function agruparPorMes(lista) {
+function agruparPorPropMes(lista) {
   const grupos = {}
   lista.forEach(l => {
+    const propId = l.propriedadeId || ''
+    const propNome = l.propriedadeNome || 'Sem propriedade'
     const chave = (l.vencimento || '').substring(0, 7)
-    if (!grupos[chave]) grupos[chave] = []
-    grupos[chave].push(l)
+    if (!grupos[propId]) grupos[propId] = { propNome, meses: {} }
+    if (!grupos[propId].meses[chave]) grupos[propId].meses[chave] = []
+    grupos[propId].meses[chave].push(l)
   })
-  return Object.entries(grupos).sort((a, b) => b[0].localeCompare(a[0]))
+  return Object.entries(grupos)
+    .sort((a, b) => a[1].propNome.localeCompare(b[1].propNome))
+    .map(([propId, grupo]) => ({
+      propId,
+      propNome: grupo.propNome,
+      meses: Object.entries(grupo.meses)
+        .sort((a, b) => b[0].localeCompare(a[0]))
+        .map(([chave, itens]) => ({
+          chave,
+          itens: [...itens].sort((a, b) =>
+            (b.vencimento || '').localeCompare(a.vencimento || '')
+          )
+        }))
+    }))
 }
 function nomeMes(chave) {
   if (!chave) return 'Sem data'
@@ -104,26 +115,23 @@ function saldoDoGrupo(itens) {
   const des = itens.filter(l => l.tipo === 'despesa').reduce((a, b) => a + (Number(b.valor) || 0), 0)
   return rec - des
 }
-
 function IconeCategoria({ categoria, tipo, size = 13 }) {
   if (tipo === 'receita') return <TrendingUp size={size} className="text-green-600" />
   switch (categoria) {
-    case 'Administrativo':        return <Building2 size={size} className="text-red-500" />
+    case 'Administrativo': return <Building2 size={size} className="text-red-500" />
     case 'Máquinas e Equipamentos': return <Tractor size={size} className="text-red-500" />
-    case 'Insumos':               return <ShoppingCart size={size} className="text-red-500" />
-    case 'Cultivo':               return <Sprout size={size} className="text-red-500" />
-    default:                      return <TrendingDown size={size} className="text-red-500" />
+    case 'Insumos': return <ShoppingCart size={size} className="text-red-500" />
+    case 'Cultivo': return <Sprout size={size} className="text-red-500" />
+    default: return <TrendingDown size={size} className="text-red-500" />
   }
 }
 
-// ─── Form padrão ──────────────────────────────────────────────────────────────
 const FORM_PADRAO = {
   descricao: '', tipo: 'despesa', categoria: '', tipoDespesa: '',
   vencimentoMask: '', valorMask: '', notaRef: '',
   propriedadeId: '', safraId: '', status: '', patrimonioId: ''
 }
 
-// ─── Componente principal ─────────────────────────────────────────────────────
 export default function Financeiro() {
   const { usuario } = useAuth()
   const [aba, setAba] = useState('Lançamentos')
@@ -140,12 +148,28 @@ export default function Financeiro() {
   const [arquivoImport, setArquivoImport] = useState(null)
   const [previewImport, setPreviewImport] = useState([])
   const [importando, setImportando] = useState(false)
+  const [confirmacao, setConfirmacao] = useState(null)
+  const [dropdownAberto, setDropdownAberto] = useState(false)
   const fileRef = useRef()
   const [filtro, setFiltro] = useState({
     tipo: 'anual', ano: ANO_ATUAL, mes: MES_ATUAL,
     dataInicio: '', dataFim: '', safraId: '',
     propriedadeIds: []
   })
+
+  useEffect(() => {
+    carregar()
+  }, [])
+
+  useEffect(() => {
+    function fechar(e) {
+      if (!e.target.closest('[data-dropdown-prop]') && !e.target.closest('[data-modal]')) {
+        setDropdownAberto(false)
+      }
+    }
+    document.addEventListener('mousedown', fechar)
+    return () => document.removeEventListener('mousedown', fechar)
+  }, [])
 
   async function carregar() {
     const uid = usuario.uid
@@ -162,20 +186,6 @@ export default function Financeiro() {
     setPatrimonios(patSnap.docs.map(d => ({ id: d.id, ...d.data() })))
   }
 
-  useEffect(() => { 
-    carregar() 
-  
-    function fechar(e) {
-    if (!e.target.closest('.relative')) {
-      setFiltro(f => ({ ...f, _dropdownAberto: false }))
-    }
-  }
-  document.addEventListener('mousedown', fechar)
-  return () => document.removeEventListener('mousedown', fechar)
-  
-  }, [])
-
-  // ─── Dados filtrados ───────────────────────────────────────────────────────
   const listaFiltrada = useMemo(() => filtrarPorPeriodo(lista, filtro), [lista, filtro])
   const lancamentos = listaFiltrada
   const contasPagar = useMemo(() => listaFiltrada.filter(l => l.tipo === 'despesa' && l.status === 'pendente'), [listaFiltrada])
@@ -184,7 +194,6 @@ export default function Financeiro() {
   const totalDespesas = useMemo(() => listaFiltrada.filter(l => l.tipo === 'despesa').reduce((a, b) => a + (Number(b.valor) || 0), 0), [listaFiltrada])
   const saldo = totalReceitas - totalDespesas
 
-  // ─── Fluxo de caixa ────────────────────────────────────────────────────────
   const dadosFluxo = useMemo(() => {
     const mapa = {}
     listaFiltrada.forEach(l => {
@@ -208,13 +217,13 @@ export default function Financeiro() {
     })
   }, [listaFiltrada])
 
-  // ─── Modal manual ──────────────────────────────────────────────────────────
   function abrirModal() {
     setEditando(null)
     setForm(FORM_PADRAO)
     setFabAberto(false)
     setModal(true)
   }
+
   function abrirEdicao(item) {
     setEditando(item.id)
     setForm({
@@ -269,23 +278,28 @@ export default function Financeiro() {
     setLoading(false)
   }
 
-  async function excluir(id) {
-    if (!confirm('Excluir este lançamento?')) return
-    await deleteDoc(doc(db, 'financeiro', id))
-    await carregar()
+  function excluir(id, descricao) {
+    setConfirmacao({
+      mensagem: `Deseja excluir o lançamento "${descricao}"?`,
+      onConfirmar: async () => {
+        await deleteDoc(doc(db, 'financeiro', id))
+        await carregar()
+      }
+    })
   }
+
   async function marcarStatus(id, novoStatus) {
     await updateDoc(doc(db, 'financeiro', id), { status: novoStatus })
     await carregar()
   }
 
-  // ─── Importação XLSX/XML ───────────────────────────────────────────────────
   function abrirImport() {
     setArquivoImport(null)
     setPreviewImport([])
     setFabAberto(false)
     setModalImport(true)
   }
+
   function processarArquivo(file) {
     if (!file) return
     setArquivoImport(file)
@@ -301,126 +315,18 @@ export default function Financeiro() {
     }
     reader.readAsBinaryString(file)
   }
+
   async function confirmarImport() {
     if (!arquivoImport) return
     setImportando(true)
-    // Processamento completo — a implementar na próxima iteração
     await new Promise(r => setTimeout(r, 1000))
     alert('Importação em desenvolvimento. Em breve disponível!')
     setImportando(false)
     setModalImport(false)
   }
 
-  // ─── Cards ─────────────────────────────────────────────────────────────────
-  function CardLancamento({ l }) {
-  const vencido = estaVencido(l.vencimento)
-  const isPago = l.status === 'pago' || l.status === 'recebido'
-  return (
-    <div className="bg-white rounded-lg px-3 py-2 shadow-sm border border-gray-100 flex items-center justify-between gap-2">
-      <div className="flex items-center gap-2 min-w-0">
-        <div className={`w-7 h-7 rounded-md flex-shrink-0 flex items-center justify-center ${
-          l.tipo === 'receita' ? 'bg-green-100' : 'bg-red-100'
-        }`}>
-          <IconeCategoria categoria={l.categoria} tipo={l.tipo} size={14} />
-        </div>
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-gray-800 truncate leading-tight">{l.descricao}</p>
-          {/* Mobile: apenas data */}
-          <p className="text-xs font-bold text-gray-600 leading-tight sm:hidden">
-            {formatarDataBR(l.vencimento)}
-            {vencido && !isPago ? <span className="text-red-400 font-normal ml-1">· Vencido</span> : null}
-          </p>
-          {/* Desktop: data + detalhes */}
-          <p className="text-xs leading-tight hidden sm:block">
-            <span className="font-bold text-gray-600">{formatarDataBR(l.vencimento)}</span>
-            {l.categoria ? <span className="text-gray-400"> · {l.categoria}</span> : null}
-            {l.tipoDespesa ? <span className="text-gray-400"> · {l.tipoDespesa}</span> : null}
-            {vencido && !isPago ? <span className="text-red-400 ml-1">· Vencido</span> : null}
-          </p>
-        </div>
-      </div>
-      <div className="flex items-center gap-1 flex-shrink-0">
-        <p className={`text-sm font-bold whitespace-nowrap ${l.tipo === 'receita' ? 'text-green-600' : 'text-red-500'}`}>
-          {l.tipo === 'receita' ? '+' : '-'}R${formatarMoeda(l.valor)}
-        </p>
-        {isPago && (
-          <span className="text-xs bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded-full hidden sm:inline">
-            {l.status === 'recebido' ? 'Recebido' : 'Pago'}
-          </span>
-        )}
-        <button onClick={() => abrirEdicao(l)} className="text-gray-300 hover:text-blue-500 p-0.5"><Pencil size={12} /></button>
-        <button onClick={() => excluir(l.id)} className="text-gray-300 hover:text-red-500 p-0.5"><Trash2 size={12} /></button>
-      </div>
-    </div>
-  )
-}
+  // ── Subcomponentes ──────────────────────────────────────────────────────────
 
-  function CardConta({ c, tipoAcao }) {
-  const vencido = estaVencido(c.vencimento)
-  const labelBtn = tipoAcao === 'receber' ? 'Marcar recebido' : 'Marcar pago'
-  const novoStatus = tipoAcao === 'receber' ? 'recebido' : 'pago'
-  const corBtn = tipoAcao === 'receber'
-    ? 'bg-green-700 hover:bg-green-800'
-    : 'bg-red-600 hover:bg-red-700'
-
-  return (
-    <div className="bg-white rounded-lg px-3 py-2 shadow-sm border border-gray-100 flex items-center gap-2">
-      {/* Ícone */}
-      <div className={`w-7 h-7 rounded-md flex-shrink-0 flex items-center justify-center ${
-        tipoAcao === 'receber' ? 'bg-green-100' : 'bg-red-100'
-      }`}>
-        <IconeCategoria categoria={c.categoria} tipo={c.tipo} size={14} />
-      </div>
-
-      {/* Conteúdo principal */}
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-800 truncate leading-tight">{c.descricao}</p>
-        {/* Mobile: data + valor + botão abaixo */}
-        <div className="sm:hidden">
-          <p className={`text-xs font-bold leading-tight ${vencido ? 'text-red-400' : 'text-gray-600'}`}>
-            {vencido ? 'Vencido' : 'Vence'} em {formatarDataBR(c.vencimento)}
-          </p>
-          <div className="flex items-center justify-between mt-1.5 gap-2">
-            <p className="text-sm font-bold text-gray-700">R${formatarMoeda(c.valor)}</p>
-            <button
-              onClick={() => marcarStatus(c.id, novoStatus)}
-              className={`flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg transition-colors text-white font-medium ${corBtn}`}>
-              <CheckCircle size={12} />
-              {labelBtn}
-            </button>
-          </div>
-        </div>
-        {/* Desktop: data + safra na mesma linha */}
-        <p className={`text-xs leading-tight hidden sm:block ${vencido ? 'text-red-400 font-medium' : 'text-gray-400'}`}>
-          <span className="font-bold text-gray-600">{formatarDataBR(c.vencimento)}</span>
-          {vencido ? <span className="text-red-400"> · Vencido</span> : null}
-          {c.safraNome ? <span className="text-gray-400"> · {c.safraNome}</span> : null}
-        </p>
-      </div>
-
-      {/* Ações desktop */}
-      <div className="hidden sm:flex items-center gap-1 flex-shrink-0">
-        <p className="text-sm font-bold text-gray-700 whitespace-nowrap">R${formatarMoeda(c.valor)}</p>
-        <button
-          onClick={() => marcarStatus(c.id, novoStatus)}
-          className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap font-medium text-white ${corBtn}`}>
-          <CheckCircle size={13} />
-          {labelBtn}
-        </button>
-        <button onClick={() => abrirEdicao(c)} className="text-gray-300 hover:text-blue-500 p-0.5"><Pencil size={12} /></button>
-        <button onClick={() => excluir(c.id)} className="text-gray-300 hover:text-red-500 p-0.5"><Trash2 size={12} /></button>
-      </div>
-
-      {/* Editar/excluir mobile */}
-      <div className="flex sm:hidden flex-col gap-1 flex-shrink-0">
-        <button onClick={() => abrirEdicao(c)} className="text-gray-300 hover:text-blue-500 p-0.5"><Pencil size={12} /></button>
-        <button onClick={() => excluir(c.id)} className="text-gray-300 hover:text-red-500 p-0.5"><Trash2 size={12} /></button>
-      </div>
-    </div>
-  )
-}
-
-  // ─── Render grupos com subtotal ────────────────────────────────────────────
   function GrupoMes({ chave, itens, renderCard }) {
     const saldo = saldoDoGrupo(itens)
     return (
@@ -440,130 +346,204 @@ export default function Financeiro() {
     )
   }
 
-  // ─── Render principal ──────────────────────────────────────────────────────
+  function CardLancamento({ l, onEditar, onExcluir }) {
+    const vencido = estaVencido(l.vencimento)
+    const isPago = l.status === 'pago' || l.status === 'recebido'
+    return (
+      <div className="bg-white rounded-lg px-3 py-2 shadow-sm border border-gray-100 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className={`w-7 h-7 rounded-md flex-shrink-0 flex items-center justify-center ${l.tipo === 'receita' ? 'bg-green-100' : 'bg-red-100'}`}>
+            <IconeCategoria categoria={l.categoria} tipo={l.tipo} size={14} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-gray-800 truncate leading-tight">{l.descricao}</p>
+            <p className="text-xs font-bold text-gray-600 leading-tight sm:hidden">
+              {formatarDataBR(l.vencimento)}
+              {vencido && !isPago ? <span className="text-red-400 font-normal ml-1">· Vencido</span> : null}
+            </p>
+            <p className="text-xs leading-tight hidden sm:block">
+              <span className="font-bold text-gray-600">{formatarDataBR(l.vencimento)}</span>
+              {l.categoria ? <span className="text-gray-400"> · {l.categoria}</span> : null}
+              {l.tipoDespesa ? <span className="text-gray-400"> · {l.tipoDespesa}</span> : null}
+              {vencido && !isPago ? <span className="text-red-400 ml-1">· Vencido</span> : null}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <p className={`text-sm font-bold whitespace-nowrap ${l.tipo === 'receita' ? 'text-green-600' : 'text-red-500'}`}>
+            {l.tipo === 'receita' ? '+' : '-'}R${formatarMoeda(l.valor)}
+          </p>
+          {isPago && (
+            <span className="text-xs bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded-full hidden sm:inline">
+              {l.status === 'recebido' ? 'Recebido' : 'Pago'}
+            </span>
+          )}
+          <button onClick={() => onEditar(l)} className="text-gray-300 hover:text-blue-500 p-0.5"><Pencil size={12} /></button>
+          <button onClick={() => onExcluir(l.id, l.descricao)} className="text-gray-300 hover:text-red-500 p-0.5"><Trash2 size={12} /></button>
+        </div>
+      </div>
+    )
+  }
+
+  function CardConta({ c, tipoAcao, onEditar, onExcluir, onMarcarStatus }) {
+    const vencido = estaVencido(c.vencimento)
+    const labelBtn = tipoAcao === 'receber' ? 'Recebido' : 'Pago'
+    const novoStatus = tipoAcao === 'receber' ? 'recebido' : 'pago'
+    const corBtn = tipoAcao === 'receber' ? 'bg-green-700 hover:bg-green-800' : 'bg-red-600 hover:bg-red-700'
+    return (
+      <div className="bg-white rounded-lg px-3 py-2 shadow-sm border border-gray-100 flex items-center gap-2">
+        <div className={`w-7 h-7 rounded-md flex-shrink-0 flex items-center justify-center ${tipoAcao === 'receber' ? 'bg-green-100' : 'bg-red-100'}`}>
+          <IconeCategoria categoria={c.categoria} tipo={c.tipo} size={14} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-gray-800 truncate leading-tight">{c.descricao}</p>
+          <div className="sm:hidden">
+            <p className={`text-xs font-bold leading-tight ${vencido ? 'text-red-400' : 'text-gray-600'}`}>
+              {vencido ? 'Vencido' : 'Vence'} em {formatarDataBR(c.vencimento)}
+            </p>
+            <div className="flex items-center justify-between mt-1.5 gap-2">
+              <p className="text-sm font-bold text-gray-700">R${formatarMoeda(c.valor)}</p>
+              <button onClick={() => onMarcarStatus(c.id, novoStatus)}
+                className={`flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg transition-colors text-white font-medium ${corBtn}`}>
+                <CheckCircle size={12} />
+                {labelBtn}
+              </button>
+            </div>
+          </div>
+          <p className="text-xs leading-tight hidden sm:block">
+            <span className={`font-bold ${vencido ? 'text-red-400' : 'text-gray-600'}`}>
+              {formatarDataBR(c.vencimento)}
+            </span>
+            {vencido ? <span className="text-red-400"> · Vencido</span> : null}
+            {c.safraNome ? <span className="text-gray-400"> · {c.safraNome}</span> : null}
+          </p>
+        </div>
+        <div className="hidden sm:flex items-center gap-1 flex-shrink-0">
+          <p className="text-sm font-bold text-gray-700 whitespace-nowrap">R${formatarMoeda(c.valor)}</p>
+          <button onClick={() => onMarcarStatus(c.id, novoStatus)}
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap font-medium text-white ${corBtn}`}>
+            <CheckCircle size={13} />
+            {labelBtn}
+          </button>
+          <button onClick={() => onEditar(c)} className="text-gray-300 hover:text-blue-500 p-0.5"><Pencil size={12} /></button>
+          <button onClick={() => onExcluir(c.id, c.descricao)} className="text-gray-300 hover:text-red-500 p-0.5"><Trash2 size={12} /></button>
+        </div>
+        <div className="flex sm:hidden flex-col gap-1 flex-shrink-0">
+          <button onClick={() => onEditar(c)} className="text-gray-300 hover:text-blue-500 p-0.5"><Pencil size={12} /></button>
+          <button onClick={() => onExcluir(c.id, c.descricao)} className="text-gray-300 hover:text-red-500 p-0.5"><Trash2 size={12} /></button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-4 pb-24">
 
-      {/* Cabeçalho */}
       <h1 className="text-2xl font-bold text-gray-800">Financeiro</h1>
 
-    {/* Filtros */}
-<div className="bg-white rounded-xl px-4 py-3 shadow-sm border border-gray-100 space-y-2">
-  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Filtros</p>
-  <div className="flex flex-wrap items-center gap-2">
+      {/* Filtros */}
+      <div className="bg-white rounded-xl px-4 py-3 shadow-sm border border-gray-100 space-y-2">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Filtros</p>
+        <div className="flex flex-wrap items-center gap-2">
 
-    {/* Propriedades — dropdown customizado */}
-<div className="relative">
-  <button
-    type="button"
-    onClick={() => setFiltro(f => ({ ...f, _dropdownAberto: !f._dropdownAberto }))}
-    className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs font-normal bg-gray-50 hover:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[180px] flex items-center justify-between gap-2"  >
-      <span className="text-gray-700">
-       {filtro.propriedadeIds?.length > 0
-        ? propriedades.filter(p => filtro.propriedadeIds.includes(p.id)).map(p => p.nome).join(', ')
-        : 'Selecione a(s) Propriedade(s)'}
-    </span>
-    <svg className="w-3 h-3 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-    </svg>
-  </button>
-  {filtro._dropdownAberto && (
-    <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-30 min-w-[180px] py-1 max-h-48 overflow-y-auto">
-      {propriedades.length === 0 && (
-        <p className="text-xs text-gray-400 px-3 py-2">Nenhuma propriedade cadastrada.</p>
-      )}
-      {propriedades.map(p => {
-        const selecionada = filtro.propriedadeIds?.includes(p.id)
-        return (
-          <button
-            key={p.id}
-            type="button"
-            onClick={() => {
-              const atual = filtro.propriedadeIds || []
-              const nova = selecionada
-                ? atual.filter(id => id !== p.id)
-                : [...atual, p.id]
-              setFiltro(f => ({ ...f, propriedadeIds: nova }))
-            }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left hover:bg-gray-50 transition-colors"
-          >
-            <span className={`w-3.5 h-3.5 rounded border flex-shrink-0 flex items-center justify-center ${
-              selecionada ? 'bg-green-700 border-green-700' : 'border-gray-300'
-            }`}>
-              {selecionada && (
-                <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                </svg>
-              )}
-            </span>
-            <span className={selecionada ? 'text-gray-800 font-medium' : 'text-gray-600'}>{p.nome}</span>
-          </button>
-        )
-      })}
-    </div>
-  )}
-</div>
+          {/* Dropdown propriedades */}
+          <div className="relative" data-dropdown-prop>
+            <button type="button" onClick={() => setDropdownAberto(!dropdownAberto)}
+              className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs font-normal bg-gray-50 hover:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[180px] flex items-center justify-between gap-2">
+              <span className="text-gray-700 truncate">
+                {filtro.propriedadeIds?.length > 0
+                  ? propriedades.filter(p => filtro.propriedadeIds.includes(p.id)).map(p => p.nome).join(', ')
+                  : 'Selecione a(s) Propriedade(s)'}
+              </span>
+              <svg className="w-3 h-3 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {dropdownAberto && (
+              <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-30 min-w-[180px] py-1 max-h-48 overflow-y-auto">
+                {propriedades.length === 0 && (
+                  <p className="text-xs text-gray-400 px-3 py-2">Nenhuma propriedade cadastrada.</p>
+                )}
+                {propriedades.map(p => {
+                  const selecionada = filtro.propriedadeIds?.includes(p.id)
+                  return (
+                    <button key={p.id} type="button"
+                      onClick={() => {
+                        const atual = filtro.propriedadeIds || []
+                        const nova = selecionada ? atual.filter(id => id !== p.id) : [...atual, p.id]
+                        setFiltro(f => ({ ...f, propriedadeIds: nova }))
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left hover:bg-gray-50 transition-colors">
+                      <span className={`w-3.5 h-3.5 rounded border flex-shrink-0 flex items-center justify-center ${selecionada ? 'bg-green-700 border-green-700' : 'border-gray-300'}`}>
+                        {selecionada && (
+                          <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </span>
+                      <span className={selecionada ? 'text-gray-800 font-medium' : 'text-gray-600'}>{p.nome}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
 
-    {/* Separador */}
-    <div className="w-px h-5 bg-gray-200 mx-1" />
+          <div className="w-px h-5 bg-gray-200 mx-1" />
 
-    {/* Período */}
-    <select value={filtro.tipo} onChange={e => setFiltro(f => ({ ...f, tipo: e.target.value }))}
-      className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50">
-      <option value="anual">Anual</option>
-      <option value="mensal">Mensal</option>
-      <option value="safra">Por Safra</option>
-      <option value="personalizado">Personalizado</option>
-    </select>
+          <select value={filtro.tipo} onChange={e => setFiltro(f => ({ ...f, tipo: e.target.value }))}
+            className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50">
+            <option value="anual">Anual</option>
+            <option value="mensal">Mensal</option>
+            <option value="safra">Por Safra</option>
+            <option value="personalizado">Personalizado</option>
+          </select>
 
-    {filtro.tipo === 'anual' && (
-      <select value={filtro.ano} onChange={e => setFiltro(f => ({ ...f, ano: Number(e.target.value) }))}
-        className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50">
-        {ANOS.map(a => <option key={a}>{a}</option>)}
-      </select>
-    )}
-    {filtro.tipo === 'mensal' && (
-      <>
-        <select value={filtro.mes} onChange={e => setFiltro(f => ({ ...f, mes: Number(e.target.value) }))}
-          className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50">
-          {MESES.map(m => <option key={m.v} value={m.v}>{m.l}</option>)}
-        </select>
-        <select value={filtro.ano} onChange={e => setFiltro(f => ({ ...f, ano: Number(e.target.value) }))}
-          className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50">
-          {ANOS.map(a => <option key={a}>{a}</option>)}
-        </select>
-      </>
-    )}
-    {filtro.tipo === 'safra' && (
-      <select value={filtro.safraId} onChange={e => setFiltro(f => ({ ...f, safraId: e.target.value }))}
-        className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50">
-        <option value="">Selecione...</option>
-        {safras.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-      </select>
-    )}
-    {filtro.tipo === 'personalizado' && (
-      <>
-        <input type="date" value={filtro.dataInicio}
-          onChange={e => setFiltro(f => ({ ...f, dataInicio: e.target.value }))}
-          className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50" />
-        <span className="text-xs text-gray-400">até</span>
-        <input type="date" value={filtro.dataFim}
-          onChange={e => setFiltro(f => ({ ...f, dataFim: e.target.value }))}
-          className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50" />
-      </>
-    )}
-
-    {/* Limpar propriedades selecionadas */}
-    {filtro.propriedadeIds?.length > 0 && (
-      <button
-        onClick={() => setFiltro(f => ({ ...f, propriedadeIds: [] }))}
-        className="text-xs text-gray-400 hover:text-red-400 transition-colors underline">
-        Limpar
-      </button>
-    )}
-
-  </div>
-</div>
+          {filtro.tipo === 'anual' && (
+            <select value={filtro.ano} onChange={e => setFiltro(f => ({ ...f, ano: Number(e.target.value) }))}
+              className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50">
+              {ANOS.map(a => <option key={a}>{a}</option>)}
+            </select>
+          )}
+          {filtro.tipo === 'mensal' && (
+            <>
+              <select value={filtro.mes} onChange={e => setFiltro(f => ({ ...f, mes: Number(e.target.value) }))}
+                className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50">
+                {MESES.map(m => <option key={m.v} value={m.v}>{m.l}</option>)}
+              </select>
+              <select value={filtro.ano} onChange={e => setFiltro(f => ({ ...f, ano: Number(e.target.value) }))}
+                className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50">
+                {ANOS.map(a => <option key={a}>{a}</option>)}
+              </select>
+            </>
+          )}
+          {filtro.tipo === 'safra' && (
+            <select value={filtro.safraId} onChange={e => setFiltro(f => ({ ...f, safraId: e.target.value }))}
+              className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50">
+              <option value="">Selecione...</option>
+              {safras.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+            </select>
+          )}
+          {filtro.tipo === 'personalizado' && (
+            <>
+              <input type="date" value={filtro.dataInicio}
+                onChange={e => setFiltro(f => ({ ...f, dataInicio: e.target.value }))}
+                className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50" />
+              <span className="text-xs text-gray-400">até</span>
+              <input type="date" value={filtro.dataFim}
+                onChange={e => setFiltro(f => ({ ...f, dataFim: e.target.value }))}
+                className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50" />
+            </>
+          )}
+          {filtro.propriedadeIds?.length > 0 && (
+            <button onClick={() => setFiltro(f => ({ ...f, propriedadeIds: [] }))}
+              className="text-xs text-gray-400 hover:text-red-400 transition-colors underline">
+              Limpar
+            </button>
+          )}
+        </div>
+      </div>
 
       {/* Cards resumo */}
       <div className="grid grid-cols-3 gap-3">
@@ -599,40 +579,85 @@ export default function Financeiro() {
         ))}
       </div>
 
-      {/* ── Lançamentos ── */}
+      {/* Lançamentos */}
       {aba === 'Lançamentos' && (
-        <div className="space-y-4">
-          {lancamentos.length === 0 && <div className="bg-white rounded-xl p-10 text-center text-gray-400 shadow-sm border border-gray-100 text-sm">Nenhum lançamento no período.</div>}
-          {agruparPorMes(lancamentos).map(([chave, itens]) => (
-            <GrupoMes key={chave} chave={chave} itens={itens} renderCard={l => <CardLancamento key={l.id} l={l} />} />
+        <div className="space-y-5">
+          {lancamentos.length === 0 && (
+            <div className="bg-white rounded-xl p-10 text-center text-gray-400 shadow-sm border border-gray-100 text-sm">
+              Nenhum lançamento no período.
+            </div>
+          )}
+          {agruparPorPropMes(lancamentos).map(({ propId, propNome, meses }) => (
+            <div key={propId} className="space-y-3">
+              <h2 className="text-sm font-bold text-gray-700 border-b border-gray-200 pb-1">{propNome}</h2>
+              {meses.map(({ chave, itens }) => (
+                <GrupoMes key={chave} chave={chave} itens={itens}
+                  renderCard={l => (
+                    <CardLancamento key={l.id} l={l} onEditar={abrirEdicao} onExcluir={excluir} />
+                  )}
+                />
+              ))}
+            </div>
           ))}
         </div>
       )}
 
-      {/* ── Contas a Pagar ── */}
+      {/* Contas a Pagar */}
       {aba === 'Contas a Pagar' && (
-        <div className="space-y-4">
-          {contasPagar.length === 0 && <div className="bg-white rounded-xl p-10 text-center text-gray-400 shadow-sm border border-gray-100 text-sm">Nenhuma conta a pagar pendente.</div>}
-          {agruparPorMes(contasPagar).map(([chave, itens]) => (
-            <GrupoMes key={chave} chave={chave} itens={itens} renderCard={c => <CardConta key={c.id} c={c} tipoAcao="pagar" />} />
+        <div className="space-y-5">
+          {contasPagar.length === 0 && (
+            <div className="bg-white rounded-xl p-10 text-center text-gray-400 shadow-sm border border-gray-100 text-sm">
+              Nenhuma conta a pagar pendente.
+            </div>
+          )}
+          {agruparPorPropMes(contasPagar).map(({ propId, propNome, meses }) => (
+            <div key={propId} className="space-y-3">
+              <h2 className="text-sm font-bold text-gray-700 border-b border-gray-200 pb-1">{propNome}</h2>
+              {meses.map(({ chave, itens }) => (
+                <GrupoMes key={chave} chave={chave} itens={itens}
+                  renderCard={c => (
+                    <CardConta key={c.id} c={c} tipoAcao="pagar"
+                      onEditar={abrirEdicao} onExcluir={excluir} onMarcarStatus={marcarStatus} />
+                  )}
+                />
+              ))}
+            </div>
           ))}
         </div>
       )}
 
-      {/* ── Contas a Receber ── */}
+      {/* Contas a Receber */}
       {aba === 'Contas a Receber' && (
-        <div className="space-y-4">
-          {contasReceber.length === 0 && <div className="bg-white rounded-xl p-10 text-center text-gray-400 shadow-sm border border-gray-100 text-sm">Nenhuma conta a receber pendente.</div>}
-          {agruparPorMes(contasReceber).map(([chave, itens]) => (
-            <GrupoMes key={chave} chave={chave} itens={itens} renderCard={c => <CardConta key={c.id} c={c} tipoAcao="receber" />} />
+        <div className="space-y-5">
+          {contasReceber.length === 0 && (
+            <div className="bg-white rounded-xl p-10 text-center text-gray-400 shadow-sm border border-gray-100 text-sm">
+              Nenhuma conta a receber pendente.
+            </div>
+          )}
+          {agruparPorPropMes(contasReceber).map(({ propId, propNome, meses }) => (
+            <div key={propId} className="space-y-3">
+              <h2 className="text-sm font-bold text-gray-700 border-b border-gray-200 pb-1">{propNome}</h2>
+              {meses.map(({ chave, itens }) => (
+                <GrupoMes key={chave} chave={chave} itens={itens}
+                  renderCard={c => (
+                    <CardConta key={c.id} c={c} tipoAcao="receber"
+                      onEditar={abrirEdicao} onExcluir={excluir} onMarcarStatus={marcarStatus} />
+                  )}
+                />
+              ))}
+            </div>
           ))}
         </div>
       )}
 
-      {/* ── Fluxo de Caixa ── */}
+      {/* Fluxo de Caixa */}
       {aba === 'Fluxo de Caixa' && (
         <div className="space-y-4">
-          {dadosFluxo.length === 0 && <div className="bg-white rounded-xl p-10 text-center text-gray-400 shadow-sm border border-gray-100 text-sm">Nenhum dado disponível para o período.</div>}
+          {dadosFluxo.length === 0 && (
+            <div className="bg-white rounded-xl p-10 text-center text-gray-400 shadow-sm border border-gray-100 text-sm">
+              Nenhum dado disponível para o período.
+            </div>
+          )}
           {dadosFluxo.length > 0 && (
             <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
               <h2 className="font-semibold text-gray-700 mb-4">Fluxo de caixa</h2>
@@ -651,7 +676,6 @@ export default function Financeiro() {
                   <Line type="monotone" dataKey="saldoAcumulado" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} />
                 </ComposedChart>
               </ResponsiveContainer>
-              {/* Tabela com cabeçalho */}
               <div className="mt-4 overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
@@ -681,18 +705,16 @@ export default function Financeiro() {
         </div>
       )}
 
-      {/* ── FAB flutuante ── */}
+      {/* FAB */}
       <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-2">
         {fabAberto && (
           <div className="flex flex-col items-end gap-2 mb-1">
-            {/* Em breve: IA */}
             <div className="flex items-center gap-2 opacity-50 cursor-not-allowed">
               <span className="bg-white text-gray-500 text-xs px-3 py-1.5 rounded-full shadow border border-gray-200 whitespace-nowrap">Em breve</span>
               <button disabled className="w-11 h-11 rounded-full bg-purple-100 text-purple-400 flex items-center justify-center shadow">
                 <Sparkles size={18} />
               </button>
             </div>
-            {/* Importar arquivo */}
             <div className="flex items-center gap-2">
               <span className="bg-white text-gray-600 text-xs px-3 py-1.5 rounded-full shadow border border-gray-200 whitespace-nowrap">Importar XLSX / XML</span>
               <button onClick={abrirImport}
@@ -700,7 +722,6 @@ export default function Financeiro() {
                 <FileSpreadsheet size={18} />
               </button>
             </div>
-            {/* Inserção manual */}
             <div className="flex items-center gap-2">
               <span className="bg-white text-gray-600 text-xs px-3 py-1.5 rounded-full shadow border border-gray-200 whitespace-nowrap">Inserção manual</span>
               <button onClick={abrirModal}
@@ -718,17 +739,15 @@ export default function Financeiro() {
         </button>
       </div>
 
-      {/* ── Modal criação/edição ── */}
+      {/* Modal criação/edição */}
       {modal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div data-modal className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-xl max-h-[92vh] overflow-y-auto">
             <div className="p-5 border-b border-gray-100 sticky top-0 bg-white z-10 flex items-center justify-between">
               <h2 className="font-bold text-gray-800">{editando ? 'Editar lançamento' : 'Novo lançamento'}</h2>
               <button onClick={() => { setModal(false); setEditando(null) }} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
             </div>
             <form onSubmit={salvar} className="p-5 space-y-4">
-
-              {/* Tipo */}
               <div className="flex gap-3">
                 {['despesa', 'receita'].map(t => (
                   <button key={t} type="button"
@@ -742,15 +761,11 @@ export default function Financeiro() {
                   </button>
                 ))}
               </div>
-
-              {/* Descrição */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Descrição</label>
                 <input value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" required />
               </div>
-
-              {/* Categoria (despesa) */}
               {form.tipo === 'despesa' && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
@@ -761,8 +776,6 @@ export default function Financeiro() {
                   </select>
                 </div>
               )}
-
-              {/* Tipo de despesa */}
               {form.tipo === 'despesa' && form.categoria && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
@@ -773,8 +786,6 @@ export default function Financeiro() {
                   </select>
                 </div>
               )}
-
-              {/* Patrimônio */}
               {form.tipo === 'despesa' && form.categoria === 'Máquinas e Equipamentos' && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Patrimônio vinculado (opcional)</label>
@@ -785,8 +796,6 @@ export default function Financeiro() {
                   </select>
                 </div>
               )}
-
-              {/* Data e Valor */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Data de vencimento</label>
@@ -803,8 +812,6 @@ export default function Financeiro() {
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" required />
                 </div>
               </div>
-
-              {/* Situação — seleção obrigatória */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Situação <span className="text-red-500">*</span></label>
                 <div className="flex gap-2">
@@ -822,16 +829,12 @@ export default function Financeiro() {
                   ))}
                 </div>
               </div>
-
-              {/* Nº Doc */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nº Doc. Referência</label>
                 <input value={form.notaRef} onChange={e => setForm(f => ({ ...f, notaRef: e.target.value }))}
                   placeholder="Nota Fiscal, Cheque, Boleto, etc."
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
               </div>
-
-              {/* Propriedade */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Propriedade</label>
                 <select value={form.propriedadeId} onChange={e => setForm(f => ({ ...f, propriedadeId: e.target.value }))}
@@ -840,8 +843,6 @@ export default function Financeiro() {
                   {propriedades.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
                 </select>
               </div>
-
-              {/* Safra */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Safra <span className="text-red-500">*</span></label>
                 <select value={form.safraId} onChange={e => setForm(f => ({ ...f, safraId: e.target.value }))}
@@ -850,7 +851,6 @@ export default function Financeiro() {
                   {safras.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
                 </select>
               </div>
-
               <div className="flex gap-3 pt-1">
                 <button type="button" onClick={() => { setModal(false); setEditando(null) }}
                   className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-lg text-sm hover:bg-gray-50">Cancelar</button>
@@ -864,18 +864,17 @@ export default function Financeiro() {
         </div>
       )}
 
-      {/* ── Modal importação ── */}
+      {/* Modal importação */}
       {modalImport && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div data-modal className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
             <div className="p-5 border-b border-gray-100 flex items-center justify-between">
               <h2 className="font-bold text-gray-800">Importar lançamentos</h2>
               <button onClick={() => setModalImport(false)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
             </div>
             <div className="p-5 space-y-4">
-              <p className="text-sm text-gray-500">Selecione um arquivo <strong>.xlsx</strong> ou <strong>.xml</strong> com os lançamentos. A primeira linha deve conter os cabeçalhos.</p>
-              <div
-                className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center cursor-pointer hover:border-green-400 transition-colors"
+              <p className="text-sm text-gray-500">Selecione um arquivo <strong>.xlsx</strong> ou <strong>.xml</strong>. A primeira linha deve conter os cabeçalhos.</p>
+              <div className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center cursor-pointer hover:border-green-400 transition-colors"
                 onClick={() => fileRef.current?.click()}
                 onDragOver={e => e.preventDefault()}
                 onDrop={e => { e.preventDefault(); processarArquivo(e.dataTransfer.files[0]) }}>
@@ -913,6 +912,28 @@ export default function Financeiro() {
           </div>
         </div>
       )}
+
+      {/* Modal confirmação exclusão — SEMPRE fora das abas, no final do return */}
+      {confirmacao && (
+        <div data-modal className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl p-6 space-y-4">
+            <h3 className="font-bold text-gray-800">Confirmar exclusão</h3>
+            <p className="text-sm text-gray-600">{confirmacao.mensagem}</p>
+            <p className="text-xs text-red-500">Esta ação não poderá ser desfeita.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmacao(null)}
+                className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-lg text-sm hover:bg-gray-50">
+                Cancelar
+              </button>
+              <button onClick={() => { confirmacao.onConfirmar(); setConfirmacao(null) }}
+                className="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm hover:bg-red-700">
+                Excluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
