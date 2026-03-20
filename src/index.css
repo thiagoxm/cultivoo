@@ -21,3 +21,41 @@
 
   --brand-gradient: linear-gradient(160deg, #66BB6A 0%, #1B5E20 100%);
 }
+
+/* Rebaixa z-index do Leaflet para não sobrepor modais */
+.leaflet-container {
+  z-index: 1 !important;
+}
+
+.leaflet-pane,
+.leaflet-tile,
+.leaflet-marker-icon,
+.leaflet-marker-shadow,
+.leaflet-tile-pane,
+.leaflet-overlay-pane,
+.leaflet-shadow-pane,
+.leaflet-marker-pane,
+.leaflet-tooltip-pane,
+.leaflet-popup-pane {
+  z-index: 1 !important;
+}
+
+.leaflet-control {
+  z-index: 2 !important;
+}
+
+/* Label das lavouras no mapa */
+.lavoura-label {
+  background: rgba(0,0,0,0.65) !important;
+  border: none !important;
+  border-radius: 4px !important;
+  color: #fff !important;
+  padding: 2px 6px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  box-shadow: none !important;
+}
+
+.lavoura-label::before {
+  display: none !important;
+}
