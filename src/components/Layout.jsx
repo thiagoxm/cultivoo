@@ -3,17 +3,17 @@ import { signOut } from 'firebase/auth'
 import { auth } from '../services/firebase'
 import {
   LayoutDashboard, MapPin, Sprout, Layers,
-  Tractor, DollarSign, LogOut, Menu, X, Leaf
+  Tractor, DollarSign, LogOut, Menu, X, Leaf, Settings
 } from 'lucide-react'
 import { useState } from 'react'
 
 const menus = [
-  { to: '/',             icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/propriedades', icon: MapPin,           label: 'Propriedades' },
-  { to: '/lavouras',     icon: Sprout,           label: 'Lavouras' },
-  { to: '/safras',       icon: Layers,           label: 'Safras' },
-  { to: '/patrimonio',   icon: Tractor,          label: 'Patrimônio' },
-  { to: '/financeiro',   icon: DollarSign,       label: 'Financeiro' },
+  { to: '/',               icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/propriedades',   icon: MapPin,           label: 'Propriedades' },
+  { to: '/lavouras',       icon: Sprout,           label: 'Lavouras' },
+  { to: '/safras',         icon: Layers,           label: 'Safras' },
+  { to: '/patrimonio',     icon: Tractor,          label: 'Patrimônio' },
+  { to: '/financeiro',     icon: DollarSign,       label: 'Financeiro' },
 ]
 
 export default function Layout() {
@@ -73,16 +73,25 @@ export default function Layout() {
         </nav>
 
         {/* Rodapé */}
-        <button
-          onClick={sair}
-          className="flex items-center gap-3 px-6 py-4 text-sm transition-opacity hover:opacity-75"
-          style={{
-            borderTop: '1px solid var(--sidebar-border)',
-            color: 'var(--sidebar-text-muted)'
-          }}>
-          <LogOut size={16} />
-          Sair
-        </button>
+        <div style={{ borderTop: '1px solid var(--sidebar-border)' }}>
+          <NavLink to="/configuracoes"
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-6 py-3 text-sm transition-opacity hover:opacity-75 ${
+                isActive ? 'opacity-100' : 'opacity-70'
+              }`
+            }
+            style={{ color: 'var(--sidebar-text-muted)' }}>
+            <Settings size={16} />
+            Configurações
+          </NavLink>
+          <button
+            onClick={sair}
+            className="flex items-center gap-3 px-6 py-3 w-full text-sm transition-opacity hover:opacity-75"
+            style={{ color: 'var(--sidebar-text-muted)' }}>
+            <LogOut size={16} />
+            Sair
+          </button>
+        </div>
       </aside>
 
       {/* ── Header mobile ── */}
@@ -101,9 +110,11 @@ export default function Layout() {
 
       {/* ── Menu mobile overlay ── */}
       {aberto && (
-        <div className="md:hidden fixed inset-0 z-40 pt-14"
+        <div className="md:hidden fixed inset-0 z-40 pt-14 flex flex-col"
           style={{ background: 'var(--sidebar-bg)' }}>
-          <nav className="px-4 py-4 space-y-1">
+
+          {/* Itens principais — ocupam o espaço disponível */}
+          <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
             {menus.map(({ to, icon: Icon, label }) => (
               <NavLink
                 key={to}
@@ -124,14 +135,25 @@ export default function Layout() {
                 {label}
               </NavLink>
             ))}
+          </nav>
+
+          {/* Rodapé mobile — Configurações + Sair fixos na base */}
+          <div className="px-4 pb-6" style={{ borderTop: '1px solid var(--sidebar-border)' }}>
+            <NavLink to="/configuracoes"
+              onClick={() => setAberto(false)}
+              className="flex items-center gap-3 px-4 py-3 text-base w-full transition-opacity hover:opacity-75"
+              style={{ color: 'var(--sidebar-text-muted)' }}>
+              <Settings size={20} />
+              Configurações
+            </NavLink>
             <button
               onClick={sair}
-              className="flex items-center gap-3 px-4 py-3 text-base w-full mt-4 transition-opacity hover:opacity-75"
+              className="flex items-center gap-3 px-4 py-3 text-base w-full transition-opacity hover:opacity-75"
               style={{ color: 'var(--sidebar-text-muted)' }}>
               <LogOut size={20} />
               Sair
             </button>
-          </nav>
+          </div>
         </div>
       )}
 

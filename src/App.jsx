@@ -9,6 +9,7 @@ import Safras from './pages/Safras'
 import Patrimonio from './pages/Patrimonio'
 import Financeiro from './pages/Financeiro'
 import Layout from './components/Layout'
+import Configuracoes from './pages/Configuracoes'
 
 function RotaProtegida({ children }) {
   const { usuario } = useAuth()
@@ -28,6 +29,7 @@ export default function App() {
           <Route path="safras" element={<Safras />} />
           <Route path="patrimonio" element={<Patrimonio />} />
           <Route path="financeiro" element={<Financeiro />} />
+          <Route path="/configuracoes" element={<Configuracoes />} />
         </Route>
       </Routes>
     </BrowserRouter>

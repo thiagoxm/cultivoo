@@ -1,18 +1,12 @@
 import { useEffect, useState, useMemo } from 'react'
-import {
-  collection, query, where, getDocs,
-  addDoc, deleteDoc, doc, updateDoc
-} from 'firebase/firestore'
+import { collection, query, where, getDocs, addDoc, deleteDoc, doc, updateDoc, getDoc } from 'firebase/firestore'
 import { db } from '../services/firebase'
 import { useAuth } from '../contexts/AuthContext'
 import { Plus, Trash2, Layers, Pencil, X } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 
-const CULTURAS = [
-  'Soja', 'Milho', 'Cana-de-açúcar', 'Café', 'Algodão',
-  'Arroz', 'Feijão', 'Trigo', 'Sorgo', 'Outro'
-]
+
 const STATUS_OPTS = ['Planejada', 'Em andamento', 'Colhida']
 
 function corStatus(status) {
@@ -28,7 +22,7 @@ function formatarData(dataISO) {
 
 const FORM_PADRAO = {
   nome: '', cultura: '', propriedadeId: '', lavouraIds: [],
-  dataPlantio: '', dataColheitaPrev: '', status: 'Planejada'
+  dataInicio: '', dataTermino: '', status: 'Planejada'
 }
 
 export default function Safras() {
@@ -44,17 +38,26 @@ export default function Safras() {
   const [confirmacao, setConfirmacao] = useState(null)
   const [filtroPropriedadeIds, setFiltroPropriedadeIds] = useState([])
   const [dropdownFiltroAberto, setDropdownFiltroAberto] = useState(false)
+  const [aba, setAba] = useState('atuais')
+  const [culturas, setCulturas] = useState([
+    'Soja', 'Milho', 'Cana-de-açúcar', 'Café', 'Algodão',
+    'Arroz', 'Feijão', 'Trigo', 'Sorgo', 'Outro'
+  ])
 
   async function carregar() {
     const uid = usuario.uid
-    const [safSnap, propSnap, lavSnap] = await Promise.all([
+    const [safSnap, propSnap, lavSnap, userDoc] = await Promise.all([
       getDocs(query(collection(db, 'safras'), where('uid', '==', uid))),
       getDocs(query(collection(db, 'propriedades'), where('uid', '==', uid))),
       getDocs(query(collection(db, 'lavouras'), where('uid', '==', uid))),
+      getDoc(doc(db, 'usuarios', uid)),
     ])
     setLista(safSnap.docs.map(d => ({ id: d.id, ...d.data() })))
     setPropriedades(propSnap.docs.map(d => ({ id: d.id, ...d.data() })))
     setLavouras(lavSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+    if (userDoc.exists() && userDoc.data().culturasFavoritas?.length > 0) {
+      setCulturas(userDoc.data().culturasFavoritas)
+    }
   }
 
   useEffect(() => { carregar() }, [])
@@ -72,16 +75,26 @@ export default function Safras() {
   const lavourasDaPropriedade = lavouras.filter(l => l.propriedadeId === form.propriedadeId)
 
   // Lista filtrada e ordenada por data de colheita decrescente
+  const hoje = new Date().toISOString().split('T')[0]
   const listaFiltrada = useMemo(() => {
     let resultado = filtroPropriedadeIds.length > 0
       ? lista.filter(s => filtroPropriedadeIds.includes(s.propriedadeId))
       : lista
+
+    // Separa em atuais (sem data de término ou término >= hoje ou colhida em andamento/planejada)
+    // e passadas (término < hoje E status === 'Colhida')
+    resultado = resultado.filter(s => {
+      const dataFim = s.dataTermino || s.dataColheitaPrev || ''
+      const passada = dataFim && dataFim < hoje && s.status === 'Colhida'
+      return aba === 'passadas' ? passada : !passada
+    })
+
     return [...resultado].sort((a, b) => {
-      const dA = a.dataColheitaPrev || ''
-      const dB = b.dataColheitaPrev || ''
+      const dA = a.dataTermino || a.dataColheitaPrev || ''
+      const dB = b.dataTermino || b.dataColheitaPrev || ''
       return dB.localeCompare(dA)
     })
-  }, [lista, filtroPropriedadeIds])
+  }, [lista, filtroPropriedadeIds, aba, hoje])
 
   function toggleLavoura(id) {
     setForm(f => ({
@@ -106,8 +119,8 @@ export default function Safras() {
       cultura: s.cultura || '',
       propriedadeId: s.propriedadeId || '',
       lavouraIds: s.lavouraIds || [],
-      dataPlantio: s.dataPlantio || '',
-      dataColheitaPrev: s.dataColheitaPrev || '',
+      dataInicio: s.dataInicio || s.dataPlantio || '',
+      dataTermino: s.dataTermino || s.dataColheitaPrev || '',
       status: s.status || 'Planejada',
     })
     setModal(true)
@@ -128,8 +141,11 @@ export default function Safras() {
       propriedadeNome: prop?.nome || '',
       lavouraIds: form.lavouraIds,
       lavouraNomes: lavsSelecionadas,
-      dataPlantio: form.dataPlantio,
-      dataColheitaPrev: form.dataColheitaPrev,
+      dataInicio: form.dataInicio,
+      dataTermino: form.dataTermino,
+      // mantém campos antigos para compatibilidade com dados existentes
+      dataPlantio: form.dataInicio,
+      dataColheitaPrev: form.dataTermino,
       status: form.status,
       uid: usuario.uid,
     }
@@ -212,58 +228,92 @@ export default function Safras() {
       </div>
 
       {/* Lista vazia */}
+      {/* Abas */}
+      <div className="flex gap-1 border-b border-gray-200">
+        {[
+          { val: 'atuais', label: 'Safras Atuais' },
+          { val: 'passadas', label: 'Safras Passadas' },
+        ].map(a => (
+          <button key={a.val} onClick={() => setAba(a.val)}
+            className={`px-4 py-2 text-xs font-medium border-b-2 whitespace-nowrap transition-colors ${
+              aba === a.val
+                ? 'border-green-600 text-green-700'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}>
+            {a.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Lista vazia */}
       {listaFiltrada.length === 0 && (
         <div className="bg-white rounded-xl p-10 text-center text-gray-400 shadow-sm border border-gray-100">
           <Layers size={36} className="mx-auto mb-3 opacity-30" />
-          <p className="text-sm">Nenhuma safra cadastrada ainda.</p>
+          <p className="text-sm">
+            {aba === 'atuais'
+              ? 'Nenhuma safra atual cadastrada.'
+              : 'Nenhuma safra passada encontrada.'}
+          </p>
         </div>
       )}
 
       {/* Lista de safras */}
       <div className="space-y-3">
-        {listaFiltrada.map(s => (
-          <div key={s.id}
-            className="bg-white rounded-xl px-4 py-3 shadow-sm border border-gray-100 flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <p className="font-semibold text-gray-800">{s.nome}</p>
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${corStatus(s.status)}`}>
-                  {s.status}
-                </span>
-              </div>
-              <p className="text-sm text-gray-500 mt-0.5">
-                {s.cultura} · {s.propriedadeNome}
-              </p>
-              {s.lavouraNomes?.length > 0 && (
-                <p className="text-xs text-gray-400 mt-0.5">
-                  Lavouras: {s.lavouraNomes.join(', ')}
+        {listaFiltrada.map(s => {
+          // Calcula quantidade e área das lavouras vinculadas
+          const lavourasVinculadas = lavouras.filter(l => s.lavouraIds?.includes(l.id))
+          const qtdeLavouras = lavourasVinculadas.length
+          const areaTotal = lavourasVinculadas.reduce((a, l) => a + (Number(l.areaHa) || 0), 0)
+
+          return (
+            <div key={s.id}
+              className="bg-white rounded-xl px-4 py-3 shadow-sm border border-gray-100 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="font-semibold text-gray-800">{s.nome}</p>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${corStatus(s.status)}`}>
+                    {s.status}
+                  </span>
+                </div>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  {s.cultura} · {s.propriedadeNome}
                 </p>
-              )}
-              <div className="flex items-center gap-3 mt-1 flex-wrap">
-                {s.dataPlantio && (
-                  <p className="text-xs text-gray-400">
-                    🌱 Plantio: <span className="font-medium text-gray-600">{formatarData(s.dataPlantio)}</span>
+                {qtdeLavouras > 0 && (
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {qtdeLavouras} lavoura{qtdeLavouras > 1 ? 's' : ''} ·{' '}
+                    {areaTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ha
                   </p>
                 )}
-                {s.dataColheitaPrev && (
-                  <p className="text-xs text-gray-400">
-                    🌾 Colheita: <span className="font-medium text-gray-600">{formatarData(s.dataColheitaPrev)}</span>
-                  </p>
-                )}
+                <div className="flex items-center gap-3 mt-1 flex-wrap">
+                  {(s.dataInicio || s.dataPlantio) && (
+                    <p className="text-xs text-gray-400">
+                      🌱 Início: <span className="font-medium text-gray-600">
+                        {formatarData(s.dataInicio || s.dataPlantio)}
+                      </span>
+                    </p>
+                  )}
+                  {(s.dataTermino || s.dataColheitaPrev) && (
+                    <p className="text-xs text-gray-400">
+                      🌾 Término: <span className="font-medium text-gray-600">
+                        {formatarData(s.dataTermino || s.dataColheitaPrev)}
+                      </span>
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <button onClick={() => abrirEdicao(s)}
+                  className="text-gray-300 hover:text-blue-500 p-1 transition-colors">
+                  <Pencil size={15} />
+                </button>
+                <button onClick={() => excluir(s.id, s.nome)}
+                  className="text-gray-300 hover:text-red-500 p-1 transition-colors">
+                  <Trash2 size={15} />
+                </button>
               </div>
             </div>
-            <div className="flex items-center gap-1 flex-shrink-0">
-              <button onClick={() => abrirEdicao(s)}
-                className="text-gray-300 hover:text-blue-500 p-1 transition-colors">
-                <Pencil size={15} />
-              </button>
-              <button onClick={() => excluir(s.id, s.nome)}
-                className="text-gray-300 hover:text-red-500 p-1 transition-colors">
-                <Trash2 size={15} />
-              </button>
-            </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       {/* FAB */}
@@ -320,7 +370,7 @@ export default function Safras() {
                   className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                   required>
                   <option value="">Selecione...</option>
-                  {CULTURAS.map(c => <option key={c}>{c}</option>)}
+                  {culturas.map(c => <option key={c}>{c}</option>)}
                 </select>
               </div>
 
@@ -335,9 +385,59 @@ export default function Safras() {
                 </select>
               </div>
 
+              {/* Datas — antes da propriedade */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Data de início</label>
+                  <input type="date" value={form.dataInicio}
+                    onChange={e => {
+                      const dataInicio = e.target.value
+                      // Calcula automaticamente 1 ano após a data de início
+                      let dataTermino = form.dataTermino
+                      if (dataInicio) {
+                        const d = new Date(dataInicio + 'T00:00:00')
+                        d.setFullYear(d.getFullYear() + 1)
+                        dataTermino = d.toISOString().split('T')[0]
+                      }
+                      setForm(f => ({ ...f, dataInicio, dataTermino }))
+                    }}
+                    className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Data de término</label>
+                  <input type="date" value={form.dataTermino}
+                    onChange={e => setForm(f => ({ ...f, dataTermino: e.target.value }))}
+                    className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+                </div>
+              </div>
+
+              {/* Situação */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Situação</label>
+                <select value={form.status}
+                  onChange={e => setForm(f => ({ ...f, status: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+                  {STATUS_OPTS.map(s => <option key={s}>{s}</option>)}
+                </select>
+              </div>
+
+              {/* Lavouras — após propriedade */}
               {lavourasDaPropriedade.length > 0 && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Lavouras</label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-medium text-gray-700">Lavouras</label>
+                    {form.lavouraIds.length > 0 && (
+                      <span className="text-xs text-gray-500">
+                        Área selecionada:{' '}
+                        <span className="font-semibold text-gray-700">
+                          {lavouras
+                            .filter(l => form.lavouraIds.includes(l.id))
+                            .reduce((a, l) => a + (Number(l.areaHa) || 0), 0)
+                            .toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ha
+                        </span>
+                      </span>
+                    )}
+                  </div>
                   <div className="space-y-2 bg-gray-50 rounded-xl p-3">
                     {lavourasDaPropriedade.map(l => (
                       <label key={l.id} className="flex items-center gap-2 text-sm cursor-pointer">
@@ -346,36 +446,14 @@ export default function Safras() {
                           onChange={() => toggleLavoura(l.id)}
                           className="accent-green-600 w-4 h-4" />
                         <span className="text-gray-700">{l.nome}</span>
-                        <span className="text-gray-400 text-xs">({l.areaHa} ha)</span>
+                        <span className="text-gray-400 text-xs">
+                          ({Number(l.areaHa || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ha)
+                        </span>
                       </label>
                     ))}
                   </div>
                 </div>
               )}
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Data de plantio</label>
-                  <input type="date" value={form.dataPlantio}
-                    onChange={e => setForm(f => ({ ...f, dataPlantio: e.target.value }))}
-                    className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Prev. colheita</label>
-                  <input type="date" value={form.dataColheitaPrev}
-                    onChange={e => setForm(f => ({ ...f, dataColheitaPrev: e.target.value }))}
-                    className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                <select value={form.status}
-                  onChange={e => setForm(f => ({ ...f, status: e.target.value }))}
-                  className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
-                  {STATUS_OPTS.map(s => <option key={s}>{s}</option>)}
-                </select>
-              </div>
 
               <div className="flex gap-3 pt-1">
                 <button type="button"
