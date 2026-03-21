@@ -790,7 +790,7 @@ export default function Financeiro() {
           className={`w-14 h-14 rounded-full text-white flex items-center justify-center shadow-lg transition-all duration-200 ${
             fabAberto ? 'rotate-45' : ''
           }`}
-          style={{ background: 'var(--brand-gradient)' }}>
+          style={{ background: fabAberto ? '#4B5563' : 'var(--brand-gradient)' }}>
           <Plus size={24} />
         </button>
       </div>
