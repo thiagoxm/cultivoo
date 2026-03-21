@@ -336,7 +336,7 @@ export default function Financeiro() {
             {nomeMes(chave)}
           </p>
           <p className={`text-xs font-semibold ${saldo >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-            {saldo >= 0 ? '+' : ''}R$ {formatarMoeda(saldo)}
+            {saldo >= 0 ? '+' : '-'}R$ {formatarMoeda(Math.abs(saldo))}
           </p>
         </div>
         <div className="space-y-1.5">
@@ -445,6 +445,8 @@ export default function Financeiro() {
       {/* Filtros */}
       <div className="bg-white rounded-xl px-4 py-3 shadow-sm border border-gray-100 space-y-2">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Filtros</p>
+
+        {/* Linha 1 — sempre visível: propriedade + período (desktop) */}
         <div className="flex flex-wrap items-center gap-2">
 
           {/* Dropdown propriedades */}
@@ -490,8 +492,64 @@ export default function Financeiro() {
             )}
           </div>
 
-          <div className="w-px h-5 bg-gray-200 mx-1" />
+          {/* Separador + seletores de período — visíveis só no desktop */}
+          <div className="hidden sm:flex items-center gap-2">
+            <div className="w-px h-5 bg-gray-200 mx-1" />
+            <select value={filtro.tipo} onChange={e => setFiltro(f => ({ ...f, tipo: e.target.value }))}
+              className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50">
+              <option value="anual">Anual</option>
+              <option value="mensal">Mensal</option>
+              <option value="safra">Por Safra</option>
+              <option value="personalizado">Personalizado</option>
+            </select>
+            {filtro.tipo === 'anual' && (
+              <select value={filtro.ano} onChange={e => setFiltro(f => ({ ...f, ano: Number(e.target.value) }))}
+                className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50">
+                {ANOS.map(a => <option key={a}>{a}</option>)}
+              </select>
+            )}
+            {filtro.tipo === 'mensal' && (
+              <>
+                <select value={filtro.mes} onChange={e => setFiltro(f => ({ ...f, mes: Number(e.target.value) }))}
+                  className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50">
+                  {MESES.map(m => <option key={m.v} value={m.v}>{m.l}</option>)}
+                </select>
+                <select value={filtro.ano} onChange={e => setFiltro(f => ({ ...f, ano: Number(e.target.value) }))}
+                  className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50">
+                  {ANOS.map(a => <option key={a}>{a}</option>)}
+                </select>
+              </>
+            )}
+            {filtro.tipo === 'safra' && (
+              <select value={filtro.safraId} onChange={e => setFiltro(f => ({ ...f, safraId: e.target.value }))}
+                className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50">
+                <option value="">Selecione...</option>
+                {safras.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+              </select>
+            )}
+            {filtro.tipo === 'personalizado' && (
+              <>
+                <input type="date" value={filtro.dataInicio}
+                  onChange={e => setFiltro(f => ({ ...f, dataInicio: e.target.value }))}
+                  className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50" />
+                <span className="text-xs text-gray-400">até</span>
+                <input type="date" value={filtro.dataFim}
+                  onChange={e => setFiltro(f => ({ ...f, dataFim: e.target.value }))}
+                  className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50" />
+              </>
+            )}
+          </div>
 
+          {filtro.propriedadeIds?.length > 0 && (
+            <button onClick={() => setFiltro(f => ({ ...f, propriedadeIds: [] }))}
+              className="text-xs text-gray-400 hover:text-red-400 transition-colors underline">
+              Limpar
+            </button>
+          )}
+        </div>
+
+        {/* Linha 2 — seletores de período visíveis só no mobile */}
+        <div className="flex sm:hidden flex-wrap items-center gap-2">
           <select value={filtro.tipo} onChange={e => setFiltro(f => ({ ...f, tipo: e.target.value }))}
             className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50">
             <option value="anual">Anual</option>
@@ -499,7 +557,6 @@ export default function Financeiro() {
             <option value="safra">Por Safra</option>
             <option value="personalizado">Personalizado</option>
           </select>
-
           {filtro.tipo === 'anual' && (
             <select value={filtro.ano} onChange={e => setFiltro(f => ({ ...f, ano: Number(e.target.value) }))}
               className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50">
@@ -536,13 +593,8 @@ export default function Financeiro() {
                 className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50" />
             </>
           )}
-          {filtro.propriedadeIds?.length > 0 && (
-            <button onClick={() => setFiltro(f => ({ ...f, propriedadeIds: [] }))}
-              className="text-xs text-gray-400 hover:text-red-400 transition-colors underline">
-              Limpar
-            </button>
-          )}
         </div>
+
       </div>
 
       {/* Cards resumo */}

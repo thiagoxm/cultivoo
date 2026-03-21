@@ -128,28 +128,24 @@ function DesenhoPoligono({ onCreated, poligonoInicial, centroProp }) {
   const map = useMap()
   const camadaRef = useRef(null)
   const drawRef = useRef(null)
+  const poligonoBackupRef = useRef(null) // salva polígono antes de editar/redesenhar
   const [temPoligono, setTemPoligono] = useState(!!poligonoInicial?.length)
-  const [desenhando, setDesenhando] = useState(false)
+  const [estado, setEstado] = useState('normal') // 'normal' | 'desenhando' | 'editando'
+  const [confirmarApagar, setConfirmarApagar] = useState(false)
 
-  // Zoom aumentado + centraliza na propriedade ao montar
+  // Zoom + centraliza + carrega polígono existente ao montar
   useEffect(() => {
-    if (centroProp) {
-      map.setView([centroProp.lat, centroProp.lng], 16)
-    }
-
-    // Carrega polígono existente
+    if (centroProp) map.setView([centroProp.lat, centroProp.lng], 16)
     if (poligonoInicial?.length > 2) {
       if (camadaRef.current) map.removeLayer(camadaRef.current)
       const latlngs = poligonoInicial.map(p => [p.lat, p.lng])
       camadaRef.current = L.polygon(latlngs, {
         color: '#16a34a', fillColor: '#16a34a', fillOpacity: 0.3
       }).addTo(map)
+      setTemPoligono(true)
     }
-
     return () => {
-      if (drawRef.current) {
-        try { drawRef.current.disable() } catch {}
-      }
+      if (drawRef.current) { try { drawRef.current.disable() } catch {} }
     }
   }, [])
 
@@ -157,19 +153,21 @@ function DesenhoPoligono({ onCreated, poligonoInicial, centroProp }) {
     if (centroProp) map.setView([centroProp.lat, centroProp.lng], 16)
   }
 
+  // Inicia desenho (novo ou redesenhar)
   function iniciarDesenho() {
+    // Salva backup do polígono atual antes de apagar
     if (camadaRef.current) {
+      poligonoBackupRef.current = camadaRef.current.getLatLngs()
       map.removeLayer(camadaRef.current)
       camadaRef.current = null
+    } else {
+      poligonoBackupRef.current = null
     }
-    if (drawRef.current) {
-      try { drawRef.current.disable() } catch {}
-    }
-    setDesenhando(true)
+    if (drawRef.current) { try { drawRef.current.disable() } catch {} }
+    setEstado('desenhando')
+
     const draw = new L.Draw.Polygon(map, {
-      shapeOptions: {
-        color: '#16a34a', fillColor: '#16a34a', fillOpacity: 0.3,
-      },
+      shapeOptions: { color: '#16a34a', fillColor: '#16a34a', fillOpacity: 0.3 },
       showArea: true,
     })
     drawRef.current = draw
@@ -179,85 +177,216 @@ function DesenhoPoligono({ onCreated, poligonoInicial, centroProp }) {
       camadaRef.current = e.layer
       map.addLayer(e.layer)
       setTemPoligono(true)
-      setDesenhando(false)
+      setEstado('normal')
+      poligonoBackupRef.current = null
       onCreated(e)
     })
   }
 
-  function editarPoligono() {
+  // Cancela desenho em andamento — restaura polígono anterior se existia
+  function cancelarDesenho() {
+    if (drawRef.current) { try { drawRef.current.disable() } catch {} }
+    drawRef.current = null
+
+    // Remove camada parcial que possa ter sido adicionada
+    if (camadaRef.current) {
+      map.removeLayer(camadaRef.current)
+      camadaRef.current = null
+    }
+
+    // Restaura polígono anterior se havia backup
+    if (poligonoBackupRef.current) {
+      camadaRef.current = L.polygon(poligonoBackupRef.current, {
+        color: '#16a34a', fillColor: '#16a34a', fillOpacity: 0.3
+      }).addTo(map)
+      setTemPoligono(true)
+    } else {
+      setTemPoligono(false)
+      onCreated({ layer: null })
+    }
+    poligonoBackupRef.current = null
+    setEstado('normal')
+  }
+
+  // Inicia edição dos pontos do polígono existente
+  function iniciarEdicao() {
     if (!camadaRef.current) return
-    // Ativa edição nativa do Leaflet no polígono existente
+    // Serializa os pontos como coordenadas simples ANTES de habilitar edição
+    // Isso garante que o backup não seja afetado pelas mudanças do modo editing
+    const latlngs = camadaRef.current.getLatLngs()[0]
+    poligonoBackupRef.current = latlngs.map(p => ({ lat: p.lat, lng: p.lng }))
     if (camadaRef.current.editing) {
       camadaRef.current.editing.enable()
-      camadaRef.current.on('edit', () => {
-        const latlngs = camadaRef.current.getLatLngs()[0]
-        onCreated({ layer: camadaRef.current })
-      })
+      setEstado('editando')
     }
   }
 
-  function apagarPoligono() {
+  // Salva edição — confirma os novos pontos
+  function salvarEdicao() {
+    if (!camadaRef.current) return
+    if (camadaRef.current.editing) camadaRef.current.editing.disable()
+    poligonoBackupRef.current = null
+    setEstado('normal')
+    onCreated({ layer: camadaRef.current })
+  }
+
+  // Cancela edição — restaura pontos originais
+  function cancelarEdicao() {
+      if (!camadaRef.current) return
+      // Desativa modo edição sem salvar
+      if (camadaRef.current.editing) camadaRef.current.editing.disable()
+      // Remove camada modificada
+      map.removeLayer(camadaRef.current)
+      camadaRef.current = null
+      // Recria com coordenadas serializadas do backup
+      if (poligonoBackupRef.current?.length > 0) {
+        const latlngs = poligonoBackupRef.current.map(p => [p.lat, p.lng])
+        camadaRef.current = L.polygon(latlngs, {
+          color: '#16a34a', fillColor: '#16a34a', fillOpacity: 0.3
+        }).addTo(map)
+        setTemPoligono(true)
+      } else {
+        setTemPoligono(false)
+      }
+      poligonoBackupRef.current = null
+      setEstado('normal')
+    }
+
+  // Confirma apagar polígono
+  function confirmarApagarPoligono() {
     if (camadaRef.current) {
       map.removeLayer(camadaRef.current)
       camadaRef.current = null
     }
     setTemPoligono(false)
+    setConfirmarApagar(false)
     onCreated({ layer: null })
   }
 
+  // Estilo base dos botões
+  const btnBase = "flex items-center gap-1.5 text-xs bg-white border border-gray-300 shadow-md px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+
   return (
-    <div className="leaflet-top leaflet-right" style={{ marginTop: '10px', marginRight: '10px' }}>
-      <div className="leaflet-control flex flex-col gap-1.5">
+    <>
+      {/* Botões de controle — canto superior direito */}
+      <div className="leaflet-top leaflet-right" style={{ marginTop: '10px', marginRight: '10px' }}>
+        <div className="leaflet-control flex flex-col gap-1.5">
 
-        {/* Centralizar no pino da propriedade */}
-        {centroProp && (
-          <button onClick={centralizar}
-            className="flex items-center gap-1.5 text-xs bg-white border border-gray-300 shadow-md px-3 py-1.5 rounded-lg hover:bg-blue-50 hover:border-blue-400 text-gray-700 transition-colors whitespace-nowrap"
-            style={{ zIndex: 1000 }}
-            title="Centralizar na propriedade">
-            🎯 Centralizar
-          </button>
-        )}
+          {/* ── Estado normal ── */}
+          {estado === 'normal' && (
+            <>
+              {centroProp && (
+                <button onClick={centralizar}
+                  className={`${btnBase} hover:bg-blue-50 hover:border-blue-400 text-gray-700`}
+                  style={{ zIndex: 1000 }}>
+                  🎯 Centralizar
+                </button>
+              )}
+              <button onClick={iniciarDesenho}
+                className={`${btnBase} hover:bg-green-50 hover:border-green-400 text-gray-700`}
+                style={{ zIndex: 1000 }}>
+                ✏️ {temPoligono ? 'Redesenhar área' : 'Desenhar área'}
+              </button>
+              {temPoligono && (
+                <button onClick={iniciarEdicao}
+                  className={`${btnBase} hover:bg-yellow-50 hover:border-yellow-400 text-gray-700`}
+                  style={{ zIndex: 1000 }}>
+                  🔧 Editar área
+                </button>
+              )}
+              {temPoligono && (
+                <button onClick={() => setConfirmarApagar(true)}
+                  className={`${btnBase} hover:bg-red-50 hover:border-red-400 text-gray-500`}
+                  style={{ zIndex: 1000 }}>
+                  🗑️ Apagar área
+                </button>
+              )}
+            </>
+          )}
 
-        {/* Desenhar nova área */}
-        {!desenhando && (
-          <button onClick={iniciarDesenho}
-            className="flex items-center gap-1.5 text-xs bg-white border border-gray-300 shadow-md px-3 py-1.5 rounded-lg hover:bg-green-50 hover:border-green-400 text-gray-700 transition-colors whitespace-nowrap"
-            style={{ zIndex: 1000 }}
-            title={temPoligono ? 'Redesenhar área' : 'Desenhar área'}>
-            ✏️ {temPoligono ? 'Redesenhar área' : 'Desenhar área'}
-          </button>
-        )}
+          {/* ── Estado desenhando ── */}
+          {estado === 'desenhando' && (
+            <>
+              <div className="flex items-center gap-1.5 text-xs bg-green-700 text-white px-3 py-1.5 rounded-lg shadow-md whitespace-nowrap">
+                ⬡ Clique para desenhar...
+              </div>
+              <button onClick={cancelarDesenho}
+                className={`${btnBase} hover:bg-red-50 hover:border-red-400 text-red-500`}
+                style={{ zIndex: 1000 }}>
+                ✕ {poligonoBackupRef.current ? 'Descartar e restaurar' : 'Cancelar desenho'}
+              </button>
+            </>
+          )}
 
-        {/* Editar área existente */}
-        {temPoligono && !desenhando && (
-          <button onClick={editarPoligono}
-            className="flex items-center gap-1.5 text-xs bg-white border border-gray-300 shadow-md px-3 py-1.5 rounded-lg hover:bg-yellow-50 hover:border-yellow-400 text-gray-700 transition-colors whitespace-nowrap"
-            style={{ zIndex: 1000 }}
-            title="Editar área">
-            🔧 Editar área
-          </button>
-        )}
+          {/* ── Estado editando ── */}
+          {estado === 'editando' && (
+            <>
+              <div className="flex items-center gap-1.5 text-xs bg-yellow-500 text-white px-3 py-1.5 rounded-lg shadow-md whitespace-nowrap">
+                🔧 Arraste os pontos...
+              </div>
+              <button onClick={salvarEdicao}
+                className={`${btnBase} hover:bg-green-50 hover:border-green-400 text-green-700`}
+                style={{ zIndex: 1000 }}>
+                ✓ Salvar edição
+              </button>
+              <button onClick={cancelarEdicao}
+                className={`${btnBase} hover:bg-red-50 hover:border-red-400 text-red-500`}
+                style={{ zIndex: 1000 }}>
+                ✕ Descartar edição
+              </button>
+            </>
+          )}
 
-        {/* Apagar área */}
-        {temPoligono && !desenhando && (
-          <button onClick={apagarPoligono}
-            className="flex items-center gap-1.5 text-xs bg-white border border-gray-300 shadow-md px-3 py-1.5 rounded-lg hover:bg-red-50 hover:border-red-400 text-gray-500 transition-colors whitespace-nowrap"
-            style={{ zIndex: 1000 }}
-            title="Apagar área">
-            🗑️ Apagar área
-          </button>
-        )}
-
-        {/* Indicador de desenho ativo */}
-        {desenhando && (
-          <div className="flex items-center gap-1.5 text-xs bg-green-700 text-white px-3 py-1.5 rounded-lg shadow-md whitespace-nowrap">
-            ⬡ Clique para desenhar...
-          </div>
-        )}
-
+        </div>
       </div>
-    </div>
+
+      {/* ── Popup confirmação apagar ── */}
+      {confirmarApagar && (
+        <div
+          style={{
+            position: 'absolute', inset: 0, zIndex: 2000,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '16px'
+          }}>
+          <div style={{
+            background: '#fff', borderRadius: '16px',
+            padding: '24px', maxWidth: '320px', width: '100%',
+            boxShadow: '0 10px 40px rgba(0,0,0,0.2)'
+          }}>
+            <h3 style={{ fontWeight: 700, color: '#1f2937', marginBottom: '8px', fontSize: '15px' }}>
+              Apagar área?
+            </h3>
+            <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: '4px' }}>
+              O polígono desta lavoura será removido.
+            </p>
+            <p style={{ fontSize: '12px', color: '#ef4444', marginBottom: '20px' }}>
+              Esta ação não poderá ser desfeita.
+            </p>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                onClick={() => setConfirmarApagar(false)}
+                style={{
+                  flex: 1, padding: '8px', borderRadius: '10px',
+                  border: '1px solid #d1d5db', background: '#fff',
+                  color: '#6b7280', fontSize: '13px', cursor: 'pointer'
+                }}>
+                Cancelar
+              </button>
+              <button
+                onClick={confirmarApagarPoligono}
+                style={{
+                  flex: 1, padding: '8px', borderRadius: '10px',
+                  border: 'none', background: '#dc2626',
+                  color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer'
+                }}>
+                Apagar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 
@@ -442,32 +571,60 @@ export default function Lavouras() {
     )
     const temPoligonos = grupo.lavouras.some(l => l.poligono?.length > 2)
     const expandido = mapaExpandido[propId]
+    const [situacaoExpandida, setSituacaoExpandida] = useState(false)
 
+    const totalArea = grupo.lavouras.reduce((a, l) => a + (Number(l.areaHa) || 0), 0)
+
+    // Card de situação — usado em desktop e mobile
     function CardSituacao({ label, lavouras, corBadge }) {
       if (lavouras.length === 0) return null
       const area = lavouras.reduce((a, l) => a + (Number(l.areaHa) || 0), 0)
       return (
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm flex flex-col h-full w-36"
-          style={{ minWidth: '144px' }}>
-          <div className="flex items-center justify-center px-3 pt-3 pb-2">
-            <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${corBadge}`}>
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm flex flex-col flex-1 min-w-0"
+          style={{ minWidth: '120px' }}>
+          <div className="flex items-center justify-center px-2 pt-2.5 pb-1.5">
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${corBadge}`}>
               {label}
             </span>
           </div>
-          <div className="h-px bg-gray-100 mx-3" />
-          <div className="flex flex-col flex-1 items-center justify-evenly px-3 py-2">
+          <div className="h-px bg-gray-100 mx-2" />
+          <div className="flex flex-col flex-1 items-center justify-evenly px-2 py-1.5">
             <div className="text-center">
-              <p className="text-xs text-gray-400 mb-0.5">Qtde. de Lavoura(s)</p>
-              <p className="text-2xl font-bold text-gray-800 leading-tight">{lavouras.length}</p>
+              <p className="text-xs text-gray-400 leading-tight">Qtde. de Lavoura(s)</p>
+              <p className="text-lg font-bold text-gray-800 leading-tight">{lavouras.length}</p>
             </div>
-            <div className="w-10 h-px bg-gray-200" />
+            <div className="w-8 h-px bg-gray-200" />
             <div className="text-center">
-              <p className="text-xs text-gray-400 mb-0.5">Área</p>
-              <p className="text-2xl font-bold text-gray-800 leading-tight">
+              <p className="text-xs text-gray-400 leading-tight">Área</p>
+              <p className="text-lg font-bold text-gray-800 leading-tight">
                 {converterArea(area, grupo.medida)}
-                <span className="text-sm font-normal text-gray-400 ml-1">{labelMedida(grupo.medida)}</span>
+                <span className="text-xs font-normal text-gray-400 ml-0.5">{labelMedida(grupo.medida)}</span>
               </p>
             </div>
+          </div>
+        </div>
+      )
+    }
+
+    // Card total geral — compartilhado desktop e mobile
+    function CardTotal() {
+      return (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-2.5 flex items-center justify-center gap-6 w-full">
+          <div className="text-center">
+            <p className="text-xs text-gray-400 leading-tight">Total de Lavouras</p>
+            <p className="text-xl font-bold text-gray-800 leading-tight">
+              {grupo.lavouras.length}
+            </p>
+          </div>
+          <div className="w-px h-8 bg-gray-200" />
+          <div className="text-center">
+            <p className="text-xs text-gray-400 leading-tight">Área Total</p>
+            <p className="text-xl font-bold text-gray-800 leading-tight">
+              {converterArea(totalArea, grupo.medida)}
+              <span className="text-sm font-normal text-gray-400 ml-1">
+                {labelMedida(grupo.medida)}
+              </span>
+            </p>
           </div>
         </div>
       )
@@ -513,13 +670,20 @@ export default function Lavouras() {
 
     return (
       <>
-        {/* Desktop */}
+        {/* ── Desktop ── */}
         <div className="hidden md:flex gap-3 items-stretch" style={{ height: '200px' }}>
-          <div className="flex gap-2 flex-shrink-0 h-full">
-            <CardSituacao label="Ativas" lavouras={ativas} corBadge="bg-green-100 text-green-700" />
-            <CardSituacao label="Em preparo" lavouras={emPreparo} corBadge="bg-yellow-100 text-yellow-700" />
-            <CardSituacao label="Ociosas" lavouras={ociosas} corBadge="bg-gray-100 text-gray-500" />
+
+          {/* Coluna esquerda: total geral + cards situação */}
+          <div className="flex flex-col gap-2 flex-shrink-0 h-full">
+            <CardTotal />
+            <div className="flex gap-2 flex-1 min-h-0">
+              <CardSituacao label="Ativas" lavouras={ativas} corBadge="bg-green-100 text-green-700" />
+              <CardSituacao label="Em preparo" lavouras={emPreparo} corBadge="bg-yellow-100 text-yellow-700" />
+              <CardSituacao label="Ociosas" lavouras={ociosas} corBadge="bg-gray-100 text-gray-500" />
+            </div>
           </div>
+
+          {/* Mapa */}
           <div className="flex-1 relative rounded-xl overflow-hidden border border-gray-100 shadow-sm">
             {temPoligonos ? (
               <>
@@ -539,43 +703,86 @@ export default function Lavouras() {
           </div>
         </div>
 
-        {/* Mobile */}
+        {/* ── Mobile ── */}
         <div className="md:hidden space-y-2">
-          <div className="flex gap-2 flex-wrap">
-            {ativas.length > 0 && (
-              <div className="bg-white rounded-xl px-3 py-2 shadow-sm border border-gray-100 flex items-center gap-2">
-                <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-green-100 text-green-700">Ativas</span>
-                <div>
-                  <p className="text-sm font-bold text-gray-800 leading-tight">{ativas.length}</p>
-                  <p className="text-xs text-gray-400">
-                    {converterArea(ativas.reduce((a, l) => a + (Number(l.areaHa) || 0), 0), grupo.medida)} {labelMedida(grupo.medida)}
-                  </p>
+
+          {/* Card total — sempre visível */}
+          <CardTotal />
+
+          {/* Cards situação — colapsáveis */}
+          <button
+            className="w-full flex items-center justify-between px-4 py-2.5 bg-white rounded-xl border border-gray-100 shadow-sm text-xs text-gray-600"
+            onClick={() => setSituacaoExpandida(s => !s)}>
+            <span>Ver situação das lavouras</span>
+            {situacaoExpandida ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </button>
+
+          {situacaoExpandida && (
+            <div className="flex gap-2">
+              {ativas.length > 0 && (
+                <div className="bg-white rounded-xl border border-gray-100 shadow-sm flex flex-col flex-1 min-w-0 py-2.5 px-2">
+                  <div className="flex justify-center mb-1.5">
+                    <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-green-100 text-green-700">Ativas</span>
+                  </div>
+                  <div className="h-px bg-gray-100 mx-1 mb-1.5" />
+                  <div className="text-center">
+                    <p className="text-xs text-gray-400 leading-tight">Qtde. de Lavoura(s)</p>
+                    <p className="text-lg font-bold text-gray-800">{ativas.length}</p>
+                  </div>
+                  <div className="w-8 h-px bg-gray-200 mx-auto my-1" />
+                  <div className="text-center">
+                    <p className="text-xs text-gray-400 leading-tight">Área</p>
+                    <p className="text-lg font-bold text-gray-800">
+                      {converterArea(ativas.reduce((a, l) => a + (Number(l.areaHa) || 0), 0), grupo.medida)}
+                      <span className="text-xs font-normal text-gray-400 ml-0.5">{labelMedida(grupo.medida)}</span>
+                    </p>
+                  </div>
                 </div>
-              </div>
-            )}
-            {emPreparo.length > 0 && (
-              <div className="bg-white rounded-xl px-3 py-2 shadow-sm border border-gray-100 flex items-center gap-2">
-                <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-yellow-100 text-yellow-700">Em preparo</span>
-                <div>
-                  <p className="text-sm font-bold text-gray-800 leading-tight">{emPreparo.length}</p>
-                  <p className="text-xs text-gray-400">
-                    {converterArea(emPreparo.reduce((a, l) => a + (Number(l.areaHa) || 0), 0), grupo.medida)} {labelMedida(grupo.medida)}
-                  </p>
+              )}
+              {emPreparo.length > 0 && (
+                <div className="bg-white rounded-xl border border-gray-100 shadow-sm flex flex-col flex-1 min-w-0 py-2.5 px-2">
+                  <div className="flex justify-center mb-1.5">
+                    <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-yellow-100 text-yellow-700">Em preparo</span>
+                  </div>
+                  <div className="h-px bg-gray-100 mx-1 mb-1.5" />
+                  <div className="text-center">
+                    <p className="text-xs text-gray-400 leading-tight">Qtde. de Lavoura(s)</p>
+                    <p className="text-lg font-bold text-gray-800">{emPreparo.length}</p>
+                  </div>
+                  <div className="w-8 h-px bg-gray-200 mx-auto my-1" />
+                  <div className="text-center">
+                    <p className="text-xs text-gray-400 leading-tight">Área</p>
+                    <p className="text-lg font-bold text-gray-800">
+                      {converterArea(emPreparo.reduce((a, l) => a + (Number(l.areaHa) || 0), 0), grupo.medida)}
+                      <span className="text-xs font-normal text-gray-400 ml-0.5">{labelMedida(grupo.medida)}</span>
+                    </p>
+                  </div>
                 </div>
-              </div>
-            )}
-            {ociosas.length > 0 && (
-              <div className="bg-white rounded-xl px-3 py-2 shadow-sm border border-gray-100 flex items-center gap-2">
-                <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-500">Ociosas</span>
-                <div>
-                  <p className="text-sm font-bold text-gray-800 leading-tight">{ociosas.length}</p>
-                  <p className="text-xs text-gray-400">
-                    {converterArea(ociosas.reduce((a, l) => a + (Number(l.areaHa) || 0), 0), grupo.medida)} {labelMedida(grupo.medida)}
-                  </p>
+              )}
+              {ociosas.length > 0 && (
+                <div className="bg-white rounded-xl border border-gray-100 shadow-sm flex flex-col flex-1 min-w-0 py-2.5 px-2">
+                  <div className="flex justify-center mb-1.5">
+                    <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-500">Ociosas</span>
+                  </div>
+                  <div className="h-px bg-gray-100 mx-1 mb-1.5" />
+                  <div className="text-center">
+                    <p className="text-xs text-gray-400 leading-tight">Qtde. de Lavoura(s)</p>
+                    <p className="text-lg font-bold text-gray-800">{ociosas.length}</p>
+                  </div>
+                  <div className="w-8 h-px bg-gray-200 mx-auto my-1" />
+                  <div className="text-center">
+                    <p className="text-xs text-gray-400 leading-tight">Área</p>
+                    <p className="text-lg font-bold text-gray-800">
+                      {converterArea(ociosas.reduce((a, l) => a + (Number(l.areaHa) || 0), 0), grupo.medida)}
+                      <span className="text-xs font-normal text-gray-400 ml-0.5">{labelMedida(grupo.medida)}</span>
+                    </p>
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
+
+          {/* Mapa colapsável */}
           {temPoligonos && (
             <>
               <button
@@ -718,7 +925,7 @@ export default function Lavouras() {
         )}
         <button onClick={() => setFabAberto(!fabAberto)}
           className={`w-14 h-14 rounded-full text-white flex items-center justify-center shadow-lg transition-all duration-200 ${fabAberto ? 'rotate-45' : ''}`}
-          style={{ background: fabAberto ? '#4B5563' : 'var(--brand-gradient)' }}>
+          style={{ background: 'var(--brand-gradient)' }}>
           <Plus size={24} />
         </button>
       </div>

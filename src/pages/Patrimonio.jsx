@@ -405,7 +405,7 @@ async function excluir(id, nome) {
             <ResponsiveContainer width="100%" height={180}>
               <ComposedChart
                 data={metricas.dadosGrafico}
-                margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
                 layout="vertical"
               >
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f0f0f0" />
@@ -417,8 +417,8 @@ async function excluir(id, nome) {
                 <YAxis
                   type="category"
                   dataKey="name"
-                  tick={{ fontSize: 11 }}
-                  width={120}
+                  tick={{ fontSize: 10 }}
+                  width={110}
                 />
                 <Tooltip content={<TooltipBridge />} />
                 {/* Barra invisível de offset */}
@@ -436,7 +436,10 @@ async function excluir(id, nome) {
   <LabelList
     dataKey="value"
     position="right"
-    formatter={v => `R$ ${formatarMoeda(v)}`}
+    formatter={v => v >= 1000
+      ? `R$${(v / 1000).toFixed(0)}k`
+      : `R$${Math.round(v)}`
+    }
     style={{ fontSize: 10, fill: '#6b7280' }}
   />
 </Bar>
