@@ -10,6 +10,7 @@ import Patrimonio from './pages/Patrimonio'
 import Financeiro from './pages/Financeiro'
 import Layout from './components/Layout'
 import Configuracoes from './pages/Configuracoes'
+import Producao from './pages/Producao'
 
 function RotaProtegida({ children }) {
   const { usuario } = useAuth()
@@ -27,6 +28,7 @@ export default function App() {
           <Route path="propriedades" element={<Propriedades />} />
           <Route path="lavouras" element={<Lavouras />} />
           <Route path="safras" element={<Safras />} />
+          <Route path="producao" element={<Producao />} />
           <Route path="patrimonio" element={<Patrimonio />} />
           <Route path="financeiro" element={<Financeiro />} />
           <Route path="/configuracoes" element={<Configuracoes />} />

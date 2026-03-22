@@ -4,6 +4,7 @@ import { db } from '../services/firebase'
 import { useAuth } from '../contexts/AuthContext'
 import { Plus, Trash2, Layers, Pencil, X } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
+import { CULTURAS, UNIDADES, getCultura } from '../config/culturasConfig'
 import { ptBR } from 'date-fns/locale'
 
 
@@ -22,7 +23,8 @@ function formatarData(dataISO) {
 
 const FORM_PADRAO = {
   nome: '', cultura: '', propriedadeId: '', lavouraIds: [],
-  dataInicio: '', dataTermino: '', status: 'Planejada'
+  dataInicio: '', dataTermino: '', status: 'Planejada',
+  unidade: 'sc', grupo: 'graos'
 }
 
 export default function Safras() {
@@ -122,6 +124,8 @@ export default function Safras() {
       dataInicio: s.dataInicio || s.dataPlantio || '',
       dataTermino: s.dataTermino || s.dataColheitaPrev || '',
       status: s.status || 'Planejada',
+      unidade: s.unidade || 'sc',
+      grupo: s.grupo || 'graos',
     })
     setModal(true)
   }
@@ -147,6 +151,8 @@ export default function Safras() {
       dataPlantio: form.dataInicio,
       dataColheitaPrev: form.dataTermino,
       status: form.status,
+      unidade: form.unidade || 'sc',
+      grupo: form.grupo || 'graos',
       uid: usuario.uid,
     }
     if (editando) {
@@ -366,13 +372,48 @@ export default function Safras() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Cultura</label>
                 <select value={form.cultura}
-                  onChange={e => setForm(f => ({ ...f, cultura: e.target.value }))}
+                  onChange={e => {
+                    const nomeCultura = e.target.value
+                    const config = getCultura(nomeCultura)
+                    setForm(f => ({
+                      ...f,
+                      cultura: nomeCultura,
+                      unidade: config?.unidadePadrao || 'sc',
+                      grupo: config?.grupo || 'outros',
+                    }))
+                  }}
                   className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                   required>
                   <option value="">Selecione...</option>
-                  {culturas.map(c => <option key={c}>{c}</option>)}
+                  {culturas.map(c => {
+                    const config = getCultura(c)
+                    return (
+                      <option key={c} value={c}>
+                        {config?.icone ? `${config.icone} ${c}` : c}
+                      </option>
+                    )
+                  })}
                 </select>
               </div>
+
+              {/* Unidade de medida — aparece após selecionar cultura */}
+              {form.cultura && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Unidade de medida da colheita
+                  </label>
+                  <select value={form.unidade}
+                    onChange={e => setForm(f => ({ ...f, unidade: e.target.value }))}
+                    className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+                    {UNIDADES.map(u => (
+                      <option key={u.value} value={u.value}>{u.label}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Sugerido para {form.cultura}. Todas as colheitas desta safra usarão esta unidade.
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Propriedade</label>
