@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { Plus, Trash2, Wheat, Pencil, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { getCamposQualidade, getCultura, UNIDADES, getLabelUnidade } from '../config/culturasConfig'
+import { getCamposQualidade, UNIDADES, getLabelUnidade } from '../config/culturasConfig'
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -28,14 +28,6 @@ function nomeMes(chave) {
   try { return format(new Date(Number(y), Number(m) - 1), 'MMMM yyyy', { locale: ptBR }) } catch { return chave }
 }
 
-// Retorna o emoji da cultura ou fallback
-function iconeCultura(nomeCultura) {
-  return getCultura(nomeCultura)?.icone || '🌾'
-}
-
-// Data de hoje no formato yyyy-MM-dd para limitar input date
-const HOJE = new Date().toISOString().split('T')[0]
-
 // ─────────────────────────────────────────────
 // Formulário padrão
 // ─────────────────────────────────────────────
@@ -45,8 +37,7 @@ const FORM_PADRAO = {
   dataColheita: '',
   quantidade: '',
   unidade: 'sc',
-  qualidade: {},
-  classificacao: '',
+  qualidade: {}, // campos dinâmicos por grupo
   observacoes: '',
 }
 
@@ -70,7 +61,6 @@ export default function Producao() {
   const [fabAberto, setFabAberto] = useState(false)
   const [confirmacao, setConfirmacao] = useState(null)
   const [gruposExpandidos, setGruposExpandidos] = useState({})
-  const [erroData, setErroData] = useState('')
 
   // Filtros
   const [filtroPropriedadeIds, setFiltroPropriedadeIds] = useState([])
@@ -121,15 +111,17 @@ export default function Producao() {
     return getCamposQualidade(safraSelecionada.cultura)
   }, [safraSelecionada])
 
-  // ── Lista filtrada ──
+  // ── Lista filtrada e agrupada por safra → mês ──
   const listaFiltrada = useMemo(() => {
     let resultado = lista
+
     if (filtroPropriedadeIds.length > 0) {
       resultado = resultado.filter(c => filtroPropriedadeIds.includes(c.propriedadeId))
     }
     if (filtroSafraId) {
       resultado = resultado.filter(c => c.safraId === filtroSafraId)
     }
+
     return [...resultado].sort((a, b) =>
       (b.dataColheita || '').localeCompare(a.dataColheita || '')
     )
@@ -140,9 +132,10 @@ export default function Producao() {
     const grupos = {}
     listaFiltrada.forEach(c => {
       const safraId = c.safraId || ''
-      const safraNome = c.safraNome || 'Sem safra'
+  const safraNome = c.safraNome || 'Sem safra'
       const cultura = c.cultura || ''
       const chaveMes = (c.dataColheita || '').substring(0, 7)
+
       if (!grupos[safraId]) grupos[safraId] = { safraNome, cultura, meses: {} }
       if (!grupos[safraId].meses[chaveMes]) grupos[safraId].meses[chaveMes] = []
       grupos[safraId].meses[chaveMes].push(c)
@@ -168,7 +161,7 @@ export default function Producao() {
       }))
   }, [listaFiltrada])
 
-  // Safras disponíveis no filtro
+  // Safras disponíveis no filtro (respeitando filtro de propriedade)
   const safrasFiltro = useMemo(() => {
     if (filtroPropriedadeIds.length === 0) return safras
     return safras.filter(s => filtroPropriedadeIds.includes(s.propriedadeId))
@@ -178,14 +171,12 @@ export default function Producao() {
   function abrirModal() {
     setEditando(null)
     setForm(FORM_PADRAO)
-    setErroData('')
     setFabAberto(false)
     setModal(true)
   }
 
   function abrirEdicao(c) {
     setEditando(c.id)
-    setErroData('')
     setForm({
       safraId: c.safraId || '',
       lavouraId: c.lavouraId || '',
@@ -193,7 +184,6 @@ export default function Producao() {
       quantidade: c.quantidade ? String(c.quantidade) : '',
       unidade: c.unidade || 'sc',
       qualidade: c.qualidade || {},
-      classificacao: c.classificacao || '',
       observacoes: c.observacoes || '',
     })
     setModal(true)
@@ -216,22 +206,11 @@ export default function Producao() {
     setForm(f => ({ ...f, qualidade: { ...f.qualidade, [key]: value } }))
   }
 
-  // Valida data ao alterar — bloqueia datas futuras
-  function handleDataColheita(valor) {
-    if (valor > HOJE) {
-      setErroData('A data da colheita não pode ser futura. Colheitas ainda não realizadas não podem ser registradas.')
-    } else {
-      setErroData('')
-    }
-    setForm(f => ({ ...f, dataColheita: valor }))
-  }
-
   // ── Salvar ──
   async function salvar(e) {
     e.preventDefault()
     if (!form.safraId) return alert('Selecione uma safra.')
     if (!form.quantidade || isNaN(Number(form.quantidade))) return alert('Informe a quantidade colhida.')
-    if (form.dataColheita > HOJE) return
     setLoading(true)
 
     const safra = safras.find(s => s.id === form.safraId)
@@ -250,7 +229,6 @@ export default function Producao() {
       quantidade: Number(form.quantidade),
       unidade: form.unidade,
       qualidade: form.qualidade || {},
-      classificacao: form.classificacao || '',
       observacoes: form.observacoes || '',
       uid: usuario.uid,
     }
@@ -264,7 +242,6 @@ export default function Producao() {
     setModal(false)
     setEditando(null)
     setForm(FORM_PADRAO)
-    setErroData('')
     await carregar()
     setLoading(false)
   }
@@ -370,19 +347,19 @@ export default function Producao() {
       {/* ── Grupos por safra ── */}
       <div className="space-y-4">
         {agrupado.map(grupo => {
-          const expandido = gruposExpandidos[grupo.safraId] !== false
+          const expandido = gruposExpandidos[grupo.safraId] !== false // expandido por padrão
 
           return (
             <div key={grupo.safraId} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
 
-              {/* Cabeçalho da safra — Passo 2: ícone dinâmico por cultura */}
+              {/* Cabeçalho da safra */}
               <button type="button"
                 onClick={() => toggleGrupo(grupo.safraId)}
                 className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-base"
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
                     style={{ background: 'var(--brand-gradient)' }}>
-                    {iconeCultura(grupo.cultura)}
+                    <Wheat size={14} className="text-white" />
                   </div>
                   <div className="text-left min-w-0">
                     <p className="font-semibold text-gray-800 text-sm">{grupo.safraNome}</p>
@@ -409,82 +386,78 @@ export default function Producao() {
                   {grupo.meses.map(mes => (
                     <div key={mes.chave}>
 
-                      {/* Cabeçalho do mês — Passo 1: mais destacado com fundo verde suave */}
-                      <div className="flex items-center justify-between px-4 py-2 bg-green-50 border-b border-green-100">
-                        <p className="text-xs font-bold text-green-800 capitalize">
+                      {/* Cabeçalho do mês */}
+                      <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-100">
+                        <p className="text-xs font-semibold text-gray-500 capitalize">
                           {nomeMes(mes.chave)}
                         </p>
-                        <p className="text-xs font-bold text-green-700">
+                        <p className="text-xs font-semibold text-gray-600">
                           {formatarNumero(mes.totalMes)} {grupo.unidade}
                         </p>
                       </div>
 
-                      {/* Registros — Passo 1: layout horizontal + separação com border-gray-200 */}
-                      {mes.itens.map((c, idx) => {
+                      {/* Registros */}
+                      {mes.itens.map(c => {
                         const camposQ = getCamposQualidade(c.cultura || '')
                         const temQualidade = camposQ.length > 0 &&
                           Object.keys(c.qualidade || {}).some(k => c.qualidade[k] !== '' && c.qualidade[k] !== undefined)
-                        const isUltimo = idx === mes.itens.length - 1
 
                         return (
                           <div key={c.id}
-                            className={`px-4 py-3 hover:bg-gray-50/70 transition-colors ${!isUltimo ? 'border-b border-gray-200' : ''}`}>
-
-                            {/* Linha principal: lavoura + data + quantidade + ações */}
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-2 min-w-0 flex-1">
-                                <p className="text-sm font-semibold text-gray-800 truncate">
+                            className="flex items-start justify-between px-4 py-3 border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="text-sm font-medium text-gray-800">
                                   {c.lavouraNome || 'Sem lavoura'}
                                 </p>
-                                <span className="text-xs text-gray-400 flex-shrink-0">
+                                <span className="text-xs text-gray-400">
                                   {formatarData(c.dataColheita)}
                                 </span>
                               </div>
-                              <div className="flex items-center gap-2 flex-shrink-0">
-                                <span className="text-sm font-bold text-green-700">
-                                  {formatarNumero(c.quantidade)} {c.unidade}
-                                </span>
-                                <button onClick={() => abrirEdicao(c)}
-                                  className="text-gray-300 hover:text-blue-500 p-1 transition-colors">
-                                  <Pencil size={14} />
-                                </button>
-                                <button onClick={() => excluir(c.id, c.lavouraNome || 'colheita')}
-                                  className="text-gray-300 hover:text-red-500 p-1 transition-colors">
-                                  <Trash2 size={14} />
-                                </button>
-                              </div>
+                              <p className="text-xs text-gray-500 mt-0.5">
+                                {c.propriedadeNome}
+                              </p>
+
+                              {/* Quantidade */}
+                              <p className="text-sm font-semibold text-green-700 mt-1">
+                                {formatarNumero(c.quantidade)} {c.unidade}
+                              </p>
+
+                              {/* Qualidade — exibe se preenchida */}
+                              {temQualidade && (
+                                <div className="flex flex-wrap gap-2 mt-1.5">
+                                  {camposQ.map(campo => {
+                                    const val = c.qualidade?.[campo.key]
+                                    if (!val && val !== 0) return null
+                                    return (
+                                      <span key={campo.key}
+                                        className="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full border border-green-100">
+                                        {campo.label}: {val}{campo.unidade ? ` ${campo.unidade}` : ''}
+                                      </span>
+                                    )
+                                  })}
+                                </div>
+                              )}
+
+                              {/* Observações */}
+                              {c.observacoes && (
+                                <p className="text-xs text-gray-400 mt-1 italic">
+                                  {c.observacoes}
+                                </p>
+                              )}
                             </div>
 
-                            {/* Linha secundária: propriedade */}
-                            <p className="text-xs text-gray-400 mt-0.5">{c.propriedadeNome}</p>
-
-                            {/* Passo 3: Classificação */}
-                            {c.classificacao && (
-                              <span className="inline-block mt-1.5 text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-100 font-medium">
-                                🏷️ {c.classificacao}
-                              </span>
-                            )}
-
-                            {/* Tags de qualidade */}
-                            {temQualidade && (
-                              <div className="flex flex-wrap gap-1.5 mt-1.5">
-                                {camposQ.map(campo => {
-                                  const val = c.qualidade?.[campo.key]
-                                  if (!val && val !== 0) return null
-                                  return (
-                                    <span key={campo.key}
-                                      className="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full border border-green-100">
-                                      {campo.label}: {val}{campo.unidade ? ` ${campo.unidade}` : ''}
-                                    </span>
-                                  )
-                                })}
-                              </div>
-                            )}
-
-                            {/* Observações */}
-                            {c.observacoes && (
-                              <p className="text-xs text-gray-400 mt-1 italic">{c.observacoes}</p>
-                            )}
+                            {/* Ações */}
+                            <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+                              <button onClick={() => abrirEdicao(c)}
+                                className="text-gray-300 hover:text-blue-500 p-1 transition-colors">
+                                <Pencil size={15} />
+                              </button>
+                              <button onClick={() => excluir(c.id, c.lavouraNome || 'colheita')}
+                                className="text-gray-300 hover:text-red-500 p-1 transition-colors">
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
                           </div>
                         )
                       })}
@@ -552,7 +525,7 @@ export default function Producao() {
                 </select>
               </div>
 
-              {/* Lavoura */}
+              {/* Lavoura — só aparece se a safra tiver lavouras vinculadas */}
               {lavourasDaSafra.length > 0 && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Lavoura</label>
@@ -569,25 +542,13 @@ export default function Producao() {
                 </div>
               )}
 
-              {/* Data da colheita — Passo 1: max=HOJE + erro inline + fix mobile */}
+              {/* Data da colheita */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Data da colheita <span className="text-red-500">*</span>
-                </label>
-                <div className="min-w-0 w-full">
-                  <input type="date"
-                    value={form.dataColheita}
-                    max={HOJE}
-                    onChange={e => handleDataColheita(e.target.value)}
-                    className="w-full min-w-0 border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                    required />
-                </div>
-                {erroData && (
-                  <p className="text-xs text-red-500 mt-1 flex items-start gap-1">
-                    <span className="flex-shrink-0">⚠️</span>
-                    <span>{erroData}</span>
-                  </p>
-                )}
+                <label className="block text-sm font-medium text-gray-700 mb-1">Data da colheita <span className="text-red-500">*</span></label>
+                <input type="date" value={form.dataColheita}
+                  onChange={e => setForm(f => ({ ...f, dataColheita: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  required />
               </div>
 
               {/* Quantidade + Unidade */}
@@ -617,53 +578,42 @@ export default function Producao() {
                 </div>
               </div>
 
-              {/* Bloco de qualidade — Passo 3: campo Classificação sempre visível */}
-              <div className="space-y-3">
-                <p className="text-sm font-medium text-gray-700">
-                  Qualidade <span className="text-xs text-gray-400 font-normal">(opcional)</span>
-                </p>
-                <div className="bg-gray-50 rounded-xl p-3 space-y-3">
-
-                  {/* Classificação — sempre presente */}
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Classificação</label>
-                    <input
-                      type="text"
-                      value={form.classificacao}
-                      onChange={e => setForm(f => ({ ...f, classificacao: e.target.value }))}
-                      placeholder="Ex: código da cooperativa, armazém ou classificação do lote"
-                      className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+              {/* Campos de qualidade dinâmicos */}
+              {camposQualidade.length > 0 && (
+                <div className="space-y-3">
+                  <p className="text-sm font-medium text-gray-700">
+                    Qualidade <span className="text-xs text-gray-400 font-normal">(opcional)</span>
+                  </p>
+                  <div className="bg-gray-50 rounded-xl p-3 space-y-3">
+                    {camposQualidade.map(campo => (
+                      <div key={campo.key}>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          {campo.label}
+                          {campo.unidade && <span className="text-gray-400 font-normal"> ({campo.unidade})</span>}
+                        </label>
+                        {campo.tipo === 'select' ? (
+                          <select
+                            value={form.qualidade[campo.key] || ''}
+                            onChange={e => setQualidade(campo.key, e.target.value)}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+                            <option value="">Não informado</option>
+                            {campo.opcoes.map(op => (
+                              <option key={op} value={op}>{op}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            type="number" min={campo.min} max={campo.max} step="0.01"
+                            value={form.qualidade[campo.key] || ''}
+                            onChange={e => setQualidade(campo.key, e.target.value)}
+                            placeholder={`${campo.min ?? 0} – ${campo.max ?? ''}${campo.unidade ? ' ' + campo.unidade : ''}`}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+                        )}
+                      </div>
+                    ))}
                   </div>
-
-                  {/* Campos dinâmicos por cultura */}
-                  {camposQualidade.map(campo => (
-                    <div key={campo.key}>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
-                        {campo.label}
-                        {campo.unidade && <span className="text-gray-400 font-normal"> ({campo.unidade})</span>}
-                      </label>
-                      {campo.tipo === 'select' ? (
-                        <select
-                          value={form.qualidade[campo.key] || ''}
-                          onChange={e => setQualidade(campo.key, e.target.value)}
-                          className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
-                          <option value="">Não informado</option>
-                          {campo.opcoes.map(op => (
-                            <option key={op} value={op}>{op}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <input
-                          type="number" min={campo.min} max={campo.max} step="0.01"
-                          value={form.qualidade[campo.key] || ''}
-                          onChange={e => setQualidade(campo.key, e.target.value)}
-                          placeholder={`${campo.min ?? 0} – ${campo.max ?? ''}${campo.unidade ? ' ' + campo.unidade : ''}`}
-                          className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
-                      )}
-                    </div>
-                  ))}
                 </div>
-              </div>
+              )}
 
               {/* Observações */}
               <div>
@@ -675,14 +625,14 @@ export default function Producao() {
                   className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 resize-none" />
               </div>
 
-              {/* Botões — salvar bloqueado se houver erro de data */}
+              {/* Botões */}
               <div className="flex gap-3 pt-1">
                 <button type="button"
                   onClick={() => { setModal(false); setEditando(null) }}
                   className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">
                   Cancelar
                 </button>
-                <button type="submit" disabled={loading || !!erroData}
+                <button type="submit" disabled={loading}
                   className="flex-1 text-white py-2 rounded-xl text-sm font-medium disabled:opacity-50 shadow-md"
                   style={{ background: 'var(--brand-gradient)' }}>
                   {loading ? 'Salvando...' : editando ? 'Atualizar' : 'Salvar'}
