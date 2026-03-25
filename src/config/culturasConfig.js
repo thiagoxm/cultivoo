@@ -21,7 +21,7 @@ export const GRUPOS_QUALIDADE = {
   cafe: {
     label: 'Café',
     campos: [
-      { key: 'tipo',      label: 'Tipo (classificação)',  unidade: '',    tipo: 'select',
+      { key: 'tipo',      label: 'Tipo',  unidade: '',    tipo: 'select',
         opcoes: ['2', '3', '4', '5', '6', '7', '8'] },
       { key: 'peneira',   label: 'Peneira',               unidade: '',    tipo: 'select',
         opcoes: ['13', '14', '15', '16', '17', '18', '19', '20'] },
