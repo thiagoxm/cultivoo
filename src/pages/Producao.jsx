@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from 'react'
 import { collection, query, where, getDocs, addDoc, deleteDoc, doc, updateDoc } from 'firebase/firestore'
 import { db } from '../services/firebase'
 import { useAuth } from '../contexts/AuthContext'
-import { Plus, Trash2, Wheat, Pencil, X, ChevronDown, ChevronUp, CheckCircle } from 'lucide-react'
+import { Plus, Trash2, Wheat, Pencil, X, ChevronDown, ChevronUp, CheckCircle, AlertCircle } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { getCamposQualidade, getCultura, UNIDADES, getLabelUnidade } from '../config/culturasConfig'
@@ -28,7 +28,6 @@ function nomeMes(chave) {
   try { return format(new Date(Number(y), Number(m) - 1), 'MMMM yyyy', { locale: ptBR }) } catch { return chave }
 }
 
-// Data de hoje no fuso local do usuário — evita bug de UTC no Brasil
 function getHoje() {
   const d = new Date()
   const y = d.getFullYear()
@@ -81,7 +80,8 @@ export default function Producao() {
   const [loading, setLoading] = useState(false)
   const [fabAberto, setFabAberto] = useState(false)
   const [confirmacao, setConfirmacao] = useState(null)
-  const [modalConcluir, setModalConcluir] = useState(null) // { safraId, safraNome, dataTermino }
+  const [modalConcluir, setModalConcluir] = useState(null)   // { safraId, safraNome, dataTermino }
+  const [modalIniciar, setModalIniciar] = useState(null)     // { safraId, safraNome, colheitaId }
   const [gruposExpandidos, setGruposExpandidos] = useState({})
   const [aba, setAba] = useState('atuais')
 
@@ -130,7 +130,15 @@ export default function Producao() {
     return getCamposQualidade(safraSelecionada.cultura)
   }, [safraSelecionada])
 
-  // ── Safras separadas por aba — ordenadas decrescente por dataTermino ──
+  // ── Safras para seleção no modal ──
+  // Nova colheita: apenas "Em andamento" e "Planejada"
+  // Edição: todas as safras (para não perder vínculo)
+  const safrasParaModal = useMemo(() => {
+    if (editando) return safras
+    return safras.filter(s => s.status === 'Em andamento' || s.status === 'Planejada')
+  }, [safras, editando])
+
+  // ── Separação por aba ──
   const safrasAtuais = useMemo(() => safras
     .filter(s => !(s.dataTermino && s.dataTermino < HOJE && s.status === 'Colhida'))
     .sort((a, b) => (b.dataTermino || '').localeCompare(a.dataTermino || ''))
@@ -176,7 +184,6 @@ export default function Producao() {
       .map(s => {
         const colheitasDaSafra = listaFiltrada.filter(c => c.safraId === s.id)
         const lavourasVinculadas = lavouras.filter(l => s.lavouraIds?.includes(l.id))
-        const areaTotal = lavourasVinculadas.reduce((a, l) => a + (Number(l.areaHa) || 0), 0)
         const totalColhido = colheitasDaSafra.reduce((a, c) => a + (Number(c.quantidade) || 0), 0)
         const unidade = s.unidade || colheitasDaSafra[0]?.unidade || 'sc'
 
@@ -204,7 +211,6 @@ export default function Producao() {
           status: s.status || '',
           totalColhido,
           unidade,
-          areaTotal,
           produtividade,
           lavourasPendentes: lavourasPendentes.length,
           areaPendente,
@@ -220,6 +226,19 @@ export default function Producao() {
       base = base.filter(s => filtroPropriedadeIds.includes(s.propriedadeId))
     return base
   }, [safrasDaAba, filtroPropriedadeIds])
+
+  // ── Expansão inicial por aba:
+  // Atuais → abertos por padrão (undefined = aberto)
+  // Passadas → fechados por padrão (false = fechado)
+  function expandidoPorPadrao(safraId) {
+    if (safraId in gruposExpandidos) return gruposExpandidos[safraId]
+    return aba === 'atuais' // true para atuais, false para passadas
+  }
+
+  function toggleGrupo(safraId) {
+    const atual = expandidoPorPadrao(safraId)
+    setGruposExpandidos(g => ({ ...g, [safraId]: !atual }))
+  }
 
   // ── Modal ──
   function abrirModal() {
@@ -268,14 +287,13 @@ export default function Producao() {
   }
 
   // ── Verificar se deve sugerir conclusão da safra ──
-  async function verificarConclusaoSafra(safraId, novaColheitaLavouraId, novaDataColheita) {
+  async function verificarConclusaoSafra(safraId, novaLavouraId, novaData) {
     const safra = safras.find(s => s.id === safraId)
-    if (!safra || safra.status === 'Colhida') return // já concluída, ignora
+    if (!safra || safra.status === 'Colhida') return
 
     const lavourasVinculadas = lavouras.filter(l => safra.lavouraIds?.includes(l.id))
-    if (lavourasVinculadas.length === 0) return // safra sem lavouras, ignora
+    if (lavourasVinculadas.length === 0) return
 
-    // Busca colheitas atualizadas do Firestore para essa safra
     const snap = await getDocs(
       query(collection(db, 'colheitas'),
         where('uid', '==', usuario.uid),
@@ -284,39 +302,48 @@ export default function Producao() {
     )
     const colheitasSafra = snap.docs.map(d => d.data())
 
-    // Inclui a nova colheita que acabou de ser salva
-    const todasLavouraIdsComColheita = new Set([
+    const todasLavouraIds = new Set([
       ...colheitasSafra.map(c => c.lavouraId).filter(Boolean),
-      novaColheitaLavouraId,
+      novaLavouraId,
     ])
 
-    // Verifica se todas as lavouras têm pelo menos uma colheita
-    const todasColhidas = lavourasVinculadas.every(l => todasLavouraIdsComColheita.has(l.id))
+    const todasColhidas = lavourasVinculadas.every(l => todasLavouraIds.has(l.id))
     if (!todasColhidas) return
 
-    // Calcula a data mais recente entre todas as colheitas + a nova
     const todasDatas = [
       ...colheitasSafra.map(c => c.dataColheita).filter(Boolean),
-      novaDataColheita,
+      novaData,
     ]
     const dataTerminoSugerida = todasDatas.sort().reverse()[0]
 
-    setModalConcluir({
-      safraId,
-      safraNome: safra.nome,
-      dataTermino: dataTerminoSugerida,
-    })
+    setModalConcluir({ safraId, safraNome: safra.nome, dataTermino: dataTerminoSugerida })
   }
 
-  // ── Concluir safra ──
+  // ── Confirmar conclusão da safra ──
   async function concluirSafra() {
     if (!modalConcluir) return
     await updateDoc(doc(db, 'safras', modalConcluir.safraId), {
       status: 'Colhida',
       dataTermino: modalConcluir.dataTermino,
-      dataColheitaPrev: modalConcluir.dataTermino, // compatibilidade
+      dataColheitaPrev: modalConcluir.dataTermino,
     })
     setModalConcluir(null)
+    await carregar()
+  }
+
+  // ── Confirmar início da safra (safra Planejada) ──
+  async function confirmarIniciarSafra() {
+    if (!modalIniciar) return
+    await updateDoc(doc(db, 'safras', modalIniciar.safraId), { status: 'Em andamento' })
+    setModalIniciar(null)
+    await carregar()
+  }
+
+  // ── Cancelar início — exclui a colheita salva ──
+  async function cancelarIniciarSafra() {
+    if (!modalIniciar) return
+    await deleteDoc(doc(db, 'colheitas', modalIniciar.colheitaId))
+    setModalIniciar(null)
     await carregar()
   }
 
@@ -349,10 +376,12 @@ export default function Producao() {
       uid: usuario.uid,
     }
 
+    let colheitaId = editando
     if (editando) {
       await updateDoc(doc(db, 'colheitas', editando), payload)
     } else {
-      await addDoc(collection(db, 'colheitas'), { ...payload, criadoEm: new Date() })
+      const docRef = await addDoc(collection(db, 'colheitas'), { ...payload, criadoEm: new Date() })
+      colheitaId = docRef.id
     }
 
     setModal(false)
@@ -361,9 +390,16 @@ export default function Producao() {
     await carregar()
     setLoading(false)
 
-    // Verifica conclusão apenas em novos registros com lavoura selecionada
-    if (!editando && form.lavouraId) {
-      await verificarConclusaoSafra(form.safraId, form.lavouraId, form.dataColheita)
+    if (!editando) {
+      // Safra Planejada → pede para iniciar (obrigatório para manter colheita)
+      if (safra?.status === 'Planejada') {
+        setModalIniciar({ safraId: form.safraId, safraNome: safra.nome, colheitaId })
+        return
+      }
+      // Safra Em andamento → verifica se todas lavouras já foram colhidas
+      if (form.lavouraId) {
+        await verificarConclusaoSafra(form.safraId, form.lavouraId, form.dataColheita)
+      }
     }
   }
 
@@ -375,10 +411,6 @@ export default function Producao() {
         await carregar()
       },
     })
-  }
-
-  function toggleGrupo(safraId) {
-    setGruposExpandidos(g => ({ ...g, [safraId]: !g[safraId] }))
   }
 
   // ─────────────────────────────────────────────
@@ -458,7 +490,8 @@ export default function Producao() {
           { val: 'atuais', label: 'Safras Atuais' },
           { val: 'passadas', label: 'Safras Passadas' },
         ].map(a => (
-          <button key={a.val} onClick={() => { setAba(a.val); setFiltroSafraId('') }}
+          <button key={a.val}
+            onClick={() => { setAba(a.val); setFiltroSafraId(''); setGruposExpandidos({}) }}
             className={`px-4 py-2 text-xs font-medium border-b-2 whitespace-nowrap transition-colors ${
               aba === a.val
                 ? 'border-green-600 text-green-700'
@@ -485,18 +518,17 @@ export default function Producao() {
       {/* ── Grupos por safra ── */}
       <div className="space-y-4">
         {agrupado.map(grupo => {
-          const expandido = gruposExpandidos[grupo.safraId] !== false
+          const expandido = expandidoPorPadrao(grupo.safraId)
 
           return (
             <div key={grupo.safraId} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
 
-              {/* Cabeçalho da safra com indicadores */}
+              {/* Cabeçalho da safra */}
               <button type="button"
                 onClick={() => toggleGrupo(grupo.safraId)}
                 className="w-full text-left transition-colors hover:brightness-95"
                 style={{ background: 'linear-gradient(to right, #f0fdf4, #ffffff)' }}>
 
-                {/* Nome + ícone + chevron */}
                 <div className="flex items-center justify-between px-4 pt-3 pb-1">
                   <div className="flex items-center gap-2 min-w-0">
                     <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
@@ -699,16 +731,26 @@ export default function Producao() {
             <form onSubmit={salvar} className="p-5 space-y-4">
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Safra <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Safra <span className="text-red-500">*</span>
+                </label>
                 <select value={form.safraId}
                   onChange={e => selecionarSafra(e.target.value)}
                   className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                   required>
                   <option value="">Selecione a safra...</option>
-                  {safras.map(s => (
-                    <option key={s.id} value={s.id}>{s.nome} — {s.cultura}</option>
+                  {safrasParaModal.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.nome} — {s.cultura}
+                      {s.status === 'Planejada' ? ' (Planejada)' : ''}
+                    </option>
                   ))}
                 </select>
+                {!editando && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    Exibindo safras em andamento e planejadas.
+                  </p>
+                )}
               </div>
 
               {lavourasDaSafra.length > 0 && (
@@ -839,7 +881,38 @@ export default function Producao() {
         </div>
       )}
 
-      {/* ── Modal conclusão de safra ── */}
+      {/* ── Modal: safra planejada → iniciar ── */}
+      {modalIniciar && (
+        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                <AlertCircle size={20} className="text-amber-600" />
+              </div>
+              <h3 className="font-bold text-gray-800">Safra ainda não iniciada</h3>
+            </div>
+            <p className="text-sm text-gray-600">
+              A safra <span className="font-semibold">{modalIniciar.safraNome}</span> está com situação <span className="font-semibold text-amber-600">Planejada</span>.
+            </p>
+            <p className="text-sm text-gray-600">
+              Para manter esta colheita registrada, é necessário atualizar a situação da safra para <span className="font-semibold text-green-700">Em andamento</span>. Deseja continuar?
+            </p>
+            <div className="flex gap-3 pt-1">
+              <button onClick={cancelarIniciarSafra}
+                className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">
+                Cancelar colheita
+              </button>
+              <button onClick={confirmarIniciarSafra}
+                className="flex-1 text-white py-2 rounded-xl text-sm font-medium shadow-md"
+                style={{ background: 'var(--brand-gradient)' }}>
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: todas lavouras colhidas → concluir safra ── */}
       {modalConcluir && (
         <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl p-6 space-y-4">

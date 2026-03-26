@@ -93,7 +93,7 @@ export const CULTURAS = [
 ];
 
 // ─────────────────────────────────────────────
-// UNIDADES disponíveis para seleção
+// UNIDADES de produção — para colheitas e safras
 // ─────────────────────────────────────────────
 export const UNIDADES = [
   { value: 'sc',  label: 'Sacas (sc)'       },
@@ -103,6 +103,85 @@ export const UNIDADES = [
   { value: 'cx',  label: 'Caixas (cx)'      },
   { value: 'l',   label: 'Litros (l)'       },
 ];
+
+// ─────────────────────────────────────────────
+// UNIDADES de insumos — lista específica para
+// defensivos, fertilizantes, sementes, combustíveis
+// ─────────────────────────────────────────────
+export const UNIDADES_INSUMOS = [
+  { value: 'l',   label: 'Litros (L)'          },
+  { value: 'ml',  label: 'Mililitros (mL)'      },
+  { value: 'kg',  label: 'Quilogramas (kg)'     },
+  { value: 'g',   label: 'Gramas (g)'           },
+  { value: 't',   label: 'Toneladas (t)'        },
+  { value: 'sc',  label: 'Sacas (sc)'           },
+  { value: 'un',  label: 'Unidades (un)'        },
+  { value: 'cx',  label: 'Caixas (cx)'          },
+]
+
+// ─────────────────────────────────────────────
+// TIPOS de insumos
+// Cada tipo tem: valor (key), label, ícone e
+// categoria correspondente no Financeiro
+// ─────────────────────────────────────────────
+export const TIPOS_INSUMOS = [
+  {
+    value: 'sementes',
+    label: 'Sementes / Mudas',
+    icone: '🌱',
+    categoriaFinanceiro: 'Insumos',
+    tipoFinanceiro: 'Sementes / Mudas',
+  },
+  {
+    value: 'fertilizante',
+    label: 'Fertilizante',
+    icone: '🧪',
+    categoriaFinanceiro: 'Insumos',
+    tipoFinanceiro: 'Adubos',
+  },
+  {
+    value: 'defensivo',
+    label: 'Defensivo',
+    icone: '🛡️',
+    categoriaFinanceiro: 'Insumos',
+    tipoFinanceiro: 'Defensivos',
+  },
+  {
+    value: 'inoculante',
+    label: 'Inoculante / Bioinsumo',
+    icone: '🔬',
+    categoriaFinanceiro: 'Insumos',
+    tipoFinanceiro: 'Outros',
+  },
+  {
+    value: 'corretivo',
+    label: 'Corretivo de Solo',
+    icone: '⚗️',
+    categoriaFinanceiro: 'Insumos',
+    tipoFinanceiro: 'Fertilizantes',
+  },
+  {
+    value: 'combustivel',
+    label: 'Combustível',
+    icone: '⛽',
+    categoriaFinanceiro: 'Máquinas e Equipamentos',
+    tipoFinanceiro: 'Combustível',
+  },
+  {
+    value: 'lubrificante',
+    label: 'Lubrificante',
+    icone: '🔧',
+    categoriaFinanceiro: 'Máquinas e Equipamentos',
+    tipoFinanceiro: 'Manutenção',
+  },
+  {
+    value: 'outros',
+    label: 'Outros',
+    icone: '📦',
+    categoriaFinanceiro: 'Insumos',
+    tipoFinanceiro: 'Outros',
+  },
+]
 
 // ─────────────────────────────────────────────
 // HELPERS — funções utilitárias
@@ -126,7 +205,17 @@ export function getUnidadePadrao(nomeCultura) {
   return cultura?.unidadePadrao || 'sc';
 }
 
-/** Retorna o label amigável de uma unidade */
+/** Retorna o label amigável de uma unidade de produção */
 export function getLabelUnidade(value) {
   return UNIDADES.find(u => u.value === value)?.label || value;
+}
+
+/** Retorna o label amigável de uma unidade de insumo */
+export function getLabelUnidadeInsumo(value) {
+  return UNIDADES_INSUMOS.find(u => u.value === value)?.label || value;
+}
+
+/** Retorna o objeto de um tipo de insumo pelo value */
+export function getTipoInsumo(value) {
+  return TIPOS_INSUMOS.find(t => t.value === value) || null;
 }
