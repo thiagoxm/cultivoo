@@ -34,7 +34,8 @@ const FORM_PADRAO = {
   tipoRateio: 'igualitario', percentuaisRateio: {},
   valorAquisicaoMask: '', valorResidualMask: '',
   anoAquisicao: ANO_ATUAL, vidaUtil: '',
-  numeroIdentificacao: '', descricao: ''
+  numeroIdentificacao: '', descricao: '',
+  isImplemento: false,
 }
 
 // Dropdown multiselect reutilizável
@@ -251,6 +252,7 @@ export default function Patrimonio() {
       vidaUtil: item.vidaUtil || '',
       numeroIdentificacao: item.numeroIdentificacao || '',
       descricao: item.descricao || '',
+      isImplemento: item.isImplemento || false,
     })
     setModal(true)
   }
@@ -285,6 +287,7 @@ export default function Patrimonio() {
       vidaUtil: Number(form.vidaUtil) || 0,
       numeroIdentificacao: form.numeroIdentificacao,
       descricao: form.descricao,
+      isImplemento: form.categoria === 'Equipamentos Móveis' ? form.isImplemento : false,
       uid: usuario.uid,
     }
     if (editando) {
@@ -570,6 +573,23 @@ async function excluir(id, nome) {
                   {CATEGORIAS.map(c => <option key={c}>{c}</option>)}
                 </select>
               </div>
+
+              {/* Toggle implemento — só para Equipamentos Móveis */}
+              {form.categoria === 'Equipamentos Móveis' && (
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <label className="flex items-center gap-3 cursor-pointer"
+                    onClick={() => setForm(f => ({ ...f, isImplemento: !f.isImplemento }))}>
+                    <div className={`w-9 h-5 rounded-full transition-colors relative flex-shrink-0 ${form.isImplemento ? 'bg-green-600' : 'bg-gray-300'}`}>
+                      <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${form.isImplemento ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-700">É um implemento agrícola</p>
+                      <p className="text-xs text-gray-400">Implementos não são autopropelidos (grade, plantadeira, pulverizador de arrasto, etc.)</p>
+                    </div>
+                  </label>
+                </div>
+              )}
+
 
               {/* Propriedades */}
               <div>

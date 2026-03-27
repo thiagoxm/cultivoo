@@ -3,7 +3,7 @@ import { signOut } from 'firebase/auth'
 import { auth } from '../services/firebase'
 import {
   LayoutDashboard, MapPin, Sprout, Layers,
-  Tractor, DollarSign, LogOut, Menu, X, Leaf, Settings, Wheat
+  Tractor, DollarSign, LogOut, Menu, X, Leaf, Settings, Wheat, Package
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -15,6 +15,7 @@ const menus = [
   { to: '/producao',       icon: Wheat,            label: 'Produção' },
   { to: '/patrimonio',     icon: Tractor,          label: 'Patrimônio' },
   { to: '/financeiro',     icon: DollarSign,       label: 'Financeiro' },
+  { to: '/estoque',        icon: Package,          label: 'Estoque' },
 ]
 
 export default function Layout() {
