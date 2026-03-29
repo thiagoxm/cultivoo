@@ -11,7 +11,7 @@ import {
   PackageOpen, AlertTriangle,
   ArrowDownCircle, ArrowUpCircle,
   Info, Search, Clock, TrendingDown,
-  Ban, Edit3
+  Ban, Edit3, History
 } from 'lucide-react'
 import { format, parseISO, differenceInDays, subYears } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -105,12 +105,21 @@ function calcularLotesRestantes(movimentacoes) {
     .sort((a, b) => (a.dataMovimento || '').localeCompare(b.dataMovimento || ''))
 
   saidas.forEach(saida => {
-    let restante = Number(saida.quantidade) || 0
-    for (const lote of entradasAtivas) {
-      if (restante <= 0) break
-      const consumido = Math.min(lote.saldoLote, restante)
-      lote.saldoLote -= consumido
-      restante -= consumido
+    // Se a saída tem lotesConsumidos registrados, usa eles para maior precisão
+    if (saida.lotesConsumidos?.length > 0) {
+      saida.lotesConsumidos.forEach(lc => {
+        const lote = entradasAtivas.find(e => e.id === lc.entradaId)
+        if (lote) lote.saldoLote -= Number(lc.quantidade) || 0
+      })
+    } else {
+      // Fallback FIFO genérico para saídas antigas
+      let restante = Number(saida.quantidade) || 0
+      for (const lote of entradasAtivas) {
+        if (restante <= 0) break
+        const consumido = Math.min(lote.saldoLote, restante)
+        lote.saldoLote -= consumido
+        restante -= consumido
+      }
     }
   })
 
@@ -130,7 +139,6 @@ function validadeMaisCriticaFIFO(movimentacoes) {
   return lotes.sort((a, b) => a.dias - b.dias)[0]
 }
 
-// Calcula custo de um volume baseado nas entradas mais recentes (para transferência)
 function calcularCustoTransferencia(movimentacoes, volume) {
   const entradas = movimentacoes
     .filter(m => m.tipoMov === 'entrada' && !m.cancelado && Number(m.valorTotal) > 0)
@@ -148,24 +156,48 @@ function calcularCustoTransferencia(movimentacoes, volume) {
     const precoPorUnidade = valorEntrada / qtdEntrada
     const consumido = Math.min(qtdEntrada, restante)
     custoTotal += consumido * precoPorUnidade
-    lotesUsados.push({ data: entrada.dataMovimento, quantidade: consumido, dataValidade: entrada.dataValidade || '' })
+    lotesUsados.push({
+      entradaId: entrada.id,
+      dataMovimento: entrada.dataMovimento,
+      quantidade: consumido,
+      dataValidade: entrada.dataValidade || '',
+    })
     restante -= consumido
   }
 
   return { custoTotal, lotesUsados }
 }
 
-// Gera resumo FIFO para qualquer tipo de saída
-function gerarResumoFIFO(lotesRestantes, qtd, unidade) {
+// Gera resumo FIFO — retorna array de { entradaId, dataMovimento, saldoLote, consumido, dataValidade, notaRef }
+function gerarResumoFIFO(lotesRestantes, qtd) {
   let restante = qtd
   const resumo = []
   for (const lote of lotesRestantes) {
     if (restante <= 0) break
     const consumido = Math.min(lote.saldoLote, restante)
-    resumo.push({ ...lote, consumido })
+    resumo.push({
+      entradaId: lote.id,
+      dataMovimento: lote.dataMovimento,
+      saldoLote: lote.saldoLote,
+      consumido,
+      dataValidade: lote.dataValidade || '',
+      notaRef: lote.notaRef || '',
+    })
     restante -= consumido
   }
   return resumo
+}
+
+// Label de identificação de um lote para exibição
+function labelLote(lote, unidade) {
+  const data = lote.dataMovimento ? formatarData(lote.dataMovimento) : 'Sem data'
+  const ref = lote.notaRef ? ` · ${lote.notaRef}` : ''
+  const qtd = lote.quantidade != null
+    ? ` · ${formatarNumero(lote.quantidade)} ${unidade}`
+    : lote.saldoLote != null
+      ? ` · ${formatarNumero(lote.saldoLote)} ${unidade} disp.`
+      : ''
+  return `${data}${ref}${qtd}`
 }
 
 // ─────────────────────────────────────────────
@@ -192,8 +224,8 @@ const MOV_PADRAO = {
   lavouraIds: [],
   dosagem: '',
   usarDosagem: false,
-  editandoLotes: false,      // toggle para edição manual de lotes
-  lotesEditados: [],         // lotes com quantidades ajustadas manualmente
+  editandoLotes: false,
+  lotesEditados: [],
   patrimonioId: '',
   propriedadeDestinoId: '',
   dataMovimento: HOJE,
@@ -225,6 +257,7 @@ export default function Estoque() {
   const [gruposExpandidos, setGruposExpandidos] = useState({})
   const [modalSugerirEntrada, setModalSugerirEntrada] = useState(null)
   const [confirmacaoCancelamento, setConfirmacaoCancelamento] = useState(null)
+  const [historicoExpandido, setHistoricoExpandido] = useState(false)
 
   const [filtroPropriedadeIds, setFiltroPropriedadeIds] = useState([])
   const [busca, setBusca] = useState('')
@@ -232,7 +265,6 @@ export default function Estoque() {
   const [filtroPagPendente, setFiltroPagPendente] = useState(false)
   const [dropdownFiltroAberto, setDropdownFiltroAberto] = useState(false)
 
-  // ── Carregar ──
   async function carregar() {
     const uid = usuario.uid
     const [prodSnap, movSnap, propSnap, safSnap, lavSnap, patSnap] = await Promise.all([
@@ -264,7 +296,6 @@ export default function Estoque() {
     return () => document.removeEventListener('mousedown', fechar)
   }, [])
 
-  // ── Atualiza modalDetalhe quando produtosEnriquecidos muda (após cancelamento) ──
   const produtosEnriquecidos = useMemo(() => {
     return produtos.map(p => {
       const movs = movimentacoes.filter(m => m.produtoId === p.id)
@@ -278,7 +309,7 @@ export default function Estoque() {
     })
   }, [produtos, movimentacoes])
 
-  // Sincroniza modal de detalhe após mudanças no estado
+  // Sincroniza modal de detalhe após mudanças de estado
   useEffect(() => {
     if (modalDetalhe) {
       const atualizado = produtosEnriquecidos.find(p => p.id === modalDetalhe.id)
@@ -286,7 +317,6 @@ export default function Estoque() {
     }
   }, [produtosEnriquecidos])
 
-  // ── Dashboards ──
   const dashboards = useMemo(() => {
     let base = produtosEnriquecidos
     if (filtroPropriedadeIds.length > 0)
@@ -315,7 +345,6 @@ export default function Estoque() {
     return { comValidadeAlerta, comMinimoAlerta, valorTotalEstoque, pendValor, pendQtd, ultimaMov, produtoUltimaMov }
   }, [produtosEnriquecidos, movimentacoes, filtroPropriedadeIds])
 
-  // ── Agrupado ──
   const agrupado = useMemo(() => {
     let base = produtosEnriquecidos
     if (busca.trim()) {
@@ -358,7 +387,6 @@ export default function Estoque() {
       }))
   }, [produtosEnriquecidos, propriedades, filtroPropriedadeIds, busca, filtroAlerta, filtroPagPendente])
 
-  // ── Derivados do form ──
   const lavourasDaSafra = useMemo(() => {
     if (!formMov.safraId) return []
     const safra = safras.find(s => s.id === formMov.safraId)
@@ -393,19 +421,16 @@ export default function Estoque() {
   const saidaSimples = formMov.tipoMov === 'saida' &&
     (formMov.tipoSaida === 'transferencia' || formMov.tipoSaida === 'venda')
 
-  // Lotes restantes (FIFO) para o produto em edição
   const lotesRestantes = useMemo(() => {
     if (!produtoMov || formMov.tipoMov !== 'saida') return []
     return calcularLotesRestantes(produtoMov.movs)
   }, [produtoMov, formMov.tipoMov])
 
-  // Quantidade final considerando lotes editados manualmente
   const qtdFinalLotesEditados = useMemo(() => {
     if (!formMov.editandoLotes) return null
     return formMov.lotesEditados.reduce((a, l) => a + (Number(l.consumido) || 0), 0)
   }, [formMov.editandoLotes, formMov.lotesEditados])
 
-  // Resumo FIFO automático (para todos os tipos de saída)
   const resumoFIFO = useMemo(() => {
     if (formMov.tipoMov !== 'saida' || formMov.editandoLotes) return []
     const qtd = formMov.usarDosagem && quantidadeCalculada !== null
@@ -415,7 +440,6 @@ export default function Estoque() {
     return gerarResumoFIFO(lotesRestantes, qtd)
   }, [formMov.tipoMov, formMov.editandoLotes, formMov.quantidade, formMov.usarDosagem, quantidadeCalculada, lotesRestantes])
 
-  // Validação: quantidade maior que saldo
   const errQtdExcedeSaldo = useMemo(() => {
     if (formMov.tipoMov !== 'saida' || !produtoMov) return ''
     const qtd = formMov.usarDosagem && quantidadeCalculada !== null
@@ -427,7 +451,6 @@ export default function Estoque() {
     return ''
   }, [formMov.tipoMov, formMov.quantidade, formMov.usarDosagem, quantidadeCalculada, formMov.editandoLotes, qtdFinalLotesEditados, produtoMov])
 
-  // Inicializa lotes editados a partir do FIFO automático
   function iniciarEdicaoLotes() {
     const qtd = formMov.usarDosagem && quantidadeCalculada !== null
       ? quantidadeCalculada
@@ -436,11 +459,10 @@ export default function Estoque() {
     setFormMov(f => ({
       ...f,
       editandoLotes: true,
-      lotesEditados: resumo.map(l => ({ ...l, consumido: formatarNumero(l.consumido, 3) })),
+      lotesEditados: resumo.map(l => ({ ...l, consumido: formatarNumero(l.consumido, 2) })),
     }))
   }
 
-  // ── Expansão ──
   function expandidoPorPadrao(key) {
     if (key in gruposExpandidos) return gruposExpandidos[key]
     return true
@@ -449,7 +471,6 @@ export default function Estoque() {
     setGruposExpandidos(g => ({ ...g, [key]: !expandidoPorPadrao(key) }))
   }
 
-  // ── Modal produto ──
   function abrirModalProduto(produto = null) {
     if (produto) {
       setEditandoProduto(produto.id)
@@ -494,7 +515,18 @@ export default function Estoque() {
     if (editandoProduto) {
       await updateDoc(doc(db, 'insumos', editandoProduto), payload)
 
-      // Ponto 7: atualizar descrição dos lançamentos financeiros vinculados
+      // Atualiza produtoNome em todas as movimentações vinculadas
+      const movsSnap = await getDocs(
+        query(collection(db, 'movimentacoesInsumos'),
+          where('uid', '==', usuario.uid),
+          where('produtoId', '==', editandoProduto)
+        )
+      )
+      await Promise.all(movsSnap.docs.map(d =>
+        updateDoc(doc(db, 'movimentacoesInsumos', d.id), { produtoNome: payload.produto })
+      ))
+
+      // Atualiza descrição em todos os lançamentos financeiros vinculados
       const finSnap = await getDocs(
         query(collection(db, 'financeiro'),
           where('uid', '==', usuario.uid),
@@ -504,10 +536,18 @@ export default function Estoque() {
       )
       await Promise.all(finSnap.docs.map(async d => {
         const data = d.data()
-        if (data.tipo === 'despesa') {
-          await updateDoc(doc(db, 'financeiro', d.id), {
-            descricao: `Compra: ${payload.produto}`,
-          })
+        let novaDescricao = data.descricao
+        if (data.tipo === 'despesa' && !data.origemTransferencia) {
+          novaDescricao = `Compra: ${payload.produto}`
+        } else if (data.tipo === 'receita' && data.tipoSaida === 'venda') {
+          novaDescricao = `Venda de excedente: ${payload.produto}`
+        } else if (data.origemTransferencia && data.tipo === 'receita') {
+          novaDescricao = data.descricao.replace(/Transferência saída: .+ →/, `Transferência saída: ${payload.produto} →`)
+        } else if (data.origemTransferencia && data.tipo === 'despesa') {
+          novaDescricao = data.descricao.replace(/Transferência entrada: .+ ←/, `Transferência entrada: ${payload.produto} ←`)
+        }
+        if (novaDescricao !== data.descricao) {
+          await updateDoc(doc(db, 'financeiro', d.id), { descricao: novaDescricao })
         }
       }))
     } else {
@@ -538,7 +578,6 @@ export default function Estoque() {
     })
   }
 
-  // ── Cancelamento de movimentação ──
   function solicitarCancelamento(mov, prod) {
     setConfirmacaoCancelamento({ mov, prod })
   }
@@ -548,12 +587,11 @@ export default function Estoque() {
     setConfirmacaoCancelamento(null)
     setLoading(true)
 
-    // Cancela a movimentação principal
     await updateDoc(doc(db, 'movimentacoesInsumos', mov.id), {
       cancelado: true, canceladoEm: new Date(),
     })
 
-    // Se for transferência, cancela também a entrada correspondente na propriedade destino
+    // Cancela entrada vinculada na transferência
     if (mov.tipoSaida === 'transferencia' || mov.origemTransferencia) {
       const movDestSnap = await getDocs(
         query(collection(db, 'movimentacoesInsumos'),
@@ -570,7 +608,7 @@ export default function Estoque() {
       )
     }
 
-    // Cancela lançamentos financeiros vinculados pelo movimentacaoId
+    // Cancela lançamentos financeiros pelo movimentacaoId
     const finSnap = await getDocs(
       query(collection(db, 'financeiro'),
         where('uid', '==', usuario.uid),
@@ -581,7 +619,7 @@ export default function Estoque() {
       updateDoc(doc(db, 'financeiro', d.id), { cancelado: true, canceladoEm: new Date() })
     ))
 
-    // Fallback: busca por produtoId + origemEstoque + data caso movimentacaoId não exista
+    // Fallback por data
     if (finSnap.empty) {
       const finFallSnap = await getDocs(
         query(collection(db, 'financeiro'),
@@ -599,10 +637,8 @@ export default function Estoque() {
 
     await carregar()
     setLoading(false)
-    // modalDetalhe será atualizado pelo useEffect que observa produtosEnriquecidos
   }
 
-  // ── Modal movimentação ──
   function abrirModalMov(produtoId, tipoMov = 'entrada') {
     const produto = produtosEnriquecidos.find(p => p.id === produtoId)
     const tiposSaida = produto ? getTiposSaidaDisponiveis(produto.tipo) : []
@@ -637,7 +673,7 @@ export default function Estoque() {
 
     if (!qtdFinal || isNaN(qtdFinal)) return alert('Informe a quantidade.')
     if (formMov.tipoMov === 'entrada' && !formMov.valorMask) return alert('Informe o valor total da compra.')
-    if (errQtdExcedeSaldo) return // bloqueado pelo aviso inline
+    if (errQtdExcedeSaldo) return
 
     if (formMov.tipoMov === 'saida' && !saidaSimples) {
       if (vinculos.safra === 'obrigatorio' && !formMov.safraId) return alert('Selecione a safra.')
@@ -657,8 +693,30 @@ export default function Estoque() {
 
     setLoading(true)
 
+    // Monta lotesConsumidos — do FIFO automático ou da edição manual
+    let lotesConsumidos = []
+    if (formMov.tipoMov === 'saida') {
+      if (formMov.editandoLotes && formMov.lotesEditados.length > 0) {
+        lotesConsumidos = formMov.lotesEditados
+          .filter(l => Number(l.consumido) > 0)
+          .map(l => ({
+            entradaId: l.entradaId,
+            dataMovimento: l.dataMovimento,
+            quantidade: Number(l.consumido),
+            dataValidade: l.dataValidade || '',
+          }))
+      } else {
+        lotesConsumidos = resumoFIFO.map(l => ({
+          entradaId: l.entradaId,
+          dataMovimento: l.dataMovimento,
+          quantidade: l.consumido,
+          dataValidade: l.dataValidade || '',
+        }))
+      }
+    }
+
     const dosagemCalculada = (formMov.tipoMov === 'saida' && areaLavourasSelecionadas > 0)
-      ? qtdFinal / areaLavourasSelecionadas
+      ? Number((qtdFinal / areaLavourasSelecionadas).toFixed(2))
       : null
 
     const payloadBase = {
@@ -685,6 +743,7 @@ export default function Estoque() {
       dataVencimentoPagamento: formMov.dataVencimentoPagamento || '',
       notaRef: formMov.notaRef || '',
       dataValidade: (formMov.tipoMov === 'entrada' && formMov.temValidade) ? formMov.dataValidade : '',
+      lotesConsumidos,
       observacoes: formMov.observacoes || '',
       cancelado: false,
       uid: usuario.uid,
@@ -692,8 +751,6 @@ export default function Estoque() {
 
     const movRef = await addDoc(collection(db, 'movimentacoesInsumos'), { ...payloadBase, criadoEm: new Date() })
     const movimentacaoId = movRef.id
-
-    // Atualiza com o próprio ID para referência cruzada
     await updateDoc(doc(db, 'movimentacoesInsumos', movimentacaoId), { movimentacaoId })
 
     // Lançamento financeiro — ENTRADA
@@ -714,7 +771,7 @@ export default function Estoque() {
         safraId: '', patrimonioId: '',
         origemEstoque: true,
         produtoId: formMov.produtoId,
-        movimentacaoId,   // referência para cancelamento
+        movimentacaoId,
         cancelado: false,
         uid: usuario.uid, criadoEm: new Date(),
       })
@@ -746,7 +803,6 @@ export default function Estoque() {
       const propDestino = propriedades.find(p => p.id === formMov.propriedadeDestinoId)
       const { custoTotal, lotesUsados } = calcularCustoTransferencia(produto.movs, qtdFinal)
 
-      // Receita na origem
       await addDoc(collection(db, 'financeiro'), {
         descricao: `Transferência saída: ${produto?.produto || 'Insumo'} → ${propDestino?.nome || ''}`,
         tipo: 'receita',
@@ -764,7 +820,6 @@ export default function Estoque() {
         uid: usuario.uid, criadoEm: new Date(),
       })
 
-      // Produto no destino
       const produtoDestino = produtos.find(p =>
         p.produto === produto?.produto &&
         p.tipo === produto?.tipo &&
@@ -787,8 +842,6 @@ export default function Estoque() {
       }
 
       const dataValidadeTransf = lotesUsados.find(l => l.dataValidade)?.dataValidade || ''
-
-      // Entrada no destino — com referência cruzada ao movimentacaoId de origem
       const movDestinoRef = await addDoc(collection(db, 'movimentacoesInsumos'), {
         produtoId: produtoDestinoId,
         produtoNome: produto?.produto || '',
@@ -810,13 +863,13 @@ export default function Estoque() {
         dataValidade: dataValidadeTransf,
         observacoes: `Transferência de ${prop?.nome || 'outra propriedade'}`,
         origemTransferencia: true,
-        movimentacaoOrigemId: movimentacaoId,  // referência ao lançamento de origem
+        movimentacaoOrigemId: movimentacaoId,
+        lotesConsumidos: lotesUsados,
         cancelado: false,
         uid: usuario.uid, criadoEm: new Date(),
       })
       await updateDoc(doc(db, 'movimentacoesInsumos', movDestinoRef.id), { movimentacaoId: movDestinoRef.id })
 
-      // Despesa no destino
       await addDoc(collection(db, 'financeiro'), {
         descricao: `Transferência entrada: ${produto?.produto || 'Insumo'} ← ${prop?.nome || ''}`,
         tipo: 'despesa',
@@ -906,7 +959,6 @@ export default function Estoque() {
       {/* ── Dashboards ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
 
-        {/* Alertas — chips compactos, altura total do card */}
         <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100 flex flex-col">
           <div className="flex items-center justify-between mb-2">
             <p className="text-xs text-gray-500 font-medium">Alertas</p>
@@ -917,39 +969,31 @@ export default function Estoque() {
               onClick={() => setFiltroAlerta(f => f === 'validade' ? null : 'validade')}
               title="Produtos com validade próxima ou vencida"
               className={`flex-1 h-full flex items-center justify-center gap-1.5 py-3 rounded-lg text-xs font-semibold transition-colors border ${
-                filtroAlerta === 'validade'
-                  ? 'bg-red-100 text-red-700 border-red-300'
-                  : dashboards.comValidadeAlerta > 0
-                    ? 'bg-red-50 text-red-600 border-red-100 hover:bg-red-100'
-                    : 'bg-gray-50 text-gray-300 border-gray-100'
+                filtroAlerta === 'validade' ? 'bg-red-100 text-red-700 border-red-300'
+                  : dashboards.comValidadeAlerta > 0 ? 'bg-red-50 text-red-600 border-red-100 hover:bg-red-100'
+                  : 'bg-gray-50 text-gray-300 border-gray-100'
               }`}>
-              <Clock size={13} />
-              <span>{dashboards.comValidadeAlerta}</span>
+              <Clock size={13} /><span>{dashboards.comValidadeAlerta}</span>
             </button>
             <button type="button"
               onClick={() => setFiltroAlerta(f => f === 'minimo' ? null : 'minimo')}
               title="Produtos abaixo do estoque mínimo"
               className={`flex-1 h-full flex items-center justify-center gap-1.5 py-3 rounded-lg text-xs font-semibold transition-colors border ${
-                filtroAlerta === 'minimo'
-                  ? 'bg-orange-100 text-orange-700 border-orange-300'
-                  : dashboards.comMinimoAlerta > 0
-                    ? 'bg-orange-50 text-orange-600 border-orange-100 hover:bg-orange-100'
-                    : 'bg-gray-50 text-gray-300 border-gray-100'
+                filtroAlerta === 'minimo' ? 'bg-orange-100 text-orange-700 border-orange-300'
+                  : dashboards.comMinimoAlerta > 0 ? 'bg-orange-50 text-orange-600 border-orange-100 hover:bg-orange-100'
+                  : 'bg-gray-50 text-gray-300 border-gray-100'
               }`}>
-              <TrendingDown size={13} />
-              <span>{dashboards.comMinimoAlerta}</span>
+              <TrendingDown size={13} /><span>{dashboards.comMinimoAlerta}</span>
             </button>
           </div>
         </div>
 
-        {/* Valor em estoque */}
         <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100">
           <p className="text-xs text-gray-500">Valor em estoque</p>
           <p className="text-xl font-bold text-green-700 mt-0.5">R$ {formatarMoeda(dashboards.valorTotalEstoque)}</p>
           <p className="text-xs text-gray-400">custo médio × saldo</p>
         </div>
 
-        {/* Pgtos. pendentes — subtítulo na mesma linha */}
         <div className={`bg-white rounded-xl p-3 shadow-sm border cursor-pointer transition-colors ${
           filtroPagPendente ? 'border-yellow-400 bg-yellow-50'
             : dashboards.pendQtd > 0 ? 'border-yellow-200 hover:border-yellow-300'
@@ -967,7 +1011,6 @@ export default function Estoque() {
           </p>
         </div>
 
-        {/* Última movimentação — subtítulo na mesma linha */}
         <div
           className={`bg-white rounded-xl p-3 shadow-sm border border-gray-100 ${dashboards.produtoUltimaMov ? 'cursor-pointer hover:border-green-200 transition-colors' : ''}`}
           onClick={() => dashboards.produtoUltimaMov && setModalDetalhe(dashboards.produtoUltimaMov)}>
@@ -984,7 +1027,6 @@ export default function Estoque() {
             <p className="text-sm text-gray-300 mt-0.5">—</p>
           )}
         </div>
-
       </div>
 
       {/* ── Lista vazia ── */}
@@ -1076,7 +1118,7 @@ export default function Estoque() {
                                     <ArrowUpCircle size={13} />Saída
                                   </button>
                                   <div className="flex items-center gap-0.5 ml-1">
-                                    <button onClick={e => { e.stopPropagation(); setModalDetalhe(produto) }} className="text-gray-300 hover:text-blue-500 p-1" title="Detalhes"><Info size={14} /></button>
+                                    <button onClick={e => { e.stopPropagation(); setModalDetalhe(produto); setHistoricoExpandido(false) }} className="text-gray-300 hover:text-blue-500 p-1" title="Detalhes"><Info size={14} /></button>
                                     <button onClick={e => { e.stopPropagation(); abrirModalProduto(produto) }} className="text-gray-300 hover:text-blue-500 p-1" title="Editar"><Pencil size={14} /></button>
                                     <button onClick={e => { e.stopPropagation(); excluirProduto(produto.id, produto.produto) }} className="text-gray-300 hover:text-red-500 p-1" title="Excluir"><Trash2 size={14} /></button>
                                   </div>
@@ -1274,7 +1316,7 @@ export default function Estoque() {
                   className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" required />
               </div>
 
-              {/* SAÍDA SIMPLES (transferência / venda) */}
+              {/* SAÍDA SIMPLES */}
               {formMov.tipoMov === 'saida' && saidaSimples && (
                 <>
                   <div>
@@ -1289,13 +1331,13 @@ export default function Estoque() {
                     {errQtdExcedeSaldo && <p className="text-xs text-red-500 mt-1">{errQtdExcedeSaldo}</p>}
                   </div>
 
-                  {/* Resumo FIFO para transferência e venda */}
                   {resumoFIFO.length > 0 && (
                     <div className="bg-blue-50 rounded-xl px-3 py-2 border border-blue-100">
-                      <p className="text-xs font-medium text-blue-700 mb-1">Lotes que serão consumidos:</p>
+                      <p className="text-xs font-medium text-blue-700 mb-1">Lotes consumidos (mais antigo primeiro):</p>
                       {resumoFIFO.map((l, i) => (
                         <p key={i} className="text-xs text-blue-600">
-                          • {formatarData(l.data)}: {formatarNumero(l.consumido)} {produtoMov?.unidade}
+                          • {l.dataMovimento ? formatarData(l.dataMovimento) : 'Sem data'}
+                          {l.notaRef ? ` · ${l.notaRef}` : ''}: {formatarNumero(l.consumido)} {produtoMov?.unidade}
                           {l.dataValidade ? ` (val. ${formatarData(l.dataValidade)})` : ''}
                         </p>
                       ))}
@@ -1396,9 +1438,9 @@ export default function Estoque() {
                       {formMov.usarDosagem ? (
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">Dosagem ({produtoMov?.unidade}/ha) <span className="text-red-500">*</span></label>
-                          <input type="number" min="0" step="0.001" value={formMov.dosagem}
+                          <input type="number" min="0" step="0.01" value={formMov.dosagem}
                             onChange={e => setFormMov(f => ({ ...f, dosagem: e.target.value, editandoLotes: false, lotesEditados: [] }))}
-                            placeholder="0"
+                            placeholder="0.00"
                             className={`w-full border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 ${errQtdExcedeSaldo ? 'border-red-400' : 'border-gray-300'}`} />
                           {quantidadeCalculada !== null && (
                             <p className="text-xs text-green-700 font-medium mt-1">Total a dar baixa: {formatarNumero(quantidadeCalculada)} {produtoMov?.unidade}</p>
@@ -1442,11 +1484,11 @@ export default function Estoque() {
                     </div>
                   )}
 
-                  {/* Resumo FIFO + opção de edição manual */}
+                  {/* Resumo lotes + edição manual */}
                   {resumoFIFO.length > 0 && !formMov.editandoLotes && (
                     <div className="bg-blue-50 rounded-xl px-3 py-2 border border-blue-100">
                       <div className="flex items-center justify-between mb-1">
-                        <p className="text-xs font-medium text-blue-700">Lotes que serão consumidos (FIFO):</p>
+                        <p className="text-xs font-medium text-blue-700">Lotes consumidos (mais antigo primeiro):</p>
                         <button type="button" onClick={iniciarEdicaoLotes}
                           className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 underline">
                           <Edit3 size={10} />editar
@@ -1454,14 +1496,14 @@ export default function Estoque() {
                       </div>
                       {resumoFIFO.map((l, i) => (
                         <p key={i} className="text-xs text-blue-600">
-                          • {formatarData(l.data)}: {formatarNumero(l.consumido)} {produtoMov?.unidade}
+                          • {l.dataMovimento ? formatarData(l.dataMovimento) : 'Sem data'}
+                          {l.notaRef ? ` · ${l.notaRef}` : ''}: {formatarNumero(l.consumido)} {produtoMov?.unidade}
                           {l.dataValidade ? ` (val. ${formatarData(l.dataValidade)})` : ''}
                         </p>
                       ))}
                     </div>
                   )}
 
-                  {/* Edição manual de lotes */}
                   {formMov.editandoLotes && (
                     <div className="bg-blue-50 rounded-xl px-3 py-3 border border-blue-100 space-y-2">
                       <div className="flex items-center justify-between">
@@ -1469,22 +1511,28 @@ export default function Estoque() {
                         <button type="button"
                           onClick={() => setFormMov(f => ({ ...f, editandoLotes: false, lotesEditados: [] }))}
                           className="text-xs text-blue-500 hover:text-blue-700 underline">
-                          usar FIFO automático
+                          seleção automática
                         </button>
                       </div>
                       {lotesRestantes.map((lote, i) => (
                         <div key={i} className="flex items-center gap-2">
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs text-blue-700">{formatarData(lote.dataMovimento)}</p>
-                            <p className="text-xs text-blue-500">disponível: {formatarNumero(lote.saldoLote)} {produtoMov?.unidade}
+                            <p className="text-xs text-blue-700">
+                              {lote.dataMovimento ? formatarData(lote.dataMovimento) : 'Sem data'}
+                              {lote.notaRef ? ` · ${lote.notaRef}` : ''}
+                            </p>
+                            <p className="text-xs text-blue-500">
+                              disponível: {formatarNumero(lote.saldoLote)} {produtoMov?.unidade}
                               {lote.dataValidade ? ` · val. ${formatarData(lote.dataValidade)}` : ''}
                             </p>
                           </div>
                           <input type="number" min="0" step="0.01"
                             value={formMov.lotesEditados[i]?.consumido || ''}
                             onChange={e => {
-                              const novos = [...(formMov.lotesEditados.length > 0 ? formMov.lotesEditados : lotesRestantes.map(l => ({ ...l, consumido: '' })))]
-                              novos[i] = { ...lote, consumido: e.target.value }
+                              const novos = lotesRestantes.map((l, j) => ({
+                                ...l,
+                                consumido: j === i ? e.target.value : (formMov.lotesEditados[j]?.consumido || ''),
+                              }))
                               setFormMov(f => ({ ...f, lotesEditados: novos }))
                             }}
                             placeholder="0"
@@ -1601,9 +1649,125 @@ export default function Estoque() {
         const pctMinimo = prod.temEstoqueMinimo && Number(prod.estoqueMinimo) > 0
           ? Math.min(100, Math.round((prod.saldo / Number(prod.estoqueMinimo)) * 100))
           : null
-        const movsOrdenadas = [...(prod.movs || [])].sort((a, b) =>
-          (b.dataMovimento || '').localeCompare(a.dataMovimento || '')
-        )
+
+        // Separa movimentações ativas (com saldo) das passadas
+        const lotesAtivos = calcularLotesRestantes(prod.movs)
+        const lotesAtivosIds = new Set(lotesAtivos.map(l => l.id))
+
+        // Entradas com saldo > 0 — visíveis por padrão
+        const entradasAtivas = prod.movs
+          .filter(m => m.tipoMov === 'entrada' && !m.cancelado && lotesAtivosIds.has(m.id))
+          .sort((a, b) => (b.dataMovimento || '').localeCompare(a.dataMovimento || ''))
+
+        // Entradas zeradas/canceladas — no histórico expandível
+        const entradasPassadas = prod.movs
+          .filter(m => m.tipoMov === 'entrada' && (!lotesAtivosIds.has(m.id) || m.cancelado))
+          .sort((a, b) => (b.dataMovimento || '').localeCompare(a.dataMovimento || ''))
+
+        // Saídas sem lote vinculado (antigas) — também no histórico
+        const saidasAvulsas = prod.movs
+          .filter(m => m.tipoMov === 'saida' && !(m.lotesConsumidos?.length > 0))
+          .sort((a, b) => (b.dataMovimento || '').localeCompare(a.dataMovimento || ''))
+
+        // Mapa: entradaId → saídas que a consumiram
+        const saidasPorEntrada = {}
+        prod.movs
+          .filter(m => m.tipoMov === 'saida' && m.lotesConsumidos?.length > 0)
+          .forEach(saida => {
+            saida.lotesConsumidos.forEach(lc => {
+              if (!saidasPorEntrada[lc.entradaId]) saidasPorEntrada[lc.entradaId] = []
+              saidasPorEntrada[lc.entradaId].push({ ...saida, qtdConsumida: lc.quantidade })
+            })
+          })
+
+        function CardEntrada({ entrada, ativa }) {
+          const saidas = saidasPorEntrada[entrada.id] || []
+          const loteAtivo = lotesAtivos.find(l => l.id === entrada.id)
+          const saldoLote = loteAtivo?.saldoLote || 0
+          const valdItem = statusValidade(entrada.dataValidade)
+
+          return (
+            <div className={`rounded-xl border overflow-hidden ${entrada.cancelado ? 'opacity-50' : ''} ${ativa ? 'border-green-100' : 'border-gray-100'}`}>
+              {/* Header da entrada */}
+              <div className={`flex items-start justify-between px-3 py-2 ${ativa ? 'bg-green-50' : 'bg-gray-50'}`}>
+                <div className="flex items-start gap-2 min-w-0">
+                  {entrada.cancelado
+                    ? <Ban size={13} className="text-gray-400 flex-shrink-0 mt-0.5" />
+                    : <ArrowDownCircle size={13} className="text-green-600 flex-shrink-0 mt-0.5" />}
+                  <div className="min-w-0">
+                    <p className={`text-xs font-semibold ${entrada.cancelado ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
+                      {entrada.origemTransferencia ? 'Entrada (transferência)' : 'Entrada'}
+                      {entrada.notaRef ? ` · ${entrada.notaRef}` : ''}
+                    </p>
+                    <p className="text-xs text-gray-400">{formatarData(entrada.dataMovimento)}</p>
+                    {entrada.dataValidade && (
+                      <p className={`text-xs ${valdItem?.tipo === 'vencido' ? 'text-red-500' : valdItem?.tipo === 'alerta' ? 'text-amber-500' : 'text-gray-400'}`}>
+                        Validade: {formatarData(entrada.dataValidade)}
+                        {valdItem && valdItem.tipo !== 'ok' ? ` — ${valdItem.label}` : ''}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                  <div className="text-right">
+                    <p className={`text-xs font-bold ${entrada.cancelado ? 'text-gray-400 line-through' : 'text-green-700'}`}>
+                      +{formatarNumero(entrada.quantidade)} {getLabelUnidadeInsumo(prod.unidade)}
+                    </p>
+                    {ativa && saldoLote > 0 && !entrada.cancelado && (
+                      <p className="text-xs text-green-600 font-medium">saldo: {formatarNumero(saldoLote)}</p>
+                    )}
+                    {entrada.valorTotal > 0 && <p className="text-xs text-gray-400">R$ {formatarMoeda(entrada.valorTotal)}</p>}
+                  </div>
+                  {!entrada.cancelado && (
+                    <button onClick={() => solicitarCancelamento(entrada, prod)}
+                      className="text-gray-300 hover:text-red-500 p-1 transition-colors" title="Cancelar">
+                      <Ban size={12} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Saídas vinculadas a esta entrada */}
+              {saidas.length > 0 && (
+                <div className="divide-y divide-gray-50">
+                  {saidas.map((saida, si) => (
+                    <div key={si} className={`flex items-start justify-between px-3 py-1.5 pl-7 ${saida.cancelado ? 'opacity-50' : 'bg-white'}`}>
+                      <div className="flex items-start gap-1.5 min-w-0">
+                        {saida.cancelado
+                          ? <Ban size={11} className="text-gray-300 flex-shrink-0 mt-0.5" />
+                          : <ArrowUpCircle size={11} className="text-amber-500 flex-shrink-0 mt-0.5" />}
+                        <div className="min-w-0">
+                          <p className={`text-xs ${saida.cancelado ? 'text-gray-300 line-through' : 'text-gray-600'}`}>
+                            {getTipoSaida(saida.tipoSaida)?.label || 'Saída'}
+                            {saida.safraNome ? ` · ${saida.safraNome}` : ''}
+                            {saida.lavouraNomes?.length > 0 ? ` · ${saida.lavouraNomes.join(', ')}` : ''}
+                            {saida.patrimonioNome ? ` · ${saida.patrimonioNome}` : ''}
+                          </p>
+                          <p className="text-xs text-gray-400">{formatarData(saida.dataMovimento)}</p>
+                          {saida.dosagem && saida.areaHa > 0 && (
+                            <p className="text-xs text-gray-400">{formatarNumero(saida.dosagem, 2)} {getLabelUnidadeInsumo(prod.unidade)}/ha</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                        <p className={`text-xs font-semibold ${saida.cancelado ? 'text-gray-300 line-through' : 'text-amber-600'}`}>
+                          -{formatarNumero(saida.qtdConsumida)} {getLabelUnidadeInsumo(prod.unidade)}
+                        </p>
+                        {!saida.cancelado && (
+                          <button onClick={() => solicitarCancelamento(saida, prod)}
+                            className="text-gray-200 hover:text-red-500 p-0.5 transition-colors" title="Cancelar">
+                            <Ban size={11} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        }
+
         return (
           <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl max-h-[92vh] overflow-y-auto">
@@ -1614,8 +1778,10 @@ export default function Estoque() {
                 </div>
                 <button onClick={() => setModalDetalhe(null)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
               </div>
+
               <div className="p-5 space-y-5">
 
+                {/* Situação */}
                 <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Situação Atual</p>
                   <div className="grid grid-cols-2 gap-3">
@@ -1655,56 +1821,57 @@ export default function Estoque() {
                   </div>
                 )}
 
+                {/* Histórico — card master */}
                 <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Histórico</p>
-                  {movsOrdenadas.length === 0
-                    ? <p className="text-sm text-gray-400 text-center py-4">Nenhuma movimentação registrada.</p>
-                    : (
-                      <div className="space-y-2">
-                        {movsOrdenadas.map((m, idx) => (
-                          <div key={m.id || idx}
-                            className={`flex items-start justify-between px-3 py-2 rounded-lg border ${m.cancelado ? 'bg-gray-50 border-gray-100 opacity-50' : 'bg-gray-50 border-gray-100'}`}>
-                            <div className="flex items-start gap-2 min-w-0">
-                              {m.cancelado
-                                ? <Ban size={14} className="text-gray-400 flex-shrink-0 mt-0.5" />
-                                : m.tipoMov === 'entrada'
-                                  ? <ArrowDownCircle size={14} className="text-green-600 flex-shrink-0 mt-0.5" />
-                                  : <ArrowUpCircle size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />}
-                              <div className="min-w-0">
-                                <p className={`text-xs font-medium ${m.cancelado ? 'text-gray-400 line-through' : 'text-gray-700'}`}>
-                                  {m.cancelado ? 'Cancelado — ' : ''}
-                                  {m.tipoMov === 'entrada'
-                                    ? m.origemTransferencia ? 'Entrada (transferência)' : 'Entrada'
-                                    : getTipoSaida(m.tipoSaida)?.label || 'Saída'}
-                                  {m.safraNome ? ` · ${m.safraNome}` : ''}
-                                  {m.lavouraNomes?.length > 0 ? ` · ${m.lavouraNomes.join(', ')}` : ''}
-                                  {m.patrimonioNome ? ` · ${m.patrimonioNome}` : ''}
-                                </p>
-                                <p className="text-xs text-gray-400">{formatarData(m.dataMovimento)}</p>
-                                {m.dosagem && m.areaHa > 0 && (
-                                  <p className="text-xs text-gray-400">{formatarNumero(m.dosagem, 3)} {getLabelUnidadeInsumo(prod.unidade)}/ha</p>
-                                )}
-                                {m.dataValidade && <p className="text-xs text-gray-400">Validade: {formatarData(m.dataValidade)}</p>}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-                              <div className="text-right">
-                                <p className={`text-sm font-bold ${m.cancelado ? 'text-gray-400 line-through' : m.tipoMov === 'entrada' ? 'text-green-700' : 'text-amber-700'}`}>
-                                  {m.tipoMov === 'entrada' ? '+' : '-'}{formatarNumero(m.quantidade)} {getLabelUnidadeInsumo(prod.unidade)}
-                                </p>
-                                {m.valorTotal > 0 && <p className="text-xs text-gray-400">R$ {formatarMoeda(m.valorTotal)}</p>}
-                              </div>
-                              {!m.cancelado && (
-                                <button onClick={() => solicitarCancelamento(m, prod)}
-                                  className="text-gray-300 hover:text-red-500 p-1 transition-colors flex-shrink-0" title="Cancelar este lançamento">
-                                  <Ban size={13} />
-                                </button>
-                              )}
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Em Estoque</p>
+
+                  {entradasAtivas.length === 0 && saidasAvulsas.length === 0 ? (
+                    <p className="text-sm text-gray-400 text-center py-4">Nenhum lote ativo em estoque.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {entradasAtivas.map(entrada => (
+                        <CardEntrada key={entrada.id} entrada={entrada} ativa={true} />
+                      ))}
+                      {/* Saídas sem lote vinculado (antigas) */}
+                      {saidasAvulsas.filter(s => !s.cancelado).map((m, idx) => (
+                        <div key={idx} className="flex items-start justify-between px-3 py-2 rounded-xl bg-amber-50 border border-amber-100">
+                          <div className="flex items-start gap-2 min-w-0">
+                            <ArrowUpCircle size={13} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium text-gray-700">
+                                {getTipoSaida(m.tipoSaida)?.label || 'Saída'}
+                                {m.safraNome ? ` · ${m.safraNome}` : ''}
+                              </p>
+                              <p className="text-xs text-gray-400">{formatarData(m.dataMovimento)}</p>
                             </div>
                           </div>
-                        ))}
-                      </div>
-                    )}
+                          <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                            <p className="text-xs font-bold text-amber-700">-{formatarNumero(m.quantidade)} {getLabelUnidadeInsumo(prod.unidade)}</p>
+                            <button onClick={() => solicitarCancelamento(m, prod)} className="text-gray-300 hover:text-red-500 p-1" title="Cancelar"><Ban size={12} /></button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Histórico expandível */}
+                  {(entradasPassadas.length > 0 || saidasAvulsas.filter(s => s.cancelado).length > 0) && (
+                    <div className="mt-3">
+                      <button type="button"
+                        onClick={() => setHistoricoExpandido(h => !h)}
+                        className="w-full flex items-center justify-center gap-2 py-2 text-xs text-gray-400 hover:text-gray-600 border border-dashed border-gray-200 rounded-xl transition-colors">
+                        <History size={12} />
+                        {historicoExpandido ? 'Ocultar histórico completo' : `Ver histórico completo (${entradasPassadas.length + saidasAvulsas.filter(s => s.cancelado).length} registros)`}
+                      </button>
+                      {historicoExpandido && (
+                        <div className="mt-2 space-y-2">
+                          {entradasPassadas.map(entrada => (
+                            <CardEntrada key={entrada.id} entrada={entrada} ativa={false} />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {prod.observacoes && (
@@ -1730,14 +1897,10 @@ export default function Estoque() {
               de <span className="font-semibold">{formatarNumero(confirmacaoCancelamento.mov.quantidade)} {confirmacaoCancelamento.prod.unidade}</span>{' '}
               em <span className="font-semibold">{formatarData(confirmacaoCancelamento.mov.dataMovimento)}</span>?
             </p>
-            <p className="text-xs text-gray-400">O lançamento ficará visível no histórico como cancelado. Lançamentos financeiros vinculados também serão cancelados.</p>
+            <p className="text-xs text-gray-400">O lançamento ficará visível no histórico completo como cancelado. Lançamentos financeiros vinculados também serão cancelados.</p>
             <div className="flex gap-3">
-              <button onClick={() => setConfirmacaoCancelamento(null)}
-                className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">Voltar</button>
-              <button onClick={confirmarCancelamento}
-                className="flex-1 bg-red-600 text-white py-2 rounded-xl text-sm hover:bg-red-700">
-                Cancelar lançamento
-              </button>
+              <button onClick={() => setConfirmacaoCancelamento(null)} className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">Voltar</button>
+              <button onClick={confirmarCancelamento} className="flex-1 bg-red-600 text-white py-2 rounded-xl text-sm hover:bg-red-700">Cancelar lançamento</button>
             </div>
           </div>
         </div>
@@ -1751,10 +1914,8 @@ export default function Estoque() {
             <p className="text-sm text-gray-600">{confirmacao.mensagem}</p>
             <p className="text-xs text-red-500">Esta ação não poderá ser desfeita.</p>
             <div className="flex gap-3">
-              <button onClick={() => setConfirmacao(null)}
-                className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">Cancelar</button>
-              <button onClick={() => { confirmacao.onConfirmar(); setConfirmacao(null) }}
-                className="flex-1 bg-red-600 text-white py-2 rounded-xl text-sm hover:bg-red-700">Excluir</button>
+              <button onClick={() => setConfirmacao(null)} className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">Cancelar</button>
+              <button onClick={() => { confirmacao.onConfirmar(); setConfirmacao(null) }} className="flex-1 bg-red-600 text-white py-2 rounded-xl text-sm hover:bg-red-700">Excluir</button>
             </div>
           </div>
         </div>
