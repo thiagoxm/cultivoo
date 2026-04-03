@@ -103,9 +103,6 @@ export default function Producao() {
       getDocs(query(collection(db, 'safras'), where('uid', '==', uid))),
       getDocs(query(collection(db, 'lavouras'), where('uid', '==', uid))),
     ])
-    const estSnap = await getDocs(query(collection(db, 'estoqueProducao'), where('uid', '==', uid)))
-    const locais = [...new Set(estSnap.docs.map(d => d.data().localArmazenagem).filter(Boolean))]
-    setSugestoesLocal(locais)
     setLista(colSnap.docs.map(d => ({ id: d.id, ...d.data() })))
     setPropriedades(propSnap.docs.map(d => ({ id: d.id, ...d.data() })))
     setSafras(safSnap.docs.map(d => ({ id: d.id, ...d.data() })))
@@ -254,9 +251,6 @@ export default function Producao() {
     setForm(FORM_PADRAO)
     setFabAberto(false)
     setModal(true)
-    setDarEntradaEstoque(true) // avaliar ser é aqui mesmo
-    setLocalArmazenagem('') // avaliar ser é aqui mesmo
-    setQualidadeEntrada({}) // avaliar ser é aqui mesmo
   }
 
   function abrirEdicao(c) {
@@ -394,29 +388,6 @@ export default function Producao() {
       const docRef = await addDoc(collection(db, 'colheitas'), { ...payload, criadoEm: new Date() })
       colheitaId = docRef.id
     }
-
-  // a partir daqui avaliar 
-    if (!editando && darEntradaEstoque && localArmazenagem.trim()) {
-      await addDoc(collection(db, 'estoqueProducao'), {
-        cultura:          safra?.cultura || '',
-        safraId:          form.safraId,
-        safraNome:        safra?.nome || '',
-        lavouraId:        form.lavouraId || '',
-        lavouraNome:      lavoura?.nome || '',
-        propriedadeId:    safra?.propriedadeId || '',
-        propriedadeNome:  prop?.nome || '',
-        quantidadeEntrada: Number(form.quantidade),
-        saldoAtual:        Number(form.quantidade),
-        unidade:           form.unidade,
-        dataColheita:      form.dataColheita,
-        localArmazenagem:  localArmazenagem.trim(),
-        qualidade:         qualidadeEntrada || {},
-        colheitaOrigemId:  colheitaId,
-        uid:               usuario.uid,
-        criadoEm:          new Date(),
-      })
-    }
-
 
     setModal(false)
     setEditando(null)
@@ -699,7 +670,7 @@ export default function Producao() {
                                 <p className="text-sm font-bold text-green-700 whitespace-nowrap">
                                   {formatarNumero(c.quantidade)} {c.unidade}
                                 </p>
-                                <div className="flex items-center gap-0.5">                                                           
+                                <div className="flex items-center gap-0.5">
                                   <button onClick={e => { e.stopPropagation(); abrirEdicao(c) }}
                                     className="text-gray-300 hover:text-blue-500 p-1 transition-colors">
                                     <Pencil size={15} />
@@ -898,47 +869,6 @@ export default function Producao() {
                   className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 resize-none" />
               </div>
 
-              {/* Entrada no estoque */}
-              {!editando && (
-                <div className="border-t border-gray-100 pt-4 mt-2">
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <div className="relative flex-shrink-0">
-                      <input type="checkbox" checked={darEntradaEstoque}
-                        onChange={e => setDarEntradaEstoque(e.target.checked)}
-                        className="sr-only" />
-                      <div className={`w-10 h-6 rounded-full transition-colors ${darEntradaEstoque ? 'bg-green-600' : 'bg-gray-300'}`}>
-                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${darEntradaEstoque ? 'translate-x-5' : 'translate-x-1'}`} />
-                      </div>
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-700">Dar entrada no Estoque de Produção</p>
-                      <p className="text-xs text-gray-400">Cria o lote automaticamente ao salvar</p>
-                    </div>
-                  </label>
-              
-                  {darEntradaEstoque && (
-                    <div className="mt-3 space-y-3 pl-1">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Local de armazenagem *</label>
-                        <input type="text" value={localArmazenagem}
-                          onChange={e => setLocalArmazenagem(e.target.value)}
-                          list="sugestoes-local"
-                          placeholder="Silo, cooperativa, armazém..."
-                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
-                        <datalist id="sugestoes-local">
-                          {sugestoesLocal.map(s => <option key={s} value={s} />)}
-                        </datalist>
-                      </div>
-                      {camposQualidade.length > 0 && (
-                        <p className="text-xs text-gray-400">
-                          Qualidade pré-preenchida dos campos acima — pode ajustar no Estoque depois.
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
               <div className="flex gap-3 pt-1">
                 <button type="button"
                   onClick={() => { setModal(false); setEditando(null) }}
@@ -951,8 +881,6 @@ export default function Producao() {
                   {loading ? 'Salvando...' : editando ? 'Atualizar' : 'Salvar'}
                 </button>
               </div>
-            
-                        
             </form>
           </div>
         </div>
@@ -1042,21 +970,5 @@ export default function Producao() {
       )}
 
     </div>
-  )
-}
-
-// Componente BotaoEntradaEstoqueExistente:
-export function BotaoEntradaEstoqueExistente({ colheita, lotesExistentes = [], onEntrada }) {
-  const jaTemLote = lotesExistentes.some(l => l.colheitaOrigemId === colheita.id)
-  if (jaTemLote) return null
-  return (
-    <button
-      type="button"
-      onClick={() => onEntrada(colheita)}
-      className="flex items-center gap-1 text-xs text-green-700 border border-green-200 hover:bg-green-50 px-2 py-1 rounded-lg font-medium transition-colors"
-      title="Dar entrada no Estoque de Produção"
-    >
-      📦 Estoque
-    </button>
   )
 }

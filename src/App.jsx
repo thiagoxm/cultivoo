@@ -12,6 +12,7 @@ import Layout from './components/Layout'
 import Configuracoes from './pages/Configuracoes'
 import Producao from './pages/Producao'
 import Estoque from './pages/Estoque'
+import EstoqueProducao from './pages/EstoqueProducao'
 
 function RotaProtegida({ children }) {
   const { usuario } = useAuth()
@@ -34,6 +35,7 @@ export default function App() {
           <Route path="financeiro" element={<Financeiro />} />
           <Route path="/configuracoes" element={<Configuracoes />} />
           <Route path="estoque" element={<Estoque />} />
+          <Route path="/estoque-producao" element={<EstoqueProducao />} />
         </Route>
       </Routes>
     </BrowserRouter>
