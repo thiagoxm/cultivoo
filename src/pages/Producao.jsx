@@ -700,6 +700,7 @@ export default function Producao() {
                                   {formatarNumero(c.quantidade)} {c.unidade}
                                 </p>
                                 <div className="flex items-center gap-0.5">                                                           
+                                 
                                   <button onClick={e => { e.stopPropagation(); abrirEdicao(c) }}
                                     className="text-gray-300 hover:text-blue-500 p-1 transition-colors">
                                     <Pencil size={15} />

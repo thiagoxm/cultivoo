@@ -1,148 +1,175 @@
-// api/cotacao.js — Vercel Edge Function CORRIGIDA
-// Busca cotação de commodities no Yahoo Finance e converte para R$/unidade BR
+// api/cotacao.js — Vercel Edge Function
+// Busca cotações de commodities no Yahoo Finance e converte para R$/unidade BR
+//
+// IMPORTANTE — Fórmula de conversão:
+// O Yahoo Finance retorna preços de grãos em US¢/bushel (CENTAVOS de dólar, não dólares).
+// Exemplo: ZC=F (milho) retorna 458.75, que significa US$ 4.5875/bushel.
+//
+// Conversão padrão para R$/saca (60kg):
+//   R$/sc = (preço_em_centavos ÷ 100) × câmbio_USD_BRL × (kg_por_bushel ÷ 60)
+//
+// Fatores oficiais (CBOT/USDA):
+//   Soja:  1 bushel = 27.216 kg → fator = 27.216 / 60 = 0.4536
+//   Milho: 1 bushel = 25.401 kg → fator = 25.401 / 60 = 0.4234  ← CORRIGIDO
+//   Trigo: 1 bushel = 27.216 kg → fator = 27.216 / 60 = 0.4536
+//
+// Café ICE NY (KC=F): cotado em US¢/libra.
+//   1 saca de 60kg = 132.277 libras → R$/sc = (p/100) × cambio × 132.277
 
-export const config = { runtime: 'edge' };
+export const config = { runtime: 'edge' }
 
-// Fatores de conversão: cada cultura tem seu ticker, unidade original e fator para R$/saca
-// Soja  CBOT: US¢/bushel → saca 60kg: 1 bushel = 27.2155 kg → sacas/bushel = 27.2155/60
-// Milho CBOT: US¢/bushel → saca 60kg: 1 bushel = 25.4012 kg → sacas/bushel = 25.4012/60
-// Café  ICE NY: US¢/libra → saca 60kg: 1 libra = 0.453592kg → kg/libra * 60 = 132.276 libras/saca
-// Boi   CME: US$/cwt (100 libras) → arroba 15kg: 1 cwt = 45.3592kg → arrobas = 45.3592/15
-const CULTURAS_CONFIG = {
+const CULTURAS = {
   soja: {
     ticker: 'ZS=F',
-    nome: 'Soja',
     bolsa: 'CBOT Chicago',
-    unidadeOriginal: 'US¢/bushel',
-    unidadeBR: 'R$/sc 60kg',
-    // preço em US¢/bushel → R$/saca:
-    // (centavos/100 = dólares) * câmbio * (27.2155kg/bushel) / (60kg/saca)
-    converterParaBR: (preco, cambio) => (preco / 100) * cambio * (27.2155 / 60),
-    formatarOriginal: (v) => `${v.toFixed(2)} US¢/bu`,
+    unidadeOriginal: 'US¢/bu',
+    unidadeBR: 'R$/sc',
+    // (centavos ÷ 100) × cambio × (27.216 kg/bu ÷ 60 kg/sc)
+    converter: (preco, cambio) => (preco / 100) * cambio * (27.216 / 60),
+    formatarOriginal: (p) => `${p.toFixed(2)} US¢/bu`,
   },
   milho: {
     ticker: 'ZC=F',
-    nome: 'Milho',
     bolsa: 'CBOT Chicago',
-    unidadeOriginal: 'US¢/bushel',
-    unidadeBR: 'R$/sc 60kg',
-    converterParaBR: (preco, cambio) => (preco / 100) * cambio * (25.4012 / 60),
-    formatarOriginal: (v) => `${v.toFixed(2)} US¢/bu`,
+    unidadeOriginal: 'US¢/bu',
+    unidadeBR: 'R$/sc',
+    // (centavos ÷ 100) × cambio × (25.401 kg/bu ÷ 60 kg/sc)
+    // Milho tem bushel MENOR que soja (25.4 vs 27.2 kg), então vale menos por saca
+    converter: (preco, cambio) => (preco / 100) * cambio * (25.401 / 60),
+    formatarOriginal: (p) => `${p.toFixed(2)} US¢/bu`,
   },
   cafe: {
     ticker: 'KC=F',
-    nome: 'Café',
     bolsa: 'ICE Nova York',
-    unidadeOriginal: 'US¢/libra',
-    unidadeBR: 'R$/sc 60kg',
-    // (centavos/100) * câmbio * (60kg / 0.453592kg_por_libra)
-    converterParaBR: (preco, cambio) => (preco / 100) * cambio * (60 / 0.453592),
-    formatarOriginal: (v) => `${v.toFixed(2)} US¢/lb`,
+    unidadeOriginal: 'US¢/lb',
+    unidadeBR: 'R$/sc',
+    // Café cotado em centavos de dólar por libra-peso
+    // 1 saca café = 60kg = 60 ÷ 0.453592 libras = 132.277 libras
+    converter: (preco, cambio) => (preco / 100) * cambio * (60 / 0.453592),
+    formatarOriginal: (p) => `${p.toFixed(2)} US¢/lb`,
   },
-  boi_gordo: {
-    ticker: 'LE=F',
-    nome: 'Boi Gordo',
-    bolsa: 'CME',
-    unidadeOriginal: 'US$/cwt',
-    unidadeBR: 'R$/@',
-    // (dólares/cwt) * câmbio * (45.3592kg/cwt) / (15kg/arroba)
-    converterParaBR: (preco, cambio) => preco * cambio * (45.3592 / 15),
-    formatarOriginal: (v) => `${v.toFixed(2)} US$/cwt`,
+  cafe_arabica: {
+    ticker: 'KC=F',
+    bolsa: 'ICE Nova York',
+    unidadeOriginal: 'US¢/lb',
+    unidadeBR: 'R$/sc',
+    converter: (preco, cambio) => (preco / 100) * cambio * (60 / 0.453592),
+    formatarOriginal: (p) => `${p.toFixed(2)} US¢/lb`,
   },
-  algodao: {
-    ticker: 'CT=F',
-    nome: 'Algodão',
-    bolsa: 'ICE',
-    unidadeOriginal: 'US¢/libra',
-    unidadeBR: 'R$/@ (15kg)',
-    converterParaBR: (preco, cambio) => (preco / 100) * cambio * 15 / 0.453592,
-    formatarOriginal: (v) => `${v.toFixed(2)} US¢/lb`,
+  cafe_conilon: {
+    ticker: 'KC=F',
+    bolsa: 'ICE Nova York',
+    unidadeOriginal: 'US¢/lb',
+    unidadeBR: 'R$/sc',
+    converter: (preco, cambio) => (preco / 100) * cambio * (60 / 0.453592),
+    formatarOriginal: (p) => `${p.toFixed(2)} US¢/lb`,
   },
   trigo: {
     ticker: 'ZW=F',
-    nome: 'Trigo',
     bolsa: 'CBOT Chicago',
-    unidadeOriginal: 'US¢/bushel',
-    unidadeBR: 'R$/sc 60kg',
-    // 1 bushel de trigo = 27.2155 kg
-    converterParaBR: (preco, cambio) => (preco / 100) * cambio * (27.2155 / 60),
-    formatarOriginal: (v) => `${v.toFixed(2)} US¢/bu`,
+    unidadeOriginal: 'US¢/bu',
+    unidadeBR: 'R$/sc',
+    converter: (preco, cambio) => (preco / 100) * cambio * (27.216 / 60),
+    formatarOriginal: (p) => `${p.toFixed(2)} US¢/bu`,
   },
-};
+  algodao: {
+    ticker: 'CT=F',
+    bolsa: 'ICE',
+    unidadeOriginal: 'US¢/lb',
+    unidadeBR: 'R$/@',
+    // Algodão cotado em US¢/libra; arroba = 15kg = 33.069 libras
+    converter: (preco, cambio) => (preco / 100) * cambio * (15 / 0.453592),
+    formatarOriginal: (p) => `${p.toFixed(2)} US¢/lb`,
+  },
+  boi_gordo: {
+    ticker: 'LE=F',
+    bolsa: 'CME',
+    unidadeOriginal: 'US$/cwt',
+    unidadeBR: 'R$/@',
+    // Boi cotado em US$ por cwt (hundredweight = 100 libras = 45.359 kg)
+    // 1 arroba = 15kg → arrobas por cwt = 45.359 / 15 = 3.024
+    // ATENÇÃO: LE=F retorna em dólares (não centavos), então NÃO dividir por 100
+    converter: (preco, cambio) => preco * cambio * (45.359 / 15),
+    formatarOriginal: (p) => `${p.toFixed(2)} US$/cwt`,
+  },
+}
 
-async function fetchYahooPrice(ticker) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=1d&interval=1d&includePrePost=false`;
+async function fetchPreco(ticker) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=1d&interval=1d&includePrePost=false`
   const res = await fetch(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      'Accept': 'application/json',
+      Accept: 'application/json',
     },
-  });
-  if (!res.ok) throw new Error(`Yahoo Finance error: ${res.status}`);
-  const data = await res.json();
-  const result = data?.chart?.result?.[0];
-  if (!result) throw new Error('Sem dados para ' + ticker);
-  // Usar regularMarketPrice do meta (preço mais recente disponível)
-  const price = result.meta?.regularMarketPrice;
-  if (!price) throw new Error('Preço não encontrado para ' + ticker);
-  return price;
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status} para ${ticker}`)
+  const data = await res.json()
+  const preco = data?.chart?.result?.[0]?.meta?.regularMarketPrice
+  if (!preco) throw new Error(`Sem preço disponível para ${ticker}`)
+  return preco
 }
 
 export default async function handler(req) {
-  const url = new URL(req.url);
-  const cultura = url.searchParams.get('cultura');
-
-  // Permite buscar todas as culturas de uma vez (para o dashboard)
-  const culturasSolicitadas = cultura
-    ? [cultura]
-    : Object.keys(CULTURAS_CONFIG);
-
   const headers = {
     'Content-Type': 'application/json',
-    'Cache-Control': 'public, s-maxage=900, stale-while-revalidate=1800', // cache 15min
+    'Cache-Control': 'public, s-maxage=900, stale-while-revalidate=1800', // cache 15 minutos
     'Access-Control-Allow-Origin': '*',
-  };
+  }
+
+  const url = new URL(req.url)
+  const culturaSolicitada = url.searchParams.get('cultura') // filtro opcional
 
   try {
-    // Buscar câmbio USD/BRL sempre
-    const cambio = await fetchYahooPrice('USDBRL=X');
+    // Câmbio USD/BRL — sempre busca primeiro
+    const cambio = await fetchPreco('USDBRL=X')
 
-    const resultados = {};
+    const culturasFiltradas = culturaSolicitada && CULTURAS[culturaSolicitada]
+      ? { [culturaSolicitada]: CULTURAS[culturaSolicitada] }
+      : CULTURAS
 
+    // Tickers únicos para evitar chamadas duplicadas (café usa mesmo ticker em 3 chaves)
+    const tickersUnicos = [...new Set(Object.values(culturasFiltradas).map(c => c.ticker))]
+    const precosPorTicker = {}
     await Promise.allSettled(
-      culturasSolicitadas.map(async (c) => {
-        const cfg = CULTURAS_CONFIG[c];
-        if (!cfg) return;
+      tickersUnicos.map(async (ticker) => {
         try {
-          const precoOriginal = await fetchYahooPrice(cfg.ticker);
-          const valorBR = cfg.converterParaBR(precoOriginal, cambio);
-          resultados[c] = {
-            ticker: cfg.ticker,
-            bolsa: cfg.bolsa,
-            nome: cfg.nome,
-            precoOriginal,
-            precoOriginalFormatado: cfg.formatarOriginal(precoOriginal),
-            unidadeOriginal: cfg.unidadeOriginal,
-            valorBR: Math.round(valorBR * 100) / 100,
-            unidadeBR: cfg.unidadeBR,
-            cambio: Math.round(cambio * 4) / 4,
-            timestamp: new Date().toISOString(),
-            ok: true,
-          };
+          precosPorTicker[ticker] = await fetchPreco(ticker)
         } catch (err) {
-          resultados[c] = { ok: false, erro: err.message, nome: cfg.nome };
+          precosPorTicker[ticker] = null
         }
       })
-    );
+    )
+
+    const resultados = {}
+    for (const [key, cfg] of Object.entries(culturasFiltradas)) {
+      const preco = precosPorTicker[cfg.ticker]
+      if (preco == null) {
+        resultados[key] = { ok: false, erro: `Preço indisponível para ${cfg.ticker}` }
+        continue
+      }
+      const valorBR = cfg.converter(preco, cambio)
+      resultados[key] = {
+        ok: true,
+        ticker: cfg.ticker,
+        bolsa: cfg.bolsa,
+        precoOriginal: preco,
+        precoOriginalFormatado: cfg.formatarOriginal(preco),
+        unidadeOriginal: cfg.unidadeOriginal,
+        valorBR: Math.round(valorBR * 100) / 100,
+        unidadeBR: cfg.unidadeBR,
+        cambio: Math.round(cambio * 100) / 100,
+        timestamp: new Date().toISOString(),
+      }
+    }
 
     return new Response(
-      JSON.stringify({ ok: true, cambio, culturas: resultados }),
+      JSON.stringify({ ok: true, cambio: Math.round(cambio * 100) / 100, culturas: resultados }),
       { headers }
-    );
+    )
   } catch (err) {
     return new Response(
       JSON.stringify({ ok: false, erro: err.message }),
       { status: 500, headers }
-    );
+    )
   }
 }
