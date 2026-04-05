@@ -845,7 +845,7 @@ export default function Estoque() {
                                       <ArrowDownCircle size={13} />Entrada
                                     </button>
                                     <button onClick={e => { e.stopPropagation(); abrirModalMov(produto.id, 'saida') }}
-                                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500 text-white shadow-sm hover:opacity-90">
+                                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500 text-white shadow-sm hover:opacity-90" style={{ background: 'linear-gradient(to right, #fdd140, #ffbb00)' }}>
                                       <ArrowUpCircle size={13} />Saída
                                     </button>
                                     <div className="flex items-center gap-0.5 ml-1">

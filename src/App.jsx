@@ -13,10 +13,12 @@ import Configuracoes from './pages/Configuracoes'
 import Producao from './pages/Producao'
 import Estoque from './pages/Estoque'
 import EstoqueProducao from './pages/EstoqueProducao'
+import { useCustoProducaoBackground } from './hooks/useCustoProducao'
 
 function RotaProtegida({ children }) {
   const { usuario } = useAuth()
   return usuario ? children : <Navigate to="/login" />
+  useCustoProducaoBackground(usuario?.uid)
 }
 
 export default function App() {

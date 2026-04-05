@@ -6,6 +6,7 @@ import { Plus, Trash2, Wheat, Pencil, X, ChevronDown, ChevronUp, CheckCircle, Al
 import { format, parseISO } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { getCamposQualidade, getCultura, UNIDADES, getLabelUnidade } from '../config/culturasConfig'
+import { formatarCustoEstimado } from '../hooks/useCustoProducao'
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -24,15 +25,12 @@ function nomeMes(chave) {
 }
 function getHoje() {
   const d = new Date()
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const dia = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${dia}`
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 const HOJE = getHoje()
 
 // ─────────────────────────────────────────────
-// Formulário padrão — SEM campos de qualidade
+// Formulário padrão — SEM qualidade (vai para o estoque)
 // ─────────────────────────────────────────────
 const FORM_PADRAO = {
   safraId: '',
@@ -54,7 +52,7 @@ function IconeCultura({ nomeCultura, size = 14 }) {
 }
 
 // ─────────────────────────────────────────────
-// AutocompleteInput — para local de armazenagem
+// AutocompleteInput
 // ─────────────────────────────────────────────
 function AutocompleteInput({ value, onChange, placeholder, sugestoes, className }) {
   const [aberto, setAberto] = useState(false)
@@ -81,24 +79,58 @@ function AutocompleteInput({ value, onChange, placeholder, sugestoes, className 
 }
 
 // ─────────────────────────────────────────────
+// Bloco de campos de qualidade (reutilizado em 2 lugares)
+// ─────────────────────────────────────────────
+function CamposQualidade({ camposQ, qualidade, setQualidade, classificacao, setClassificacao }) {
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">
+          Classificação própria <span className="text-gray-400 font-normal">(opcional)</span>
+        </label>
+        <input type="text" value={classificacao} onChange={e => setClassificacao(e.target.value)}
+          placeholder="Ex: padrão exportação, código cooperativa, armazém..."
+          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+      </div>
+      {camposQ.length > 0 && (
+        <div className="grid grid-cols-2 gap-2">
+          {camposQ.map(c => (
+            <div key={c.key}>
+              <label className="block text-xs text-gray-500 mb-1">{c.label}{c.unidade ? ` (${c.unidade})` : ''}</label>
+              {c.tipo === 'select' ? (
+                <select value={qualidade[c.key] || ''} onChange={e => setQualidade(q => ({ ...q, [c.key]: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-white">
+                  <option value="">—</option>
+                  {c.opcoes.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              ) : (
+                <input type="number" step="0.1" value={qualidade[c.key] || ''}
+                  onChange={e => setQualidade(q => ({ ...q, [c.key]: e.target.value }))}
+                  placeholder={`${c.min ?? 0}–${c.max ?? ''}`}
+                  className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-white" />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────
 // Modal de entrada manual no estoque
-// Aberto a partir do botão no card de colheita
 // ─────────────────────────────────────────────
 function ModalEntradaEstoque({ colheita, totalLotesExistentes, sugestoesLocal, onClose, onSalvo }) {
   const { usuario } = useAuth()
   const camposQ = getCamposQualidade(colheita.cultura || '')
   const unidade = colheita.unidade || 'sc'
 
-  // Gera ID sugerido: primeiras 3 letras da cultura + sequencial
-  const prefixo = (colheita.cultura || 'LOT').substring(0, 3).toUpperCase()
-  const idSugerido = `${prefixo}-${String(totalLotesExistentes + 1).padStart(3, '0')}`
-
-  const [idLote, setIdLote] = useState(idSugerido)
+  const [idLote, setIdLote] = useState('')
   const [local, setLocal] = useState('')
+  const [classificacao, setClassificacao] = useState('')
   const [qualidade, setQualidade] = useState({})
   const [quantidade, setQuantidade] = useState(String(colheita.quantidade || ''))
   const [salvando, setSalvando] = useState(false)
-
   const invalido = !local.trim() || !quantidade || Number(quantidade) <= 0
 
   async function salvar() {
@@ -118,8 +150,9 @@ function ModalEntradaEstoque({ colheita, totalLotesExistentes, sugestoesLocal, o
         unidade,
         dataColheita: colheita.dataColheita || '',
         localArmazenagem: local.trim(),
+        classificacao: classificacao.trim(),
         qualidade: qualidade || {},
-        idLote: idLote.trim() || idSugerido,
+        idLote: idLote.trim(),
         colheitaOrigemId: colheita.id,
         cancelado: false,
         uid: usuario.uid,
@@ -144,65 +177,39 @@ function ModalEntradaEstoque({ colheita, totalLotesExistentes, sugestoesLocal, o
         <div className="p-5 space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">
-                ID / Referência do lote
-              </label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">ID / Referência do lote</label>
               <input type="text" value={idLote} onChange={e => setIdLote(e.target.value)}
                 placeholder="Código de referência do lote"
                 className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">
-                Quantidade ({unidade})
-              </label>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Quantidade ({unidade})</label>
               <input type="number" value={quantidade} onChange={e => setQuantidade(e.target.value)}
                 className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
             </div>
           </div>
-
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">
-              Local de armazenagem <span className="text-red-500">*</span>
-            </label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Local de armazenagem <span className="text-red-500">*</span></label>
             <AutocompleteInput value={local} onChange={setLocal}
               placeholder="Ex: Silo Fazenda, Cooperativa ABC..."
               sugestoes={sugestoesLocal}
               className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
           </div>
-
-          {camposQ.length > 0 && (
-            <div>
-              <p className="text-xs font-medium text-gray-600 mb-2">
-                Qualidade <span className="text-gray-400 font-normal">(opcional)</span>
-              </p>
-              <div className="bg-gray-50 rounded-xl p-3 grid grid-cols-2 gap-3">
-                {camposQ.map(c => (
-                  <div key={c.key}>
-                    <label className="block text-xs text-gray-500 mb-1">
-                      {c.label}{c.unidade ? ` (${c.unidade})` : ''}
-                    </label>
-                    {c.tipo === 'select' ? (
-                      <select value={qualidade[c.key] || ''} onChange={e => setQualidade(q => ({ ...q, [c.key]: e.target.value }))}
-                        className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-white">
-                        <option value="">—</option>
-                        {c.opcoes.map(o => <option key={o} value={o}>{o}</option>)}
-                      </select>
-                    ) : (
-                      <input type="number" step="0.1" value={qualidade[c.key] || ''}
-                        onChange={e => setQualidade(q => ({ ...q, [c.key]: e.target.value }))}
-                        placeholder={`${c.min ?? 0}–${c.max ?? ''}`}
-                        className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-white" />
-                    )}
-                  </div>
-                ))}
-              </div>
+          <div>
+            <p className="text-xs font-medium text-gray-600 mb-2">Qualidade <span className="text-gray-400 font-normal">(opcional)</span></p>
+            <div className="bg-gray-50 rounded-xl p-3">
+              <CamposQualidade
+                camposQ={camposQ}
+                qualidade={qualidade}
+                setQualidade={setQualidade}
+                classificacao={classificacao}
+                setClassificacao={setClassificacao}
+              />
             </div>
-          )}
+          </div>
         </div>
         <div className="flex gap-3 p-5 border-t border-gray-100">
-          <button onClick={onClose} className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">
-            Cancelar
-          </button>
+          <button onClick={onClose} className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">Cancelar</button>
           <button onClick={salvar} disabled={salvando || invalido}
             className="flex-1 text-white py-2 rounded-xl text-sm font-medium disabled:opacity-50 shadow-md"
             style={{ background: invalido ? '#86efac' : 'var(--brand-gradient)' }}>
@@ -224,7 +231,7 @@ export default function Producao() {
   const [propriedades, setPropriedades] = useState([])
   const [safras, setSafras] = useState([])
   const [lavouras, setLavouras] = useState([])
-  const [lotesEstoque, setLotesEstoque] = useState([])      // para saber quais colheitas já têm lote
+  const [lotesEstoque, setLotesEstoque] = useState([])
 
   const [modal, setModal] = useState(false)
   const [editando, setEditando] = useState(null)
@@ -236,22 +243,19 @@ export default function Producao() {
   const [modalIniciar, setModalIniciar] = useState(null)
   const [gruposExpandidos, setGruposExpandidos] = useState({})
   const [aba, setAba] = useState('atuais')
-
   const [filtroPropriedadeIds, setFiltroPropriedadeIds] = useState([])
   const [filtroSafraId, setFiltroSafraId] = useState('')
   const [dropdownFiltroAberto, setDropdownFiltroAberto] = useState(false)
-
-  // Modal de entrada manual no estoque
-  const [modalEntradaEstoque, setModalEntradaEstoque] = useState(null) // colheita obj
+  const [modalEntradaEstoque, setModalEntradaEstoque] = useState(null)
   const [sugestoesLocal, setSugestoesLocal] = useState([])
 
-  // Toggle de entrada no estoque (dentro do modal de colheita)
+  // Estado para toggle de entrada no estoque (dentro do modal de colheita)
   const [darEntradaEstoque, setDarEntradaEstoque] = useState(false)
   const [idLoteEstoque, setIdLoteEstoque] = useState('')
   const [localArmazenagem, setLocalArmazenagem] = useState('')
+  const [classificacaoEstoque, setClassificacaoEstoque] = useState('')
   const [qualidadeEstoque, setQualidadeEstoque] = useState({})
 
-  // ── Carregar dados ──
   async function carregar() {
     const uid = usuario.uid
     const [colSnap, propSnap, safSnap, lavSnap, estSnap] = await Promise.all([
@@ -267,7 +271,6 @@ export default function Producao() {
     setLavouras(lavSnap.docs.map(d => ({ id: d.id, ...d.data() })))
     const lotes = estSnap.docs.map(d => ({ id: d.id, ...d.data() }))
     setLotesEstoque(lotes)
-    // Sugestões de locais para autocomplete
     setSugestoesLocal([...new Set(lotes.map(l => l.localArmazenagem).filter(Boolean))])
   }
 
@@ -281,17 +284,12 @@ export default function Producao() {
     return () => document.removeEventListener('mousedown', fechar)
   }, [])
 
-  // ── Memos ──
-  const safraSelecionada = useMemo(
-    () => safras.find(s => s.id === form.safraId) || null,
-    [safras, form.safraId]
-  )
+  const safraSelecionada = useMemo(() => safras.find(s => s.id === form.safraId) || null, [safras, form.safraId])
   const lavourasDaSafra = useMemo(() => {
     if (!safraSelecionada) return []
     return lavouras.filter(l => safraSelecionada.lavouraIds?.includes(l.id))
   }, [safraSelecionada, lavouras])
 
-  // Campos de qualidade para a cultura selecionada (para o toggle de entrada no estoque)
   const camposQualidadeEstoque = useMemo(() => {
     if (!safraSelecionada?.cultura) return []
     return getCamposQualidade(safraSelecionada.cultura)
@@ -350,6 +348,7 @@ export default function Producao() {
           nColheitas: colheitasDaSafra.length,
           lavourasPendentes: lavourasPendentes.length,
           areaPendente,
+          custoEstimado: s.custoEstimado || null, // vem do cálculo em background
           meses: chavesOrdenadas.map(chave => ({
             chave,
             itens: mapaColheitas[s.id][chave],
@@ -357,7 +356,7 @@ export default function Producao() {
           })),
         }
       })
-      .filter(g => g.nColheitas > 0 || safrasDaAba.find(s => s.id === g.safraId))
+      .filter(g => g.nColheitas > 0)
   }, [safrasDaAba, listaFiltrada, lavouras, filtroPropriedadeIds, filtroSafraId])
 
   const safrasFiltradasParaSelect = useMemo(() => {
@@ -371,8 +370,7 @@ export default function Producao() {
     return aba === 'atuais'
   }
   function toggleGrupo(safraId) {
-    const atual = expandidoPorPadrao(safraId)
-    setGruposExpandidos(g => ({ ...g, [safraId]: !atual }))
+    setGruposExpandidos(g => ({ ...g, [safraId]: !expandidoPorPadrao(safraId) }))
   }
 
   function abrirModal() {
@@ -381,6 +379,7 @@ export default function Producao() {
     setDarEntradaEstoque(false)
     setIdLoteEstoque('')
     setLocalArmazenagem('')
+    setClassificacaoEstoque('')
     setQualidadeEstoque({})
     setFabAberto(false)
     setModal(true)
@@ -399,10 +398,10 @@ export default function Producao() {
     setDarEntradaEstoque(false)
     setIdLoteEstoque('')
     setLocalArmazenagem('')
+    setClassificacaoEstoque('')
     setQualidadeEstoque({})
     setModal(true)
   }
-
   function onChangeData(val) {
     setForm(f => ({ ...f, dataColheita: val, errData: val > HOJE ? 'A data não pode ser no futuro.' : '' }))
   }
@@ -417,21 +416,17 @@ export default function Producao() {
     if (!safra || safra.status === 'Colhida') return
     const lavourasVinculadas = lavouras.filter(l => safra.lavouraIds?.includes(l.id))
     if (lavourasVinculadas.length === 0) return
-    const snap = await getDocs(query(collection(db, 'colheitas'),
-      where('uid', '==', usuario.uid), where('safraId', '==', safraId)))
+    const snap = await getDocs(query(collection(db, 'colheitas'), where('uid', '==', usuario.uid), where('safraId', '==', safraId)))
     const colheitasSafra = snap.docs.map(d => d.data())
     const lavouraIdsColhidos = new Set([...colheitasSafra.map(c => c.lavouraId).filter(Boolean), novaLavouraId])
     const todasColhidas = lavourasVinculadas.every(l => lavouraIdsColhidos.has(l.id))
     if (!todasColhidas) return
     const datas = [...colheitasSafra.map(c => c.dataColheita).filter(Boolean), novaData].sort()
-    const dataTerminoSugerida = datas[datas.length - 1]
-    setModalConcluir({ safraId, safraNome: safra.nome, dataTermino: dataTerminoSugerida })
+    setModalConcluir({ safraId, safraNome: safra.nome, dataTermino: datas[datas.length - 1] })
   }
 
   async function concluirSafra() {
-    await updateDoc(doc(db, 'safras', modalConcluir.safraId), {
-      status: 'Colhida', dataTermino: modalConcluir.dataTermino,
-    })
+    await updateDoc(doc(db, 'safras', modalConcluir.safraId), { status: 'Colhida', dataTermino: modalConcluir.dataTermino })
     setModalConcluir(null)
     await carregar()
   }
@@ -447,7 +442,6 @@ export default function Producao() {
     await carregar()
   }
 
-  // ── Salvar colheita ──
   async function salvar(e) {
     e.preventDefault()
     if (!form.safraId) return alert('Selecione uma safra.')
@@ -459,7 +453,6 @@ export default function Producao() {
     const lavoura = lavouras.find(l => l.id === form.lavouraId)
     const prop = propriedades.find(p => p.id === safra?.propriedadeId)
 
-    // Payload SEM campos de qualidade — qualidade fica no estoque
     const payload = {
       safraId: form.safraId,
       safraNome: safra?.nome || '',
@@ -483,11 +476,8 @@ export default function Producao() {
       colheitaId = docRef.id
     }
 
-    // Se toggle de entrada no estoque estiver ativo, criar lote
+    // Toggle de entrada no estoque
     if (!editando && darEntradaEstoque && localArmazenagem.trim()) {
-      const prefixo = (safra?.cultura || 'LOT').substring(0, 3).toUpperCase()
-      const totalExist = lotesEstoque.filter(l => l.cultura === safra?.cultura).length
-      const idSugerido = `${prefixo}-${String(totalExist + 1).padStart(3, '0')}`
       await addDoc(collection(db, 'estoqueProducao'), {
         cultura: safra?.cultura || '',
         safraId: form.safraId,
@@ -501,8 +491,9 @@ export default function Producao() {
         unidade: form.unidade,
         dataColheita: form.dataColheita,
         localArmazenagem: localArmazenagem.trim(),
+        classificacao: classificacaoEstoque.trim(),
         qualidade: qualidadeEstoque || {},
-        idLote: idLoteEstoque.trim() || idSugerido,
+        idLote: idLoteEstoque.trim(),
         colheitaOrigemId: colheitaId,
         cancelado: false,
         uid: usuario.uid,
@@ -516,6 +507,7 @@ export default function Producao() {
     setDarEntradaEstoque(false)
     setIdLoteEstoque('')
     setLocalArmazenagem('')
+    setClassificacaoEstoque('')
     setQualidadeEstoque({})
     await carregar()
     setLoading(false)
@@ -525,35 +517,25 @@ export default function Producao() {
         setModalIniciar({ safraId: form.safraId, safraNome: safra.nome, colheitaId })
         return
       }
-      if (form.lavouraId) {
-        await verificarConclusaoSafra(form.safraId, form.lavouraId, form.dataColheita)
-      }
+      if (form.lavouraId) await verificarConclusaoSafra(form.safraId, form.lavouraId, form.dataColheita)
     }
   }
 
   function excluir(id, nome) {
     setConfirmacao({
       mensagem: `Deseja excluir o registro de colheita "${nome}"?`,
-      onConfirmar: async () => {
-        await deleteDoc(doc(db, 'colheitas', id))
-        await carregar()
-      },
+      onConfirmar: async () => { await deleteDoc(doc(db, 'colheitas', id)); await carregar() },
     })
   }
 
-  // Verifica se colheita já tem lote de estoque ativo (não cancelado)
   function colheitaTemLote(colheitaId) {
     return lotesEstoque.some(l => l.colheitaOrigemId === colheitaId && !l.cancelado)
   }
 
-  // Total de lotes existentes para a cultura (para gerar ID sequencial)
   function totalLotesCultura(cultura) {
     return lotesEstoque.filter(l => l.cultura === cultura).length
   }
 
-  // ─────────────────────────────────────────────
-  // Render
-  // ─────────────────────────────────────────────
   return (
     <div className="space-y-5 pb-24">
       <h1 className="text-2xl font-bold text-gray-800">Produção</h1>
@@ -576,7 +558,6 @@ export default function Producao() {
             </button>
             {dropdownFiltroAberto && (
               <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-30 min-w-[160px] py-1 max-h-48 overflow-y-auto">
-                {propriedades.length === 0 && <p className="text-xs text-gray-400 px-3 py-2">Nenhuma propriedade.</p>}
                 {propriedades.map(p => {
                   const sel = filtroPropriedadeIds.includes(p.id)
                   return (
@@ -593,7 +574,6 @@ export default function Producao() {
               </div>
             )}
           </div>
-
           {safrasFiltradasParaSelect.length > 0 && (
             <select value={filtroSafraId} onChange={e => setFiltroSafraId(e.target.value)}
               className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-gray-50 hover:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-500">
@@ -621,26 +601,22 @@ export default function Producao() {
         ))}
       </div>
 
-      {/* ── Lista vazia ── */}
       {agrupado.length === 0 && (
         <div className="bg-white rounded-xl p-10 text-center text-gray-400 shadow-sm border border-gray-100">
           <Wheat size={36} className="mx-auto mb-3 opacity-30" />
-          <p className="text-sm">
-            {aba === 'atuais' ? 'Nenhuma colheita registrada em safras atuais.' : 'Nenhuma colheita registrada em safras passadas.'}
-          </p>
+          <p className="text-sm">{aba === 'atuais' ? 'Nenhuma colheita registrada em safras atuais.' : 'Nenhuma colheita registrada em safras passadas.'}</p>
           <p className="text-xs mt-1 text-gray-300">Use o botão + para registrar a primeira colheita.</p>
         </div>
       )}
 
-      {/* ── Grupos por safra ── */}
       <div className="space-y-4">
         {agrupado.map(grupo => {
           const expandido = expandidoPorPadrao(grupo.safraId)
+          const custoFmt = formatarCustoEstimado(grupo.custoEstimado, grupo.unidade)
+
           return (
             <div key={grupo.safraId} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-              {/* Cabeçalho da safra */}
-              <button type="button"
-                onClick={() => toggleGrupo(grupo.safraId)}
+              <button type="button" onClick={() => toggleGrupo(grupo.safraId)}
                 className="w-full text-left transition-colors hover:brightness-95"
                 style={{ background: 'linear-gradient(to right, #f0fdf4, #ffffff)' }}>
                 <div className="flex items-center justify-between px-4 pt-3 pb-1">
@@ -656,7 +632,8 @@ export default function Producao() {
                   </div>
                   {expandido ? <ChevronUp size={15} className="text-gray-400 flex-shrink-0" /> : <ChevronDown size={15} className="text-gray-400 flex-shrink-0" />}
                 </div>
-                {/* Indicadores */}
+
+                {/* Indicadores — inclui custo estimado (ponto 17) */}
                 <div className="flex items-stretch border-t border-green-100 mt-1">
                   <div className="flex-1 flex flex-col items-center justify-center py-2 px-1">
                     <p className="text-sm font-bold text-green-700 leading-tight">
@@ -678,13 +655,31 @@ export default function Producao() {
                     )}
                   </div>
                   <div className="w-px bg-green-100 self-stretch" />
+                  {/* Custo estimado — ponto 17 */}
+                  <div className="flex-1 flex flex-col items-center justify-center py-2 px-1">
+                    {custoFmt.texto ? (
+                      <>
+                        <div className="flex items-center gap-0.5">
+                          <p className="text-sm font-bold text-green-700 leading-tight">{custoFmt.texto}</p>
+                          {custoFmt.incompleto && (
+                            <span title={custoFmt.emAndamento ? 'Safra em andamento — custo parcial' : `Cobertura: ${custoFmt.cobertura}% das lavouras`}
+                              className="text-amber-500 text-xs leading-none cursor-help">⚠</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-400 leading-tight">custo{custoFmt.incompleto ? ' est.' : ' médio'}</p>
+                      </>
+                    ) : (
+                      <><p className="text-sm font-bold text-gray-300 leading-tight">—</p><p className="text-xs text-gray-400 leading-tight">custo estimado</p></>
+                    )}
+                  </div>
+                  <div className="w-px bg-green-100 self-stretch" />
                   <div className="flex-1 flex flex-col items-center justify-center py-2 px-1">
                     {grupo.lavourasPendentes > 0 ? (
                       <>
                         <p className="text-sm font-bold text-amber-600 leading-tight">
                           {formatarNumero(grupo.areaPendente)} <span className="text-xs font-medium">ha</span>
                         </p>
-                        <p className="text-xs text-gray-400 leading-tight">{grupo.lavourasPendentes} lavoura{grupo.lavourasPendentes !== 1 ? 's' : ''} pendente{grupo.lavourasPendentes !== 1 ? 's' : ''}</p>
+                        <p className="text-xs text-gray-400 leading-tight">{grupo.lavourasPendentes} pendente{grupo.lavourasPendentes !== 1 ? 's' : ''}</p>
                       </>
                     ) : (
                       <><p className="text-sm font-bold text-green-600 leading-tight">✓ concluída</p><p className="text-xs text-gray-400 leading-tight">todas colhidas</p></>
@@ -693,7 +688,6 @@ export default function Producao() {
                 </div>
               </button>
 
-              {/* Itens por mês */}
               {expandido && (
                 <div className="border-t border-gray-100">
                   {grupo.meses.map(mes => (
@@ -709,42 +703,34 @@ export default function Producao() {
                           <div key={c.id} className={`${bgZebra} px-4 py-2.5 transition-colors hover:bg-blue-50/30`}>
                             <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-4">
                               <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-gray-800 truncate">
-                                  {c.lavouraNome || 'Sem lavoura'}
-                                </p>
+                                <p className="text-sm font-medium text-gray-800 truncate">{c.lavouraNome || 'Sem lavoura'}</p>
                                 <p className="text-xs text-gray-400 truncate">{c.propriedadeNome}</p>
                                 <p className="text-xs text-gray-400">{formatarData(c.dataColheita)}</p>
                               </div>
-                              {c.observacoes ? (
+                              {c.observacoes && (
                                 <div className="flex-1 min-w-0">
                                   <p className="text-xs text-gray-400 italic truncate">{c.observacoes}</p>
                                 </div>
-                              ) : <div className="flex-1 hidden md:block" />}
+                              )}
                               <div className="flex items-center justify-between md:justify-end gap-2 flex-shrink-0">
+                                
+                                {!jaTemLote ? (
+                                  <button onClick={e => { e.stopPropagation(); setModalEntradaEstoque(c) }}
+                                    title="Dar entrada no estoque de produção"
+                                    className="flex items-center gap-1 text-xs text-white px-2 py-1 rounded-lg shadow-sm hover:opacity-90"
+                                    style={{ background: 'var(--brand-gradient)' }}>
+                                    <PackagePlus size={11} />
+                                    <span className="sm:inline">Entrada estoque</span>
+                                  </button>
+                                ) : (
+                                  <span className="text-xs text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">✓ No estoque</span>
+                                )}
                                 <p className="text-sm font-bold text-green-700 whitespace-nowrap">
                                   {formatarNumero(c.quantidade)} {c.unidade}
                                 </p>
-                                {/* Botão entrada manual no estoque */}
-                                {!jaTemLote && (
-                                  <button
-                                    onClick={e => { e.stopPropagation(); setModalEntradaEstoque(c) }}
-                                    title="Dar entrada no estoque de produção"
-                                    className="flex items-center gap-1 text-xs text-white px-2 py-1 rounded-lg shadow-sm hover:opacity-90 transition-all"
-                                    style={{ background: 'var(--brand-gradient)' }}>
-                                    <PackagePlus size={11} />
-                                    <span className="hidden sm:inline">Estoque</span>
-                                  </button>
-                                )}
-                                {jaTemLote && (
-                                  <span className="text-xs text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">
-                                    ✓ No estoque
-                                  </span>
-                                )}
                                 <div className="flex items-center gap-0.5">
-                                  <button onClick={e => { e.stopPropagation(); abrirEdicao(c) }}
-                                    className="text-gray-300 hover:text-blue-500 p-1 transition-colors"><Pencil size={15} /></button>
-                                  <button onClick={e => { e.stopPropagation(); excluir(c.id, c.lavouraNome || 'colheita') }}
-                                    className="text-gray-300 hover:text-red-500 p-1 transition-colors"><Trash2 size={15} /></button>
+                                  <button onClick={e => { e.stopPropagation(); abrirEdicao(c) }} className="text-gray-300 hover:text-blue-500 p-1"><Pencil size={15} /></button>
+                                  <button onClick={e => { e.stopPropagation(); excluir(c.id, c.lavouraNome || 'colheita') }} className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={15} /></button>
                                 </div>
                               </div>
                             </div>
@@ -766,11 +752,8 @@ export default function Producao() {
           <div className="flex flex-col items-end gap-2 mb-1">
             <div className="flex items-center gap-2">
               <span className="bg-white text-gray-600 text-xs px-3 py-1.5 rounded-full shadow border border-gray-200 whitespace-nowrap">Registrar colheita</span>
-              <button onClick={abrirModal}
-                className="w-11 h-11 rounded-full text-white flex items-center justify-center shadow hover:opacity-90 transition-all"
-                style={{ background: 'var(--brand-gradient)' }}>
-                <Plus size={18} />
-              </button>
+              <button onClick={abrirModal} className="w-11 h-11 rounded-full text-white flex items-center justify-center shadow hover:opacity-90"
+                style={{ background: 'var(--brand-gradient)' }}><Plus size={18} /></button>
             </div>
           </div>
         )}
@@ -789,9 +772,7 @@ export default function Producao() {
               <h2 className="font-bold text-gray-800">{editando ? 'Editar colheita' : 'Registrar colheita'}</h2>
               <button onClick={() => { setModal(false); setEditando(null) }} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
             </div>
-
             <form onSubmit={salvar} className="p-5 space-y-4">
-              {/* Safra */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Safra <span className="text-red-500">*</span></label>
                 <select value={form.safraId} onChange={e => selecionarSafra(e.target.value)}
@@ -803,36 +784,27 @@ export default function Producao() {
                 </select>
                 {!editando && <p className="text-xs text-gray-400 mt-1">Exibindo safras em andamento e planejadas.</p>}
               </div>
-
-              {/* Lavoura */}
               {lavourasDaSafra.length > 0 && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Lavoura</label>
                   <select value={form.lavouraId} onChange={e => setForm(f => ({ ...f, lavouraId: e.target.value }))}
                     className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
                     <option value="">Selecione a lavoura...</option>
-                    {lavourasDaSafra.map(l => (
-                      <option key={l.id} value={l.id}>{l.nome} ({formatarNumero(l.areaHa)} ha)</option>
-                    ))}
+                    {lavourasDaSafra.map(l => <option key={l.id} value={l.id}>{l.nome} ({formatarNumero(l.areaHa)} ha)</option>)}
                   </select>
                 </div>
               )}
-
-              {/* Data */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Data da colheita <span className="text-red-500">*</span></label>
                 <input type="date" value={form.dataColheita} max={HOJE} onChange={e => onChangeData(e.target.value)}
                   className={`w-full border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 ${form.errData ? 'border-red-400' : 'border-gray-300'}`} required />
                 {form.errData && <p className="text-xs text-red-500 mt-1">{form.errData}</p>}
               </div>
-
-              {/* Quantidade + Unidade */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade <span className="text-red-500">*</span></label>
                   <input type="number" min="0" step="0.01" value={form.quantidade}
                     onChange={e => setForm(f => ({ ...f, quantidade: e.target.value }))}
-                    placeholder="0"
                     className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" required />
                 </div>
                 <div>
@@ -842,21 +814,18 @@ export default function Producao() {
                     {UNIDADES.map(u => <option key={u.value} value={u.value}>{u.label}</option>)}
                   </select>
                   {safraSelecionada?.unidade && (
-                    <p className="text-xs text-gray-400 mt-1">Padrão da safra: {getLabelUnidade(safraSelecionada.unidade)}</p>
+                    <p className="text-xs text-gray-400 mt-1">Padrão: {getLabelUnidade(safraSelecionada.unidade)}</p>
                   )}
                 </div>
               </div>
-
-              {/* Observações */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Observações</label>
                 <textarea value={form.observacoes} onChange={e => setForm(f => ({ ...f, observacoes: e.target.value }))}
-                  placeholder="Condições climáticas, ocorrências, etc."
-                  rows={2}
+                  placeholder="Condições climáticas, ocorrências, etc." rows={2}
                   className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 resize-none" />
               </div>
 
-              {/* ── Toggle: dar entrada no estoque ── (só ao criar, não ao editar) */}
+              {/* Toggle: dar entrada no estoque */}
               {!editando && (
                 <div className="border-t border-gray-100 pt-4">
                   <label className="flex items-center gap-3 cursor-pointer select-none">
@@ -888,42 +857,27 @@ export default function Producao() {
                             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
                         </div>
                       </div>
-
-                      {camposQualidadeEstoque.length > 0 && (
-                        <div>
-                          <p className="text-xs font-medium text-gray-600 mb-2">Qualidade <span className="text-gray-400 font-normal">(opcional)</span></p>
-                          <div className="bg-gray-50 rounded-xl p-3 grid grid-cols-2 gap-2">
-                            {camposQualidadeEstoque.map(c => (
-                              <div key={c.key}>
-                                <label className="block text-xs text-gray-500 mb-1">{c.label}{c.unidade ? ` (${c.unidade})` : ''}</label>
-                                {c.tipo === 'select' ? (
-                                  <select value={qualidadeEstoque[c.key] || ''} onChange={e => setQualidadeEstoque(q => ({ ...q, [c.key]: e.target.value }))}
-                                    className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-white">
-                                    <option value="">—</option>
-                                    {c.opcoes.map(o => <option key={o} value={o}>{o}</option>)}
-                                  </select>
-                                ) : (
-                                  <input type="number" step="0.1" value={qualidadeEstoque[c.key] || ''}
-                                    onChange={e => setQualidadeEstoque(q => ({ ...q, [c.key]: e.target.value }))}
-                                    placeholder={`${c.min ?? 0}–${c.max ?? ''}`}
-                                    className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-white" />
-                                )}
-                              </div>
-                            ))}
-                          </div>
+                      {/* Qualidade + classificação usando o bloco reutilizável */}
+                      <div>
+                        <p className="text-xs font-medium text-gray-600 mb-2">Qualidade <span className="text-gray-400 font-normal">(opcional)</span></p>
+                        <div className="bg-gray-50 rounded-xl p-3">
+                          <CamposQualidade
+                            camposQ={camposQualidadeEstoque}
+                            qualidade={qualidadeEstoque}
+                            setQualidade={setQualidadeEstoque}
+                            classificacao={classificacaoEstoque}
+                            setClassificacao={setClassificacaoEstoque}
+                          />
                         </div>
-                      )}
+                      </div>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Botões */}
               <div className="flex gap-3 pt-1">
                 <button type="button" onClick={() => { setModal(false); setEditando(null) }}
-                  className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">
-                  Cancelar
-                </button>
+                  className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">Cancelar</button>
                 <button type="submit" disabled={loading || !!form.errData || (darEntradaEstoque && !localArmazenagem.trim())}
                   className="flex-1 text-white py-2 rounded-xl text-sm font-medium disabled:opacity-50 shadow-md"
                   style={{ background: 'var(--brand-gradient)' }}>
@@ -935,7 +889,7 @@ export default function Producao() {
         </div>
       )}
 
-      {/* ── Modal de entrada manual no estoque (botão no card) ── */}
+      {/* ── Modal entrada manual no estoque ── */}
       {modalEntradaEstoque && (
         <ModalEntradaEstoque
           colheita={modalEntradaEstoque}
@@ -957,7 +911,7 @@ export default function Producao() {
               <h3 className="font-bold text-gray-800">Safra ainda não iniciada</h3>
             </div>
             <p className="text-sm text-gray-600">A safra <span className="font-semibold">{modalIniciar.safraNome}</span> está com situação <span className="font-semibold text-amber-600">Planejada</span>.</p>
-            <p className="text-sm text-gray-600">Para manter esta colheita registrada, é necessário atualizar a situação da safra para <span className="font-semibold text-green-700">Em andamento</span>. Deseja continuar?</p>
+            <p className="text-sm text-gray-600">Para manter esta colheita, atualize a safra para <span className="font-semibold text-green-700">Em andamento</span>.</p>
             <div className="flex gap-3 pt-1">
               <button onClick={cancelarIniciarSafra} className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">Cancelar colheita</button>
               <button onClick={confirmarIniciarSafra} className="flex-1 text-white py-2 rounded-xl text-sm font-medium shadow-md" style={{ background: 'var(--brand-gradient)' }}>Confirmar</button>
@@ -966,7 +920,7 @@ export default function Producao() {
         </div>
       )}
 
-      {/* ── Modal: todas lavouras colhidas → concluir safra ── */}
+      {/* ── Modal: concluir safra ── */}
       {modalConcluir && (
         <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl p-6 space-y-4">
@@ -977,7 +931,7 @@ export default function Producao() {
               <h3 className="font-bold text-gray-800">Safra concluída?</h3>
             </div>
             <p className="text-sm text-gray-600">Todas as lavouras da safra <span className="font-semibold">{modalConcluir.safraNome}</span> já registraram colheitas.</p>
-            <p className="text-sm text-gray-600">Deseja marcar esta safra como <span className="font-semibold text-green-700">Colhida</span> e atualizar a data de término para <span className="font-semibold">{formatarData(modalConcluir.dataTermino)}</span>?</p>
+            <p className="text-sm text-gray-600">Marcar como <span className="font-semibold text-green-700">Colhida</span> com data de término <span className="font-semibold">{formatarData(modalConcluir.dataTermino)}</span>?</p>
             <div className="flex gap-3 pt-1">
               <button onClick={() => setModalConcluir(null)} className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">Agora não</button>
               <button onClick={concluirSafra} className="flex-1 text-white py-2 rounded-xl text-sm font-medium shadow-md" style={{ background: 'var(--brand-gradient)' }}>Confirmar</button>
