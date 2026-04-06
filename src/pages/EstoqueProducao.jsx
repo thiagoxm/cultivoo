@@ -891,8 +891,9 @@ function ModalTransferencia({ lotes, onClose, onSalvo, sugestoesLocal }) {
         <div className="flex gap-3 px-5 pb-5">
           <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 rounded-xl py-2.5 text-sm font-medium hover:bg-gray-50">Cancelar</button>
           <button onClick={salvar} disabled={salvando || invalido}
-            className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl py-2.5 text-sm font-semibold">
-            {salvando ? 'Transferindo...' : 'Confirmar'}
+            className="flex-1 text-white rounded-xl py-2.5 text-sm font-semibold disabled:opacity-50"
+            style={{ background: invalido ? '#86efac' : 'var(--brand-gradient)' }}>
+            {salvando ? 'Transferindo...' : 'Confirmar transf.'}
           </button>
         </div>
       </div>
