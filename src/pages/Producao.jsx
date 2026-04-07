@@ -6,7 +6,8 @@ import { Plus, Trash2, Wheat, Pencil, X, ChevronDown, ChevronUp, CheckCircle, Al
 import { format, parseISO } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { getCamposQualidade, getCultura, UNIDADES, getLabelUnidade } from '../config/culturasConfig'
-import { formatarCustoEstimado } from '../hooks/useCustoProducao'
+import { formatarCustoEstimado, DEBUG_CUSTO } from '../hooks/useCustoProducao'
+import { PainelDebugCusto } from '../components/PainelDebugCusto'
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -540,6 +541,9 @@ export default function Producao() {
     <div className="space-y-5 pb-24">
       <h1 className="text-2xl font-bold text-gray-800">Produção</h1>
 
+      {/* Painel de debug de custo — remover quando os valores estiverem validados */}
+      {DEBUG_CUSTO && <PainelDebugCusto safras={safras} />}
+
       {/* ── Filtros ── */}
       <div className="bg-white rounded-xl px-4 py-3 shadow-sm border border-gray-100 space-y-2">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Filtros</p>
@@ -713,21 +717,20 @@ export default function Producao() {
                                 </div>
                               )}
                               <div className="flex items-center justify-between md:justify-end gap-2 flex-shrink-0">
-                                
+                                <p className="text-sm font-bold text-green-700 whitespace-nowrap">
+                                  {formatarNumero(c.quantidade)} {c.unidade}
+                                </p>
                                 {!jaTemLote ? (
                                   <button onClick={e => { e.stopPropagation(); setModalEntradaEstoque(c) }}
                                     title="Dar entrada no estoque de produção"
                                     className="flex items-center gap-1 text-xs text-white px-2 py-1 rounded-lg shadow-sm hover:opacity-90"
                                     style={{ background: 'var(--brand-gradient)' }}>
                                     <PackagePlus size={11} />
-                                    <span className="sm:inline">Entrada estoque</span>
+                                    <span className="hidden sm:inline">Estoque</span>
                                   </button>
                                 ) : (
                                   <span className="text-xs text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">✓ No estoque</span>
                                 )}
-                                <p className="text-sm font-bold text-green-700 whitespace-nowrap">
-                                  {formatarNumero(c.quantidade)} {c.unidade}
-                                </p>
                                 <div className="flex items-center gap-0.5">
                                   <button onClick={e => { e.stopPropagation(); abrirEdicao(c) }} className="text-gray-300 hover:text-blue-500 p-1"><Pencil size={15} /></button>
                                   <button onClick={e => { e.stopPropagation(); excluir(c.id, c.lavouraNome || 'colheita') }} className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={15} /></button>

@@ -383,6 +383,17 @@ function ModalDetalheSaida({ mov, lote, onClose }) {
               </div>
             </div>
           )}
+          {/* Ponto 5: status de pagamento */}
+          {isVenda && (
+            <div className={`rounded-xl px-3 py-2 flex items-center justify-between ${mov.dataRecebimento ? 'bg-amber-50 border border-amber-200' : 'bg-green-50 border border-green-200'}`}>
+              <span className="text-xs text-gray-500">Pagamento</span>
+              {mov.dataRecebimento ? (
+                <span className="text-xs font-medium text-amber-700">Pendente · {formatarData(mov.dataRecebimento)}</span>
+              ) : (
+                <span className="text-xs font-medium text-green-700">Pago na data da venda</span>
+              )}
+            </div>
+          )}
           {mov.observacoes && (
             <p className="text-xs text-gray-400 italic">{mov.observacoes}</p>
           )}
@@ -447,7 +458,10 @@ function ModalDetalhesLote({ lote, vendas, onClose, onCancelarVenda }) {
                 <p className="text-sm font-medium text-gray-700">
                   {v.tipo === 'saida_venda' ? (v.comprador || 'Venda s/ comprador') : `→ ${v.localDestino || 'Transferência'}`}
                 </p>
-                <p className="text-xs text-gray-400">{formatarData(v.dataVenda || v.dataMov)}</p>
+                {/* Ponto 6: data pgto — sempre com prefixo "Data pgto:" */}
+                <p className="text-xs text-gray-400">
+                  Data pgto: {formatarData(v.dataRecebimento || v.dataVenda || v.dataMov)}
+                </p>
                 {v.docRef && <p className="text-xs text-gray-400">Doc: {v.docRef}</p>}
                 {/* Ponto 8d: valores abaixo da quantidade */}
                 {v.tipo === 'saida_venda' && v.valorBruto > 0 && (
@@ -578,7 +592,9 @@ function ModalVenda({ lotes, onClose, onSalvo }) {
           {/* Filtros + lotes */}
           <div>
             {(locaisUnicos.length > 1 || safrasUnicas.length > 1) && (
-              <div className="flex gap-2 mb-2">
+              <div className="flex items-center gap-2 mb-2">
+                {/* Ponto 9: título à esquerda dos filtros */}
+                <span className="text-xs font-medium text-gray-500 whitespace-nowrap">Filtre os lotes:</span>
                 {locaisUnicos.length > 1 && (
                   <select value={filtroLocal} onChange={e => setFiltroLocal(e.target.value)}
                     className="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-xs bg-gray-50 focus:outline-none">
@@ -647,23 +663,33 @@ function ModalVenda({ lotes, onClose, onSalvo }) {
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Data da venda</label>
-              <input type="date" value={dataVenda} onChange={e => setDataVenda(e.target.value)}
+              {/* Ponto 7: Nº Doc ao lado do Comprador */}
+              <label className="block text-xs font-medium text-gray-600 mb-1">Nº Doc. Referência <span className="text-gray-400 font-normal">(opcional)</span></label>
+              <input type="text" value={docRef} onChange={e => setDocRef(e.target.value)}
+                placeholder="Nota fiscal, contrato..."
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
             </div>
           </div>
 
+          {/* Ponto 7: datas lado a lado */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Data de pagamento <span className="text-gray-400 font-normal">(opcional)</span></label>
-              <input type="date" value={dataPagamento} onChange={e => setDataPagamento(e.target.value)}
+              <label className="block text-xs font-medium text-gray-600 mb-1">Data da venda</label>
+              <input type="date" value={dataVenda} onChange={e => setDataVenda(e.target.value)}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
             </div>
             <div>
-              {/* Ponto 16: Nº Doc. Referência */}
-              <label className="block text-xs font-medium text-gray-600 mb-1">Nº Doc. Referência <span className="text-gray-400 font-normal">(opcional)</span></label>
-              <input type="text" value={docRef} onChange={e => setDocRef(e.target.value)}
-                placeholder="Nº nota fiscal, contrato..."
+              <label className="block text-xs font-medium text-gray-600 mb-1 flex items-center gap-1">
+                Data de pagamento <span className="text-gray-400 font-normal">(opcional)</span>
+                {/* Ponto 8: tooltip */}
+                <span className="relative group inline-flex items-center ml-1 cursor-help">
+                  <Info size={11} className="text-gray-400" />
+                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 w-52 bg-gray-800 text-white text-xs rounded-lg px-2 py-1.5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 leading-snug">
+                    Preenchido → pagamento pendente no Financeiro com essa data. Em branco → liquidado na data da venda.
+                  </span>
+                </span>
+              </label>
+              <input type="date" value={dataPagamento} onChange={e => setDataPagamento(e.target.value)}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
             </div>
           </div>
@@ -686,7 +712,8 @@ function ModalVenda({ lotes, onClose, onSalvo }) {
           {deducoes !== null && (
             <div className="bg-gray-50 rounded-lg px-3 py-2 flex justify-between items-center">
               <span className="text-xs text-gray-500">Deduções</span>
-              <span className="text-sm font-semibold text-gray-700">R$ {fmtMoeda(deducoes)} <span className="text-xs text-gray-400 font-normal">({pctDed}%)</span></span>
+              {/* Ponto 10: − vermelho */}
+              <span className="text-sm font-semibold text-red-600">−R$ {fmtMoeda(deducoes)} <span className="text-xs text-gray-400 font-normal">({pctDed}%)</span></span>
             </div>
           )}
           <div>
@@ -734,13 +761,19 @@ function ModalTransferencia({ lotes, onClose, onSalvo, sugestoesLocal }) {
   const lotesSelecionados = lotes.filter(l => selecoes[l.id] !== undefined)
   const unidade = lotes[0]?.unidade || 'sc'
 
+  // Ponto 4: locais de origem dos lotes selecionados (para excluir das sugestões de destino)
+  const locaisOrigem = new Set(lotesSelecionados.map(l => l.localArmazenagem).filter(Boolean))
+  const erroDestino = localDestino.trim() && locaisOrigem.has(localDestino.trim())
+    ? 'O destino não pode ser igual ao local de origem do lote'
+    : null
+
   const errosQtd = {}
   lotesSelecionados.forEach(l => {
     const q = Number(selecoes[l.id])
     if (!q || q <= 0) errosQtd[l.id] = 'Informe uma quantidade'
     else if (q > l.saldoAtual) errosQtd[l.id] = `Máx: ${fmtNum(l.saldoAtual, 2)} ${unidade}`
   })
-  const invalido = lotesSelecionados.length === 0 || !localDestino.trim() || Object.keys(errosQtd).length > 0
+  const invalido = lotesSelecionados.length === 0 || !localDestino.trim() || !!erroDestino || Object.keys(errosQtd).length > 0
 
   function toggleLote(loteId, saldoAtual) {
     setSelecoes(s => {
@@ -804,7 +837,8 @@ function ModalTransferencia({ lotes, onClose, onSalvo, sugestoesLocal }) {
         <div className="px-5 py-4 space-y-4">
           <div>
             {(locaisUnicos.length > 1 || safrasUnicas.length > 1) && (
-              <div className="flex gap-2 mb-2">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xs font-medium text-gray-500 whitespace-nowrap">Filtre os lotes:</span>
                 {locaisUnicos.length > 1 && (
                   <select value={filtroLocal} onChange={e => setFiltroLocal(e.target.value)}
                     className="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-xs bg-gray-50 focus:outline-none">
@@ -860,10 +894,12 @@ function ModalTransferencia({ lotes, onClose, onSalvo, sugestoesLocal }) {
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Local de destino <span className="text-red-500">*</span></label>
+            {/* Ponto 4: excluir locais de origem dos lotes selecionados nas sugestões */}
             <AutocompleteInput value={localDestino} onChange={setLocalDestino}
               placeholder="Silo, cooperativa, armazém..."
-              sugestoes={sugestoesLocal}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+              sugestoes={sugestoesLocal.filter(s => !locaisOrigem.has(s))}
+              className={`w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 ${erroDestino ? 'border-red-400' : ''}`} />
+            {erroDestino && <p className="text-xs text-red-500 mt-1">{erroDestino}</p>}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -1420,14 +1456,43 @@ export default function EstoqueProducao() {
       mensagem: `Cancelar ${mov.tipo === 'saida_venda' ? 'venda' : 'transferência'} de ${fmtNum(mov.quantidade)} ${mov.unidade || 'sc'}?`,
       detalhe: 'O saldo do lote será restaurado e o lançamento financeiro cancelado.',
       onConfirmar: async () => {
+        // 1. Cancelar a movimentação
         await updateDoc(doc(db, 'movimentacoesProducao', mov.id), { cancelado: true })
-        const lote = lotes.find(l => l.id === mov.estoqueProducaoId)
-        if (lote) await updateDoc(doc(db, 'estoqueProducao', lote.id), { saldoAtual: lote.saldoAtual + mov.quantidade })
-        if (mov.movimentacaoId) {
-          const finSnap = await getDocs(query(collection(db, 'financeiro'), where('uid', '==', usuario.uid), where('movimentacaoId', '==', mov.movimentacaoId)))
-          await Promise.all(finSnap.docs.map(d => updateDoc(d.ref, { cancelado: true, status: 'cancelado' })))
+
+        // 2. Restaurar saldo do lote de origem
+        const loteOrigem = lotes.find(l => l.id === mov.estoqueProducaoId)
+        if (loteOrigem) {
+          await updateDoc(doc(db, 'estoqueProducao', loteOrigem.id), {
+            saldoAtual: loteOrigem.saldoAtual + mov.quantidade
+          })
         }
-        setConfirmacaoSaida(null); carregar()
+
+        // 3. Se for transferência: cancelar também o lote de destino criado
+        if (mov.tipo === 'transferencia_estoque' && mov.movimentacaoId) {
+          const destSnap = await getDocs(query(
+            collection(db, 'estoqueProducao'),
+            where('uid', '==', usuario.uid),
+            where('transferenciaOrigemId', '==', mov.movimentacaoId)
+          ))
+          await Promise.all(
+            destSnap.docs.map(d => updateDoc(d.ref, { cancelado: true, saldoAtual: 0 }))
+          )
+        }
+
+        // 4. Cancelar lançamento(s) financeiro(s) vinculados pelo movimentacaoId
+        if (mov.movimentacaoId) {
+          const finSnap = await getDocs(query(
+            collection(db, 'financeiro'),
+            where('uid', '==', usuario.uid),
+            where('movimentacaoId', '==', mov.movimentacaoId)
+          ))
+          await Promise.all(
+            finSnap.docs.map(d => updateDoc(d.ref, { cancelado: true, status: 'cancelado' }))
+          )
+        }
+
+        setConfirmacaoSaida(null)
+        carregar()
       },
     })
   }

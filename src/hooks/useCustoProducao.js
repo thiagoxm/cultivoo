@@ -1,156 +1,263 @@
 // src/hooks/useCustoProducao.js
-// Calcula custo médio de produção por safra/lavoura usando 3 camadas de rateio.
-// Acionado no login do usuário e executa em background.
-// Armazena resultado em: safras/{id}.custoEstimado = { porLavoura: {[lavouraId]: R$/sc}, total: R$/sc, calculadoEm }
+// Calcula custo médio de produção por safra/lavoura.
+// Lógica correta: usa movimentacoesInsumos (saídas) para calcular custo proporcional
+// ao que foi efetivamente usado em cada lavoura/safra, via custo FIFO das entradas.
+// Despesas avulsas do financeiro (sem safra) entram na camada 3 pelo vencimento.
 
 import { useEffect, useRef } from 'react'
-import {
-  collection, query, where, getDocs, doc, updateDoc
-} from 'firebase/firestore'
+import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore'
 import { db } from '../services/firebase'
 
 // ─────────────────────────────────────────────
-// Função principal de cálculo (não é hook — pode ser chamada diretamente)
+// Controle de debug — mude para false para desativar o painel de verificação
+// ─────────────────────────────────────────────
+export const DEBUG_CUSTO = true
+
+// ─────────────────────────────────────────────
+// Função principal — chamada no login
 // ─────────────────────────────────────────────
 export async function calcularCustoProducao(uid) {
   if (!uid) return
 
-  // 1. Buscar todos os dados necessários em paralelo
-  const [safrasSnap, lavouraSnap, colheitasSnap, despesasSnap] = await Promise.all([
-    getDocs(query(collection(db, 'safras'), where('uid', '==', uid))),
-    getDocs(query(collection(db, 'lavouras'), where('uid', '==', uid))),
-    getDocs(query(collection(db, 'colheitas'), where('uid', '==', uid))),
-    getDocs(query(
-      collection(db, 'financeiro'),
-      where('uid', '==', uid),
-      where('tipo', '==', 'despesa'),
-      where('cancelado', '==', false)
-    )),
-  ])
+  const [safrasSnap, lavouraSnap, colheitasSnap, saídasSnap, entradasSnap, despesasSnap] =
+    await Promise.all([
+      getDocs(query(collection(db, 'safras'), where('uid', '==', uid))),
+      getDocs(query(collection(db, 'lavouras'), where('uid', '==', uid))),
+      getDocs(query(collection(db, 'colheitas'), where('uid', '==', uid))),
+      // Saídas de insumos (consumos aplicados nas lavouras)
+      getDocs(query(
+        collection(db, 'movimentacoesInsumos'),
+        where('uid', '==', uid),
+        where('tipoMov', '==', 'saida'),
+        where('cancelado', '==', false)
+      )),
+      // Entradas de insumos (para obter custo unitário FIFO)
+      getDocs(query(
+        collection(db, 'movimentacoesInsumos'),
+        where('uid', '==', uid),
+        where('tipoMov', '==', 'entrada'),
+        where('cancelado', '==', false)
+      )),
+      // Despesas avulsas do financeiro (sem vínculo com safra — camada 3)
+      getDocs(query(
+        collection(db, 'financeiro'),
+        where('uid', '==', uid),
+        where('tipo', '==', 'despesa'),
+        where('cancelado', '==', false)
+      )),
+    ])
 
-  const safras = safrasSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-  const lavouras = lavouraSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+  const safras    = safrasSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+  const lavouras  = lavouraSnap.docs.map(d => ({ id: d.id, ...d.data() }))
   const colheitas = colheitasSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-  const despesas = despesasSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+  const saidas    = saídasSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+  const entradas  = entradasSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+  const despesas  = despesasSnap.docs.map(d => ({ id: d.id, ...d.data() }))
 
-  // Mapa de lavoura por id para acesso rápido
-  const lavouraMap = {}
-  lavouras.forEach(l => { lavouraMap[l.id] = l })
+  // Mapa de custo unitário por entradaId (para reconstruir custo das saídas via FIFO)
+  // entradaId = movimentacaoId da entrada (campo adicionado no addDoc do Estoque.jsx)
+  const custoUnitPorEntrada = {}
+  entradas.forEach(e => {
+    const movId = e.movimentacaoId || e.id
+    const qtd = Number(e.quantidade) || 0
+    const val = Number(e.valorTotal) || 0
+    if (qtd > 0 && val > 0) {
+      custoUnitPorEntrada[movId] = val / qtd
+    }
+  })
 
-  // Para cada safra, calcular o custo por lavoura
   for (const safra of safras) {
     try {
-      const resultado = calcularCustoPorSafra(safra, lavouras, colheitas, despesas, safras)
-      if (resultado) {
-        await updateDoc(doc(db, 'safras', safra.id), {
-          custoEstimado: {
-            ...resultado,
-            calculadoEm: new Date().toISOString(),
-          }
-        })
-      }
+      const resultado = calcularCustoPorSafra(
+        safra, lavouras, colheitas, saidas, entradas, custoUnitPorEntrada, despesas, safras
+      )
+      await updateDoc(doc(db, 'safras', safra.id), {
+        custoEstimado: { ...resultado, calculadoEm: new Date().toISOString() }
+      })
     } catch (e) {
-      console.warn(`Erro ao calcular custo safra ${safra.id}:`, e.message)
+      console.warn(`[custo] Erro safra ${safra.id}:`, e.message)
     }
   }
 }
 
 // ─────────────────────────────────────────────
-// Calcula custo para uma safra específica
-// Retorna { porLavoura: {[lavouraId]: custoSc}, total: custoSc, unidade, coberturaPercent }
+// Calcula custo para uma safra
 // ─────────────────────────────────────────────
-function calcularCustoPorSafra(safra, todasLavouras, todasColheitas, todasDespesas, todasSafras) {
+function calcularCustoPorSafra(
+  safra, todasLavouras, todasColheitas,
+  todasSaidas, todasEntradas, custoUnitPorEntrada,
+  todasDespesas, todasSafras
+) {
   const lavourasDaSafra = todasLavouras.filter(l => safra.lavouraIds?.includes(l.id))
-  const areaTotalSafra = lavourasDaSafra.reduce((s, l) => s + (Number(l.areaHa) || 0), 0)
+  const areaTotalSafra  = lavourasDaSafra.reduce((s, l) => s + (Number(l.areaHa) || 0), 0)
   const colheitasDaSafra = todasColheitas.filter(c => c.safraId === safra.id && !c.cancelado)
 
-  // Acumula despesas por lavoura (em R$)
-  const despesasPorLavoura = {}  // { [lavouraId]: valor }
+  // Acumuladores de custo por lavoura
+  const despesasPorLavoura = {}
   lavourasDaSafra.forEach(l => { despesasPorLavoura[l.id] = 0 })
 
-  // Data início/fim da safra para camada 3
-  const dataInicio = safra.dataInicio ? new Date(safra.dataInicio) : null
-  const dataFim = safra.dataTermino ? new Date(safra.dataTermino) : new Date()
+  // Log de debug por camada
+  const debugLog = { camada1: [], camada2: [], camada3: [], camada4: [] }
 
-  for (const desp of todasDespesas) {
-    const valor = Number(desp.valor) || 0
-    if (!valor || desp.propriedadeId !== safra.propriedadeId) continue
+  // ─── CAMADA 1 e 2: saídas de insumos ────────────────────────────────────
+  // Saídas com safraId === esta safra e lavouraIds preenchidos → 100% da(s) lavoura(s)
+  const saidasDaSafra = todasSaidas.filter(s =>
+    s.safraId === safra.id && s.propriedadeId === safra.propriedadeId
+  )
 
-    // ── Camada 1: vínculo direto com safra + lavoura ─────────────────────
-    if (desp.safraId === safra.id && desp.lavouraId && despesasPorLavoura[desp.lavouraId] !== undefined) {
-      despesasPorLavoura[desp.lavouraId] += valor
-      continue
+  for (const saida of saidasDaSafra) {
+    // Calcular custo total desta saída via FIFO nos lotesConsumidos
+    let custoTotalSaida = 0
+    if (saida.lotesConsumidos && saida.lotesConsumidos.length > 0) {
+      saida.lotesConsumidos.forEach(lc => {
+        const cuUnit = custoUnitPorEntrada[lc.entradaId] || 0
+        custoTotalSaida += cuUnit * (Number(lc.quantidade) || 0)
+      })
+    } else {
+      // Fallback: buscar a entrada do produto e calcular custo médio
+      const entradasProduto = todasEntradas.filter(e =>
+        e.produtoId === saida.produtoId && e.propriedadeId === safra.propriedadeId
+      )
+      const qtdTotalEntrada = entradasProduto.reduce((s, e) => s + (Number(e.quantidade) || 0), 0)
+      const valTotalEntrada = entradasProduto.reduce((s, e) => s + (Number(e.valorTotal) || 0), 0)
+      const cuMedio = qtdTotalEntrada > 0 ? valTotalEntrada / qtdTotalEntrada : 0
+      custoTotalSaida = cuMedio * (Number(saida.quantidade) || 0)
     }
 
-    // ── Camada 2: vínculo com safra, sem lavoura → rateio por área ────────
-    if (desp.safraId === safra.id && !desp.lavouraId && areaTotalSafra > 0) {
-      lavourasDaSafra.forEach(l => {
-        const fator = (Number(l.areaHa) || 0) / areaTotalSafra
-        despesasPorLavoura[l.id] = (despesasPorLavoura[l.id] || 0) + valor * fator
+    if (custoTotalSaida <= 0) continue
+
+    const lavouraIds = saida.lavouraIds || []
+    const areaLavouras = lavouraIds.reduce((s, lid) => {
+      const lav = todasLavouras.find(l => l.id === lid)
+      return s + (Number(lav?.areaHa) || 0)
+    }, 0)
+
+    if (lavouraIds.length > 0) {
+      // CAMADA 1: saída vinculada a lavouras → ratear pelo peso de área entre as lavouras da saída
+      lavouraIds.forEach(lid => {
+        if (despesasPorLavoura[lid] === undefined) return
+        const lav = todasLavouras.find(l => l.id === lid)
+        const areaLav = Number(lav?.areaHa) || 0
+        const fator = areaLavouras > 0 ? areaLav / areaLavouras : 1 / lavouraIds.length
+        const valor = custoTotalSaida * fator
+        despesasPorLavoura[lid] = (despesasPorLavoura[lid] || 0) + valor
+        debugLog.camada1.push({
+          descricao: saida.produtoNome || 'Insumo',
+          lavoura: lav?.nome || lid,
+          valor,
+          fator: `${(fator * 100).toFixed(1)}% da saída`,
+        })
       })
-      continue
-    }
-
-    // ── Camada 3: sem vínculo com safra → rateio por período ─────────────
-    if (!desp.safraId && desp.data) {
-      const dataDesp = new Date(desp.data)
-      // Verificar se a data da despesa está dentro do período desta safra
-      if (!dataInicio || dataDesp < dataInicio || dataDesp > dataFim) continue
-
-      // Encontrar TODAS as safras ativas nessa data (para dividir proporcionalmente)
-      const safrasNaData = todasSafras.filter(s => {
-        if (!s.dataInicio) return false
-        const ini = new Date(s.dataInicio)
-        const fim = s.dataTermino ? new Date(s.dataTermino) : new Date()
-        return dataDesp >= ini && dataDesp <= fim && s.propriedadeId === safra.propriedadeId
-      })
-
-      if (safrasNaData.length === 0) continue
-
-      // Área total de TODAS as lavouras das safras ativas nessa data
-      const areaTotalGlobal = safrasNaData.reduce((acc, s) => {
-        const lavs = todasLavouras.filter(l => s.lavouraIds?.includes(l.id))
-        return acc + lavs.reduce((a, l) => a + (Number(l.areaHa) || 0), 0)
-      }, 0)
-
-      if (areaTotalGlobal <= 0) continue
-
-      // Nossa safra está entre as ativas?
-      const nossaSafraAtiva = safrasNaData.find(s => s.id === safra.id)
-      if (!nossaSafraAtiva) continue
-
-      // Calcular o percentual que cabe a cada lavoura desta safra
-      lavourasDaSafra.forEach(l => {
-        const fatorGlobal = (Number(l.areaHa) || 0) / areaTotalGlobal
-        despesasPorLavoura[l.id] = (despesasPorLavoura[l.id] || 0) + valor * fatorGlobal
-      })
+    } else {
+      // CAMADA 2: saída com safraId mas sem lavouraIds → ratear por área entre lavouras da safra
+      if (areaTotalSafra > 0) {
+        lavourasDaSafra.forEach(l => {
+          const fator = (Number(l.areaHa) || 0) / areaTotalSafra
+          const valor = custoTotalSaida * fator
+          despesasPorLavoura[l.id] = (despesasPorLavoura[l.id] || 0) + valor
+          debugLog.camada2.push({
+            descricao: saida.produtoNome || 'Insumo',
+            lavoura: l.nome,
+            valor,
+            fator: `${(fator * 100).toFixed(1)}% da área`,
+          })
+        })
+      }
     }
   }
 
-  // Calcular custo por saca (ou unidade) para cada lavoura
+  // ─── CAMADA 3: despesas avulsas do financeiro sem safraId ────────────────
+  // Campo correto: vencimento (não "data")
+  const dataInicio = safra.dataInicio ? new Date(safra.dataInicio) : null
+  const dataFim    = safra.dataTermino ? new Date(safra.dataTermino) : new Date()
+
+  const despesasSemSafra = todasDespesas.filter(d =>
+    !d.safraId &&
+    d.propriedadeId === safra.propriedadeId &&
+    // Excluir lançamentos do estoque de insumos (entradas — não são custo de uso)
+    !d.origemEstoque
+  )
+
+  for (const desp of despesasSemSafra) {
+    const valor = Number(desp.valor) || 0
+    if (!valor) continue
+    const dataDesp = desp.vencimento ? new Date(desp.vencimento) : null
+    if (!dataDesp || !dataInicio || dataDesp < dataInicio || dataDesp > dataFim) continue
+
+    // Encontrar todas as safras ativas nessa data
+    const safrasNaData = todasSafras.filter(s => {
+      if (!s.dataInicio || s.propriedadeId !== safra.propriedadeId) return false
+      const ini = new Date(s.dataInicio)
+      const fim = s.dataTermino ? new Date(s.dataTermino) : new Date()
+      return dataDesp >= ini && dataDesp <= fim
+    })
+    if (!safrasNaData.find(s => s.id === safra.id)) continue
+
+    const areaTotalGlobal = safrasNaData.reduce((acc, s) => {
+      const lavs = todasLavouras.filter(l => s.lavouraIds?.includes(l.id))
+      return acc + lavs.reduce((a, l) => a + (Number(l.areaHa) || 0), 0)
+    }, 0)
+    if (areaTotalGlobal <= 0) continue
+
+    lavourasDaSafra.forEach(l => {
+      const fator = (Number(l.areaHa) || 0) / areaTotalGlobal
+      const val = valor * fator
+      despesasPorLavoura[l.id] = (despesasPorLavoura[l.id] || 0) + val
+      debugLog.camada3.push({
+        descricao: desp.descricao || 'Despesa',
+        lavoura: l.nome,
+        valor: val,
+        fator: `${(fator * 100).toFixed(1)}% área global`,
+      })
+    })
+  }
+
+  // ─── CAMADA 4: despesas avulsas do financeiro COM safraId desta safra ────
+  // (despesas lançadas direto com vínculo de safra, sem vínculo de lavoura)
+  const despesasComSafra = todasDespesas.filter(d =>
+    d.safraId === safra.id &&
+    !d.origemEstoque
+  )
+
+  for (const desp of despesasComSafra) {
+    const valor = Number(desp.valor) || 0
+    if (!valor || areaTotalSafra <= 0) continue
+    lavourasDaSafra.forEach(l => {
+      const fator = (Number(l.areaHa) || 0) / areaTotalSafra
+      const val = valor * fator
+      despesasPorLavoura[l.id] = (despesasPorLavoura[l.id] || 0) + val
+      debugLog.camada4.push({
+        descricao: desp.descricao || 'Despesa safra',
+        lavoura: l.nome,
+        valor: val,
+        fator: `${(fator * 100).toFixed(1)}% da área da safra`,
+      })
+    })
+  }
+
+  // ─── Montar resultado ───────────────────────────────────────────────────
   const porLavoura = {}
   let totalDespesas = 0
-  let totalColhido = 0
+  let totalColhido  = 0
   const unidade = safra.unidade || 'sc'
 
   lavourasDaSafra.forEach(l => {
     const desp = despesasPorLavoura[l.id] || 0
-    const colheidasLavoura = colheitasDaSafra
+    const colhido = colheitasDaSafra
       .filter(c => c.lavouraId === l.id)
       .reduce((s, c) => s + (Number(c.quantidade) || 0), 0)
 
     totalDespesas += desp
-    totalColhido += colheidasLavoura
+    totalColhido  += colhido
 
-    if (colheidasLavoura > 0) {
+    if (colhido > 0) {
       porLavoura[l.id] = {
-        custoSc: desp / colheidasLavoura,
+        custoSc: desp / colhido,
         despesaTotal: desp,
-        quantidadeColhida: colheidasLavoura,
+        quantidadeColhida: colhido,
         lavouraNome: l.nome,
       }
     } else if (desp > 0) {
-      // Lavoura tem despesas mas ainda não foi colhida — custo indeterminado
       porLavoura[l.id] = {
         custoSc: null,
         despesaTotal: desp,
@@ -161,14 +268,19 @@ function calcularCustoPorSafra(safra, todasLavouras, todasColheitas, todasDespes
     }
   })
 
-  // Custo médio geral da safra
-  const totalCustoSc = totalColhido > 0 ? totalDespesas / totalColhido : null
+  // Para safras sem lavouras vinculadas, tentar calcular custo geral
+  // usando colheitas sem lavoura específica
+  if (lavourasDaSafra.length === 0) {
+    const colhidoSemLavoura = colheitasDaSafra
+      .reduce((s, c) => s + (Number(c.quantidade) || 0), 0)
+    totalColhido += colhidoSemLavoura
+  }
 
-  // Percentual de lavouras com colheita registrada (para indicar completude)
+  const totalCustoSc = totalColhido > 0 ? totalDespesas / totalColhido : null
   const lavourasCobertasCount = Object.values(porLavoura).filter(v => v.quantidadeColhida > 0).length
   const coberturaPercent = lavourasDaSafra.length > 0
     ? Math.round((lavourasCobertasCount / lavourasDaSafra.length) * 100)
-    : 0
+    : (totalColhido > 0 ? 100 : 0)
 
   return {
     porLavoura,
@@ -178,12 +290,15 @@ function calcularCustoPorSafra(safra, todasLavouras, todasColheitas, todasDespes
     unidade,
     coberturaPercent,
     emAndamento: safra.status !== 'Colhida',
+    // Debug: salvar o log para exibição no painel
+    debugLog: DEBUG_CUSTO ? debugLog : undefined,
+    numSaidasInsumos: saidasDaSafra.length,
+    numDespesasAvulsas: despesasSemSafra.length + despesasComSafra.length,
   }
 }
 
 // ─────────────────────────────────────────────
-// Hook: executa no login, em background
-// Chame em App.jsx ou no componente raiz autenticado
+// Hook: dispara no login, em background (3s delay)
 // ─────────────────────────────────────────────
 export function useCustoProducaoBackground(uid) {
   const calculadoRef = useRef(false)
@@ -191,49 +306,30 @@ export function useCustoProducaoBackground(uid) {
   useEffect(() => {
     if (!uid || calculadoRef.current) return
     calculadoRef.current = true
-
-    // Executa em background sem bloquear a UI
     setTimeout(() => {
       calcularCustoProducao(uid).catch(e =>
-        console.warn('Cálculo de custo em background falhou:', e.message)
+        console.warn('[custo] Cálculo background falhou:', e.message)
       )
-    }, 3000) // aguarda 3s para garantir que os dados já carregaram
-
+    }, 3000)
   }, [uid])
 }
 
 // ─────────────────────────────────────────────
-// Helper para formatar custo médio com estado de completude
+// Helpers de exibição
 // ─────────────────────────────────────────────
 export function formatarCustoEstimado(custoEstimado, unidade = 'sc') {
   if (!custoEstimado) return { texto: null, incompleto: false }
-
-  const valor = custoEstimado.total
+  const valor      = custoEstimado.total
   const emAndamento = custoEstimado.emAndamento
-  const cobertura = custoEstimado.coberturaPercent ?? 100
-
+  const cobertura  = custoEstimado.coberturaPercent ?? 100
   if (valor == null) return { texto: null, incompleto: true }
-
-  const textoValor = `R$ ${valor.toLocaleString('pt-BR', {
-    minimumFractionDigits: 2, maximumFractionDigits: 2
-  })}/${unidade}`
-
-  return {
-    texto: textoValor,
-    incompleto: emAndamento || cobertura < 100,
-    cobertura,
-    emAndamento,
-  }
+  const textoValor = `R$ ${valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/${unidade}`
+  return { texto: textoValor, incompleto: emAndamento || cobertura < 100, cobertura, emAndamento }
 }
 
-// ─────────────────────────────────────────────
-// Helper para obter custo de um lote específico (por lavouraId)
-// ─────────────────────────────────────────────
 export function getCustoLote(safra, lavouraId) {
   if (!safra?.custoEstimado) return null
   const { porLavoura, total, unidade, emAndamento } = safra.custoEstimado
-
-  // Prioridade 1: custo específico da lavoura
   if (lavouraId && porLavoura?.[lavouraId]?.custoSc != null) {
     return {
       valor: porLavoura[lavouraId].custoSc,
@@ -242,16 +338,8 @@ export function getCustoLote(safra, lavouraId) {
       fonte: 'lavoura',
     }
   }
-
-  // Prioridade 2: custo médio da safra
   if (total != null) {
-    return {
-      valor: total,
-      unidade: unidade || 'sc',
-      incompleto: true, // custo geral é sempre estimado
-      fonte: 'safra',
-    }
+    return { valor: total, unidade: unidade || 'sc', incompleto: true, fonte: 'safra' }
   }
-
   return null
 }

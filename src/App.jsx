@@ -17,8 +17,8 @@ import { useCustoProducaoBackground } from './hooks/useCustoProducao'
 
 function RotaProtegida({ children }) {
   const { usuario } = useAuth()
-  return usuario ? children : <Navigate to="/login" />
   useCustoProducaoBackground(usuario?.uid)
+  return usuario ? children : <Navigate to="/login" />  
 }
 
 export default function App() {
