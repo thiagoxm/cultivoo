@@ -55,7 +55,6 @@ export const GRUPOS_QUALIDADE = {
 // CULTURAS
 // ─────────────────────────────────────────────
 export const CULTURAS = [
-  // Grãos
   { nome: 'Soja',           icone: '🌱', grupo: 'graos',   unidadePadrao: 'sc', pesoSc: 60   },
   { nome: 'Milho',          icone: '🌽', grupo: 'graos',   unidadePadrao: 'sc', pesoSc: 60   },
   { nome: 'Arroz',          icone: '🌾', grupo: 'graos',   unidadePadrao: 'sc', pesoSc: 50   },
@@ -63,15 +62,11 @@ export const CULTURAS = [
   { nome: 'Trigo',          icone: '🌾', grupo: 'graos',   unidadePadrao: 'sc', pesoSc: 60   },
   { nome: 'Sorgo',          icone: '🌾', grupo: 'graos',   unidadePadrao: 'sc', pesoSc: 60   },
   { nome: 'Girassol',       icone: '🌻', grupo: 'graos',   unidadePadrao: 'sc', pesoSc: 27   },
-  // Café
   { nome: 'Café',           icone: '☕', grupo: 'cafe',    unidadePadrao: 'sc', pesoSc: 60   },
   { nome: 'Café Arábica',   icone: '☕', grupo: 'cafe',    unidadePadrao: 'sc', pesoSc: 60   },
   { nome: 'Café Conilon',   icone: '☕', grupo: 'cafe',    unidadePadrao: 'sc', pesoSc: 60   },
-  // Cana
   { nome: 'Cana-de-açúcar', icone: '🎋', grupo: 'cana',   unidadePadrao: 't',  pesoSc: null },
-  // Algodão
   { nome: 'Algodão',        icone: '🌿', grupo: 'algodao', unidadePadrao: '@',  pesoSc: null },
-  // Outros
   { nome: 'Mandioca',       icone: '🌿', grupo: 'outros',  unidadePadrao: 't',  pesoSc: null },
   { nome: 'Amendoim',       icone: '🥜', grupo: 'outros',  unidadePadrao: 'sc', pesoSc: 25   },
   { nome: 'Café (outro)',   icone: '☕', grupo: 'cafe',    unidadePadrao: 'sc', pesoSc: 60   },
@@ -185,10 +180,11 @@ export const TIPOS_INSUMOS = [
     label: 'Combustível',
     icone: '⛽',
     categoriaFinanceiro: 'Máquinas e Equipamentos',
-    tipoFinanceiro: 'Combustível',
+    // Corrigido: era 'Combustível', agora unificado com lubrificante
+    tipoFinanceiro: 'Combustível e Lubrificantes',
     vinculos: {
       safra:      'opcional',
-      lavoura:    'oculto',   // não faz sentido por lavoura
+      lavoura:    'oculto',
       patrimonio: 'obrigatorio',
     },
     tiposSaida: ['consumo', 'transferencia'],
@@ -198,7 +194,8 @@ export const TIPOS_INSUMOS = [
     label: 'Lubrificante',
     icone: '🔧',
     categoriaFinanceiro: 'Máquinas e Equipamentos',
-    tipoFinanceiro: 'Manutenção',
+    // Corrigido: era 'Manutenção', agora unificado com combustível
+    tipoFinanceiro: 'Combustível e Lubrificantes',
     vinculos: {
       safra:      'opcional',
       lavoura:    'oculto',
@@ -223,14 +220,13 @@ export const TIPOS_INSUMOS = [
 
 // ─────────────────────────────────────────────
 // TIPOS DE SAÍDA DE INSUMOS
-// Label e comportamento de cada tipo de saída
 // ─────────────────────────────────────────────
 export const TIPOS_SAIDA_INSUMO = [
   {
     value: 'aplicacao',
     label: 'Aplicação',
     icone: '🌿',
-    geraFinanceiro: false, // custo já foi registrado na entrada
+    geraFinanceiro: false,
   },
   {
     value: 'consumo',
@@ -242,14 +238,14 @@ export const TIPOS_SAIDA_INSUMO = [
     value: 'venda',
     label: 'Venda de excedente',
     icone: '💰',
-    geraFinanceiro: true,  // gera receita no Financeiro
+    geraFinanceiro: true,
     tipoFinanceiro: 'receita',
   },
   {
     value: 'transferencia',
     label: 'Transferência entre propriedades',
     icone: '🔄',
-    geraFinanceiro: false, // sem impacto financeiro — custo migra junto
+    geraFinanceiro: false,
     geraEntradaDestino: true,
   },
 ]
@@ -258,40 +254,33 @@ export const TIPOS_SAIDA_INSUMO = [
 // HELPERS
 // ─────────────────────────────────────────────
 
-/** Retorna o objeto de uma cultura pelo nome */
 export function getCultura(nome) {
   return CULTURAS.find(c => c.nome === nome) || null
 }
 
-/** Retorna os campos de qualidade para uma cultura pelo nome */
 export function getCamposQualidade(nomeCultura) {
   const cultura = getCultura(nomeCultura)
   if (!cultura) return []
   return GRUPOS_QUALIDADE[cultura.grupo]?.campos || []
 }
 
-/** Retorna a unidade padrão de uma cultura pelo nome */
 export function getUnidadePadrao(nomeCultura) {
   const cultura = getCultura(nomeCultura)
   return cultura?.unidadePadrao || 'sc'
 }
 
-/** Retorna o label amigável de uma unidade de produção */
 export function getLabelUnidade(value) {
   return UNIDADES.find(u => u.value === value)?.label || value
 }
 
-/** Retorna o label amigável de uma unidade de insumo */
 export function getLabelUnidadeInsumo(value) {
   return UNIDADES_INSUMOS.find(u => u.value === value)?.label || value
 }
 
-/** Retorna o objeto de um tipo de insumo pelo value */
 export function getTipoInsumo(value) {
   return TIPOS_INSUMOS.find(t => t.value === value) || null
 }
 
-/** Retorna os vínculos de um tipo de insumo */
 export function getVinculosInsumo(tipoValue) {
   return getTipoInsumo(tipoValue)?.vinculos || {
     safra: 'opcional',
@@ -300,14 +289,12 @@ export function getVinculosInsumo(tipoValue) {
   }
 }
 
-/** Retorna os tipos de saída disponíveis para um tipo de insumo */
 export function getTiposSaidaDisponiveis(tipoValue) {
   const tipo = getTipoInsumo(tipoValue)
   if (!tipo) return TIPOS_SAIDA_INSUMO
   return TIPOS_SAIDA_INSUMO.filter(ts => tipo.tiposSaida.includes(ts.value))
 }
 
-/** Retorna o objeto de um tipo de saída pelo value */
 export function getTipoSaida(value) {
   return TIPOS_SAIDA_INSUMO.find(ts => ts.value === value) || null
 }
