@@ -382,15 +382,24 @@ export default function Patrimonio() {
 
   const [confirmacao, setConfirmacao] = useState(null)
 
-async function excluir(id, nome) {
-  setConfirmacao({
-    mensagem: `Deseja excluir "${nome}"?`,
-    onConfirmar: async () => {
-      await deleteDoc(doc(db, 'patrimonios', id))
-      await carregar()
-    }
-  })
-}
+  async function excluir(id, nome) {
+    setConfirmacao({
+      mensagem: `Deseja excluir "${nome}"? Os lançamentos financeiros gerados por este patrimônio também serão excluídos.`,
+      onConfirmar: async () => {
+        // Excluir lançamentos financeiros vinculados (origemPatrimonio)
+        const finSnap = await getDocs(query(
+          collection(db, 'financeiro'),
+          where('uid', '==', usuario.uid),
+          where('patrimonioId', '==', id),
+          where('origemPatrimonio', '==', true)
+        ))
+        await Promise.all(finSnap.docs.map(d => deleteDoc(d.ref)))
+        // Excluir o patrimônio
+        await deleteDoc(doc(db, 'patrimonios', id))
+        await carregar()
+      }
+    })
+  }
 
   // Tooltip customizado para o gráfico bridge
   function TooltipBridge({ active, payload }) {

@@ -189,7 +189,7 @@ function calcularCustoPorSafra(
         })
       })
     } else if (areaTotalSafra > 0) {
-      // Camada 2: saída sem lavoura → ratear por área entre lavouras da safra
+      // Camada 2a: saída COM safraId desta safra mas sem lavoura → ratear por área
       lavourasDaSafra.forEach(l => {
         const fator = (Number(l.areaHa) || 0) / areaTotalSafra
         const valor = custoTotalSaida * fator
@@ -204,26 +204,82 @@ function calcularCustoPorSafra(
     }
   }
 
-  // ── CAMADA 3: despesas do financeiro SEM safraId, no período da safra ─────
-  // Campo correto: vencimento
-  const dataInicioSafra = safra.dataInicio ? safra.dataInicio : null
+  // ── CAMADA 2b: saídas SEM safraId, mesma propriedade, no período da safra ──
+  // Ex: consumo de combustível/lubrificante sem safra vinculada
+  const dataInicioSafra = safra.dataInicio || null
   const dataFimSafra    = safra.dataTermino || new Date().toISOString().split('T')[0]
 
+  if (dataInicioSafra && areaTotalSafra > 0) {
+    const saidasSemSafra = todasSaidas.filter(s =>
+      (!s.safraId || s.safraId === '') &&
+      s.propriedadeId === safra.propriedadeId &&
+      s.dataMovimento >= dataInicioSafra &&
+      s.dataMovimento <= dataFimSafra
+    )
+    for (const saida of saidasSemSafra) {
+      let custo = 0
+      if (typeof saida.custoCalculado === 'number' && saida.custoCalculado > 0) {
+        custo = saida.custoCalculado
+      } else if (saida.lotesConsumidos?.length > 0) {
+        saida.lotesConsumidos.forEach(lc => {
+          custo += (custoUnitPorEntrada[lc.entradaId] || 0) * (Number(lc.quantidade) || 0)
+        })
+      }
+      if (custo <= 0) continue
+
+      // Ratear proporcionalmente entre safras ativas nessa data
+      const safrasNaData = todasSafras.filter(s => {
+        if (!s.dataInicio || s.propriedadeId !== safra.propriedadeId) return false
+        const fim = s.dataTermino || new Date().toISOString().split('T')[0]
+        return saida.dataMovimento >= s.dataInicio && saida.dataMovimento <= fim
+      })
+      if (!safrasNaData.find(s => s.id === safra.id)) continue
+
+      const areaTotalGlobal = safrasNaData.reduce((acc, s) => {
+        return acc + todasLavouras.filter(l => s.lavouraIds?.includes(l.id))
+          .reduce((a, l) => a + (Number(l.areaHa) || 0), 0)
+      }, 0)
+      if (areaTotalGlobal <= 0) continue
+
+      lavourasDaSafra.forEach(l => {
+        const fator = (Number(l.areaHa) || 0) / areaTotalGlobal
+        const val   = custo * fator
+        despesasPorLavoura[l.id] = (despesasPorLavoura[l.id] || 0) + val
+        if (DEBUG_CUSTO) debugLog.camada2.push({
+          descricao: `${saida.produtoNome || 'Insumo'} (sem safra/data)`,
+          lavoura: l.nome,
+          valor: val,
+          fator: `${(fator * 100).toFixed(1)}% área global`,
+        })
+      })
+    }
+  }
+
+  // ── CAMADA 3: despesas do financeiro sem safraId, no período da safra ─────
+  // Nota: aceita safraId vazio ('') OU null/undefined
+  // Helper: verificar se a despesa pertence à propriedade desta safra
+  function despesaPertenceAProp(d) {
+    if (d.propriedadeId === safra.propriedadeId) return true
+    if (Array.isArray(d.propriedadeIds) && d.propriedadeIds.includes(safra.propriedadeId)) return true
+    return false
+  }
+
   const despesasSemSafra = todasDespesas.filter(d =>
-    !d.safraId &&
-    d.propriedadeId === safra.propriedadeId &&
-    !d.origemEstoque &&           // excluir compras de insumos
-    !d.origemEstoqueProducao &&   // excluir custo de transferência de produção
-    d.tipoDespesa !== 'Depreciação' // depreciação calculada na camada 5
+    (!d.safraId || d.safraId === '') &&
+    despesaPertenceAProp(d) &&
+    !d.origemEstoque &&
+    !d.origemEstoqueProducao &&
+    !d.origemPatrimonio &&
+    d.categoria !== 'Investimentos' &&
+    d.tipoDespesa !== 'Depreciação'
   )
 
   for (const desp of despesasSemSafra) {
-    const valor    = Number(desp.valor) || 0
+    const valor = Number(desp.valor) || 0
     if (!valor || !dataInicioSafra) continue
     const venc = desp.vencimento
     if (!venc || venc < dataInicioSafra || venc > dataFimSafra) continue
 
-    // Safras ativas na data desta despesa (mesma propriedade)
     const safrasNaData = todasSafras.filter(s => {
       if (!s.dataInicio || s.propriedadeId !== safra.propriedadeId) return false
       const fim = s.dataTermino || new Date().toISOString().split('T')[0]
@@ -231,7 +287,6 @@ function calcularCustoPorSafra(
     })
     if (!safrasNaData.find(s => s.id === safra.id)) continue
 
-    // Área total de todas as lavouras das safras ativas
     const areaTotalGlobal = safrasNaData.reduce((acc, s) => {
       return acc + todasLavouras.filter(l => s.lavouraIds?.includes(l.id))
         .reduce((a, l) => a + (Number(l.areaHa) || 0), 0)
@@ -256,6 +311,8 @@ function calcularCustoPorSafra(
     d.safraId === safra.id &&
     !d.origemEstoque &&
     !d.origemEstoqueProducao &&
+    !d.origemPatrimonio &&
+    d.categoria !== 'Investimentos' &&
     d.tipoDespesa !== 'Depreciação'
   )
 
@@ -353,7 +410,218 @@ function calcularCustoPorSafra(
     emAndamento: safra.status !== 'Colhida',
     numSaidasInsumos: saidasDaSafra.length,
     numPatrimonios: patrimoniosDaProp.length,
-    debugLog: DEBUG_CUSTO ? debugLog : undefined,
+    // debugLog NÃO é salvo no Firestore (pode ultrapassar 1MB)
+    // O painel recalcula em tempo real chamando calcularCustoPorSafraDebug()
+  }
+}
+
+// ─────────────────────────────────────────────
+// Versão debug — retorna o mesmo resultado + debugLog
+// Chamada diretamente pelo PainelDebugCusto (não persiste no Firestore)
+// ─────────────────────────────────────────────
+export async function calcularCustoProducaoDebug(uid, safraId) {
+  if (!uid || !safraId) return null
+
+  const [safrasSnap, lavouraSnap, colheitasSnap, saidasSnap, entradasSnap, despesasSnap, patrimoniosSnap] =
+    await Promise.all([
+      getDocs(query(collection(db, 'safras'),             where('uid', '==', uid))),
+      getDocs(query(collection(db, 'lavouras'),           where('uid', '==', uid))),
+      getDocs(query(collection(db, 'colheitas'),          where('uid', '==', uid))),
+      getDocs(query(collection(db, 'movimentacoesInsumos'), where('uid', '==', uid), where('tipoMov', '==', 'saida'),   where('cancelado', '==', false))),
+      getDocs(query(collection(db, 'movimentacoesInsumos'), where('uid', '==', uid), where('tipoMov', '==', 'entrada'), where('cancelado', '==', false))),
+      getDocs(query(collection(db, 'financeiro'),         where('uid', '==', uid), where('tipo', '==', 'despesa'), where('cancelado', '==', false))),
+      getDocs(query(collection(db, 'patrimonios'),        where('uid', '==', uid))),
+    ])
+
+  const safras      = safrasSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+  const lavouras    = lavouraSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+  const colheitas   = colheitasSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+  const saidas      = saidasSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+  const entradas    = entradasSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+  const despesas    = despesasSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+  const patrimonios = patrimoniosSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+  const safra = safras.find(s => s.id === safraId)
+  if (!safra) return null
+
+  const custoUnitPorEntrada = {}
+  entradas.forEach(e => {
+    const qtd = Number(e.quantidade) || 0
+    const val = Number(e.valorTotal) || 0
+    if (qtd > 0 && val > 0) custoUnitPorEntrada[e.id] = val / qtd
+  })
+
+  const areasPorPropriedade = {}
+  lavouras.forEach(l => {
+    if (l.propriedadeId) areasPorPropriedade[l.propriedadeId] = (areasPorPropriedade[l.propriedadeId] || 0) + (Number(l.areaHa) || 0)
+  })
+
+  return calcularCustoPorSafraComDebug(
+    safra, lavouras, colheitas, saidas, custoUnitPorEntrada,
+    despesas, safras, patrimonios, areasPorPropriedade
+  )
+}
+
+// Versão com debugLog (idêntica à principal, mas retorna debugLog)
+function calcularCustoPorSafraComDebug(
+  safra, todasLavouras, todasColheitas,
+  todasSaidas, custoUnitPorEntrada,
+  todasDespesas, todasSafras, todosPatrimonios, areasPorPropriedade
+) {
+  const lavourasDaSafra  = todasLavouras.filter(l => safra.lavouraIds?.includes(l.id))
+  const areaTotalSafra   = lavourasDaSafra.reduce((s, l) => s + (Number(l.areaHa) || 0), 0)
+  const colheitasDaSafra = todasColheitas.filter(c => c.safraId === safra.id && !c.cancelado)
+  const despesasPorLavoura = {}
+  lavourasDaSafra.forEach(l => { despesasPorLavoura[l.id] = 0 })
+  const debugLog = { camada1: [], camada2: [], camada3: [], camada4: [], camada5: [] }
+
+  // Camada 1+2: saídas de insumos
+  const saidasDaSafra = todasSaidas.filter(s => s.safraId === safra.id && s.propriedadeId === safra.propriedadeId)
+  for (const saida of saidasDaSafra) {
+    let custoTotalSaida = 0
+    if (typeof saida.custoCalculado === 'number' && saida.custoCalculado > 0) {
+      custoTotalSaida = saida.custoCalculado
+    } else if (saida.lotesConsumidos?.length > 0) {
+      saida.lotesConsumidos.forEach(lc => {
+        custoTotalSaida += (custoUnitPorEntrada[lc.entradaId] || 0) * (Number(lc.quantidade) || 0)
+      })
+    }
+    if (custoTotalSaida <= 0) continue
+    const lavouraIds = saida.lavouraIds || []
+    const areaLavourasSaida = lavouraIds.reduce((s, lid) => s + (Number(todasLavouras.find(l => l.id === lid)?.areaHa) || 0), 0)
+    if (lavouraIds.length > 0) {
+      lavouraIds.forEach(lid => {
+        if (despesasPorLavoura[lid] === undefined) return
+        const lav   = todasLavouras.find(l => l.id === lid)
+        const fator = areaLavourasSaida > 0 ? (Number(lav?.areaHa) || 0) / areaLavourasSaida : 1 / lavouraIds.length
+        const valor = custoTotalSaida * fator
+        despesasPorLavoura[lid] += valor
+        debugLog.camada1.push({ descricao: saida.produtoNome || 'Insumo', lavoura: lav?.nome || lid, valor, fator: `${(fator * 100).toFixed(1)}% da saída`, fonte: typeof saida.custoCalculado === 'number' ? 'direto' : 'FIFO' })
+      })
+    } else if (areaTotalSafra > 0) {
+      lavourasDaSafra.forEach(l => {
+        const fator = (Number(l.areaHa) || 0) / areaTotalSafra
+        const valor = custoTotalSaida * fator
+        despesasPorLavoura[l.id] += valor
+        debugLog.camada2.push({ descricao: saida.produtoNome || 'Insumo', lavoura: l.nome, valor, fator: `${(fator * 100).toFixed(1)}% área safra` })
+      })
+    }
+  }
+
+  // Camada 2b: saídas SEM safraId, mesma propriedade, no período (ex: combustível sem safra)
+  const dataInicioSafra = safra.dataInicio || null
+  const dataFimSafra    = safra.dataTermino || new Date().toISOString().split('T')[0]
+  if (dataInicioSafra && areaTotalSafra > 0) {
+    todasSaidas.filter(s => (!s.safraId || s.safraId === '') && s.propriedadeId === safra.propriedadeId && s.dataMovimento >= dataInicioSafra && s.dataMovimento <= dataFimSafra)
+      .forEach(saida => {
+        let custo = 0
+        if (typeof saida.custoCalculado === 'number' && saida.custoCalculado > 0) custo = saida.custoCalculado
+        else if (saida.lotesConsumidos?.length > 0) saida.lotesConsumidos.forEach(lc => { custo += (custoUnitPorEntrada[lc.entradaId] || 0) * (Number(lc.quantidade) || 0) })
+        if (custo <= 0) return
+        const snd = todasSafras.filter(s => { if (!s.dataInicio || s.propriedadeId !== safra.propriedadeId) return false; const fim = s.dataTermino || new Date().toISOString().split('T')[0]; return saida.dataMovimento >= s.dataInicio && saida.dataMovimento <= fim })
+        if (!snd.find(s => s.id === safra.id)) return
+        const atg = snd.reduce((acc, s) => acc + todasLavouras.filter(l => s.lavouraIds?.includes(l.id)).reduce((a, l) => a + (Number(l.areaHa) || 0), 0), 0)
+        if (atg <= 0) return
+        lavourasDaSafra.forEach(l => {
+          const fator = (Number(l.areaHa) || 0) / atg
+          const val   = custo * fator
+          despesasPorLavoura[l.id] = (despesasPorLavoura[l.id] || 0) + val
+          debugLog.camada2.push({ descricao: `${saida.produtoNome || 'Insumo'} (sem safra/data)`, lavoura: l.nome, valor: val, fator: `${(fator * 100).toFixed(1)}% área global` })
+        })
+      })
+  }
+
+  // Camada 3: despesas financeiro sem safraId (vazio/null), no período
+  function pertenceDebug(d) {
+    if (d.propriedadeId === safra.propriedadeId) return true
+    if (Array.isArray(d.propriedadeIds) && d.propriedadeIds.includes(safra.propriedadeId)) return true
+    return false
+  }
+  const despesasSemSafra = todasDespesas.filter(d =>
+    (!d.safraId || d.safraId === '') && pertenceDebug(d) &&
+    !d.origemEstoque && !d.origemEstoqueProducao && !d.origemPatrimonio &&
+    d.categoria !== 'Investimentos' && d.tipoDespesa !== 'Depreciação'
+  )
+  for (const desp of despesasSemSafra) {
+    const valor = Number(desp.valor) || 0
+    if (!valor || !dataInicioSafra) continue
+    const venc = desp.vencimento
+    if (!venc || venc < dataInicioSafra || venc > dataFimSafra) continue
+    const safrasNaData = todasSafras.filter(s => {
+      if (!s.dataInicio || s.propriedadeId !== safra.propriedadeId) return false
+      const fim = s.dataTermino || new Date().toISOString().split('T')[0]
+      return venc >= s.dataInicio && venc <= fim
+    })
+    if (!safrasNaData.find(s => s.id === safra.id)) continue
+    const areaTotalGlobal = safrasNaData.reduce((acc, s) => acc + todasLavouras.filter(l => s.lavouraIds?.includes(l.id)).reduce((a, l) => a + (Number(l.areaHa) || 0), 0), 0)
+    if (areaTotalGlobal <= 0) continue
+    lavourasDaSafra.forEach(l => {
+      const fator = (Number(l.areaHa) || 0) / areaTotalGlobal
+      const val   = valor * fator
+      despesasPorLavoura[l.id] = (despesasPorLavoura[l.id] || 0) + val
+      debugLog.camada3.push({ descricao: desp.descricao || 'Despesa', lavoura: l.nome, valor: val, fator: `${(fator * 100).toFixed(1)}% área global` })
+    })
+  }
+
+  // Camada 4: despesas com safraId
+  const despesasComSafra = todasDespesas.filter(d =>
+    d.safraId === safra.id && !d.origemEstoque && !d.origemEstoqueProducao &&
+    !d.origemPatrimonio && d.categoria !== 'Investimentos' && d.tipoDespesa !== 'Depreciação'
+  )
+  for (const desp of despesasComSafra) {
+    const valor = Number(desp.valor) || 0
+    if (!valor || areaTotalSafra <= 0) continue
+    lavourasDaSafra.forEach(l => {
+      const fator = (Number(l.areaHa) || 0) / areaTotalSafra
+      const val   = valor * fator
+      despesasPorLavoura[l.id] = (despesasPorLavoura[l.id] || 0) + val
+      debugLog.camada4.push({ descricao: desp.descricao || 'Despesa safra', lavoura: l.nome, valor: val, fator: `${(fator * 100).toFixed(1)}% área safra` })
+    })
+  }
+
+  // Camada 5: depreciação
+  const areasPorProp = {}
+  todasLavouras.forEach(l => { if (l.propriedadeId) areasPorProp[l.propriedadeId] = (areasPorProp[l.propriedadeId] || 0) + (Number(l.areaHa) || 0) })
+  const patrimoniosDaProp = todosPatrimonios.filter(p => p.propriedadeIds?.includes(safra.propriedadeId))
+  for (const pat of patrimoniosDaProp) {
+    const deprecMensal = calcularDepreciacaoMensal(pat)
+    if (deprecMensal <= 0 || !dataInicioSafra) continue
+    const pct    = calcularPercentualRateio(pat, safra.propriedadeId, areasPorProp)
+    if (pct <= 0) continue
+    const inicioPat = `${pat.anoAquisicao || 2000}-01-01`
+    const meses     = mesesSobrepostos(dataInicioSafra, dataFimSafra, inicioPat, new Date().toISOString().split('T')[0])
+    if (meses <= 0) continue
+    const deprecTotal = deprecMensal * meses * pct
+    if (deprecTotal <= 0 || areaTotalSafra <= 0) continue
+    lavourasDaSafra.forEach(l => {
+      const fator = (Number(l.areaHa) || 0) / areaTotalSafra
+      const val   = deprecTotal * fator
+      despesasPorLavoura[l.id] = (despesasPorLavoura[l.id] || 0) + val
+      debugLog.camada5.push({ descricao: `Deprec. ${pat.nome}`, lavoura: l.nome, valor: val, fator: `${meses}m × ${(pct * 100).toFixed(1)}% × ${(fator * 100).toFixed(1)}% área` })
+    })
+  }
+
+  // Montar resultado
+  const porLavoura = {}
+  let totalDespesas = 0, totalColhido = 0
+  const unidade = safra.unidade || 'sc'
+  lavourasDaSafra.forEach(l => {
+    const desp    = despesasPorLavoura[l.id] || 0
+    const colhido = colheitasDaSafra.filter(c => c.lavouraId === l.id).reduce((s, c) => s + (Number(c.quantidade) || 0), 0)
+    totalDespesas += desp; totalColhido += colhido
+    if (colhido > 0) porLavoura[l.id] = { custoSc: desp / colhido, despesaTotal: desp, quantidadeColhida: colhido, lavouraNome: l.nome }
+    else if (desp > 0) porLavoura[l.id] = { custoSc: null, despesaTotal: desp, quantidadeColhida: 0, lavouraNome: l.nome, emAndamento: true }
+  })
+  if (lavourasDaSafra.length === 0) totalColhido += colheitasDaSafra.reduce((s, c) => s + (Number(c.quantidade) || 0), 0)
+  const totalCustoSc = totalColhido > 0 ? totalDespesas / totalColhido : null
+  const cobertasCount = Object.values(porLavoura).filter(v => v.quantidadeColhida > 0).length
+  const coberturaPercent = lavourasDaSafra.length > 0 ? Math.round((cobertasCount / lavourasDaSafra.length) * 100) : (totalColhido > 0 ? 100 : 0)
+
+  return {
+    porLavoura, total: totalCustoSc, totalDespesas, totalColhido, unidade,
+    coberturaPercent, emAndamento: safra.status !== 'Colhida',
+    numSaidasInsumos: saidasDaSafra.length, numPatrimonios: patrimoniosDaProp.length,
+    debugLog,
   }
 }
 

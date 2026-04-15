@@ -94,7 +94,7 @@ export const CONFIG_CATEGORIAS = {
     },
   },
   'Receitas Diversas': {
-    tipos: ['Arrendamento', 'Serviços Prestados', 'Subvenção', 'Outros'],
+    tipos: [],   // sem tipos — apenas a categoria
     ehReceita: true,
     campos: {
       propriedade: 'obrigatoria',
@@ -197,8 +197,12 @@ function filtrarPorPeriodo(lista, filtro) {
 }
 
 function agruparPorPropMes(lista) {
+  // Ordenar lista por vencimento decrescente antes de agrupar
+  const listaOrdenada = [...lista].sort((a, b) =>
+    (b.vencimento || '').localeCompare(a.vencimento || '')
+  )
   const grupos = {}
-  lista.forEach(l => {
+  listaOrdenada.forEach(l => {
     const propId = l.propriedadeId || ''
     const propNome = l.propriedadeNome || 'Sem propriedade'
     const chave = (l.vencimento || '').substring(0, 7)
@@ -212,7 +216,7 @@ function agruparPorPropMes(lista) {
       propId,
       propNome: grupo.propNome,
       meses: Object.entries(grupo.meses)
-        .sort((a, b) => b[0].localeCompare(a[0]))
+        .sort((a, b) => b[0].localeCompare(a[0])) // meses decrescente
         .map(([chave, itens]) => ({ chave, itens })),
     }))
 }
@@ -343,6 +347,30 @@ export default function Financeiro() {
     dataInicio: '', dataFim: '', safraId: '',
     propriedadeIds: [],
   })
+
+  // Item 5: travar scroll do body ao abrir qualquer modal (compatível com mobile/todos os browsers)
+  useEffect(() => {
+    const algumModalAberto = modal || modalImport || !!modalDetalhe || !!confirmacao
+    if (algumModalAberto) {
+      const scrollY = window.scrollY
+      document.body.style.position = 'fixed'
+      document.body.style.top = `-${scrollY}px`
+      document.body.style.width = '100%'
+    } else {
+      const scrollY = Math.abs(parseInt(document.body.style.top || '0', 10))
+      document.body.style.position = ''
+      document.body.style.top = ''
+      document.body.style.width = ''
+      if (scrollY) window.scrollTo(0, scrollY)
+    }
+    return () => {
+      const scrollY = Math.abs(parseInt(document.body.style.top || '0', 10))
+      document.body.style.position = ''
+      document.body.style.top = ''
+      document.body.style.width = ''
+      if (scrollY) window.scrollTo(0, scrollY)
+    }
+  }, [modal, modalImport, modalDetalhe, confirmacao])
 
   async function carregar() {
     const uid = usuario.uid
@@ -648,7 +676,20 @@ export default function Financeiro() {
   // ─────────────────────────────────────────────
   // Dados filtrados
   // ─────────────────────────────────────────────
-  const listaFiltrada = useMemo(() => filtrarPorPeriodo(lista, filtro), [lista, filtro])
+  const [busca, setBusca] = useState('')
+  const listaFiltrada = useMemo(() => {
+    const base = filtrarPorPeriodo(lista, filtro)
+    if (!busca.trim()) return base
+    const q = busca.toLowerCase()
+    return base.filter(l =>
+      l.descricao?.toLowerCase().includes(q) ||
+      l.categoria?.toLowerCase().includes(q) ||
+      l.tipoDespesa?.toLowerCase().includes(q) ||
+      l.propriedadeNome?.toLowerCase().includes(q) ||
+      l.safraNome?.toLowerCase().includes(q) ||
+      l.notaRef?.toLowerCase().includes(q)
+    )
+  }, [lista, filtro, busca])
   const lancamentos = listaFiltrada
   const contasPagar = useMemo(() => listaFiltrada.filter(l => l.tipo === 'despesa' && l.status === 'pendente'), [listaFiltrada])
   const contasReceber = useMemo(() => listaFiltrada.filter(l => l.tipo === 'receita' && l.status === 'pendente'), [listaFiltrada])
@@ -703,8 +744,8 @@ export default function Financeiro() {
 
   function CardLancamento({ l, onEditar, onExcluir }) {
     const vencido = estaVencido(l.vencimento)
-    const isPago = l.status === 'pago' || l.status === 'recebido'
-    const isAutomatico = !!(l.origemEstoque || l.origemEstoqueProducao || l.origemTransferencia)
+    const isPago  = l.status === 'pago' || l.status === 'recebido'
+    const isAuto  = !!(l.origemEstoque || l.origemEstoqueProducao || l.origemTransferencia || l.origemPatrimonio)
     return (
       <div className="bg-white rounded-lg px-3 py-2 shadow-sm border border-gray-100 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
@@ -715,13 +756,9 @@ export default function Financeiro() {
             <div className="flex items-center gap-1.5">
               <p className="text-sm font-medium text-gray-800 truncate leading-tight">{l.descricao}</p>
               {l.parcelaTot > 1 && (
-                <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full border border-blue-100 flex-shrink-0">
-                  {l.parcelaNum}/{l.parcelaTot}
-                </span>
+                <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full border border-blue-100 flex-shrink-0">{l.parcelaNum}/{l.parcelaTot}</span>
               )}
-              {isAutomatico && (
-                <span className="text-xs bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded-full flex-shrink-0 hidden sm:inline">auto</span>
-              )}
+              {isAuto && <span className="text-xs bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded-full flex-shrink-0 hidden sm:inline">auto</span>}
             </div>
             <p className="text-xs font-bold text-gray-600 leading-tight sm:hidden">
               {formatarDataBR(l.vencimento)}
@@ -744,22 +781,23 @@ export default function Financeiro() {
               {l.status === 'recebido' ? 'Recebido' : 'Pago'}
             </span>
           )}
-          {/* Ponto E: ícone Info para automáticos, Pencil para manuais */}
-          {isAutomatico
+          {isAuto
             ? <button onClick={() => setModalDetalhe(l)} className="text-gray-300 hover:text-blue-500 p-0.5" title="Detalhes"><Info size={12} /></button>
             : <button onClick={() => onEditar(l)} className="text-gray-300 hover:text-blue-500 p-0.5" title="Editar"><Pencil size={12} /></button>
           }
-          <button onClick={() => onExcluir(l.id, l.descricao)} className="text-gray-300 hover:text-red-500 p-0.5"><Trash2 size={12} /></button>
+          {/* Sem lixeira para automáticos */}
+          {!isAuto && <button onClick={() => onExcluir(l.id, l.descricao)} className="text-gray-300 hover:text-red-500 p-0.5"><Trash2 size={12} /></button>}
         </div>
       </div>
     )
   }
 
   function CardConta({ c, tipoAcao, onEditar, onExcluir, onMarcarStatus }) {
-    const vencido = estaVencido(c.vencimento)
+    const vencido  = estaVencido(c.vencimento)
+    const isAuto   = !!(c.origemEstoque || c.origemEstoqueProducao || c.origemTransferencia || c.origemPatrimonio)
     const labelBtn = tipoAcao === 'receber' ? 'Recebido' : 'Pago'
     const novoStatus = tipoAcao === 'receber' ? 'recebido' : 'pago'
-    const corBtn = tipoAcao === 'receber' ? 'bg-green-700 hover:bg-green-800' : 'bg-red-600 hover:bg-red-700'
+    const corBtn   = tipoAcao === 'receber' ? 'bg-green-700 hover:bg-green-800' : 'bg-red-600 hover:bg-red-700'
     return (
       <div className="bg-white rounded-lg px-3 py-2 shadow-sm border border-gray-100 flex items-center gap-2">
         <div className={`w-7 h-7 rounded-md flex-shrink-0 flex items-center justify-center ${tipoAcao === 'receber' ? 'bg-green-100' : 'bg-red-100'}`}>
@@ -769,9 +807,7 @@ export default function Financeiro() {
           <div className="flex items-center gap-1.5">
             <p className="text-sm font-medium text-gray-800 truncate leading-tight">{c.descricao}</p>
             {c.parcelaTot > 1 && (
-              <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full border border-blue-100 flex-shrink-0">
-                {c.parcelaNum}/{c.parcelaTot}
-              </span>
+              <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full border border-blue-100 flex-shrink-0">{c.parcelaNum}/{c.parcelaTot}</span>
             )}
           </div>
           <div className="sm:hidden">
@@ -787,9 +823,7 @@ export default function Financeiro() {
             </div>
           </div>
           <p className="text-xs leading-tight hidden sm:block">
-            <span className={`font-bold ${vencido ? 'text-red-400' : 'text-gray-600'}`}>
-              {formatarDataBR(c.vencimento)}
-            </span>
+            <span className={`font-bold ${vencido ? 'text-red-400' : 'text-gray-600'}`}>{formatarDataBR(c.vencimento)}</span>
             {vencido ? <span className="text-red-400"> · Vencido</span> : null}
             {c.safraNome ? <span className="text-gray-400"> · {c.safraNome}</span> : null}
           </p>
@@ -802,8 +836,11 @@ export default function Financeiro() {
           </button>
         </div>
         <div className="flex flex-col gap-0.5">
-          <button onClick={() => onEditar(c)} className="text-gray-300 hover:text-blue-500 p-0.5"><Pencil size={12} /></button>
-          <button onClick={() => onExcluir(c.id, c.descricao)} className="text-gray-300 hover:text-red-500 p-0.5"><Trash2 size={12} /></button>
+          {isAuto
+            ? <button onClick={() => setModalDetalhe(c)} className="text-gray-300 hover:text-blue-500 p-0.5"><Info size={12} /></button>
+            : <button onClick={() => onEditar(c)} className="text-gray-300 hover:text-blue-500 p-0.5"><Pencil size={12} /></button>
+          }
+          {!isAuto && <button onClick={() => onExcluir(c.id, c.descricao)} className="text-gray-300 hover:text-red-500 p-0.5"><Trash2 size={12} /></button>}
         </div>
       </div>
     )
@@ -818,12 +855,9 @@ export default function Financeiro() {
 
       {/* Filtros */}
       <div className="bg-white rounded-xl px-4 py-3 shadow-sm border border-gray-100 space-y-2">
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Filtros</p>
-        </div>
-
-        {/* Linha 1 — filtros sempre visíveis no desktop */}
+        {/* Desktop: tudo em uma linha */}
         <div className="hidden sm:flex flex-wrap items-center gap-2">
+          {/* Seletor de período */}
           <select value={filtro.tipo} onChange={e => setFiltro(f => ({ ...f, tipo: e.target.value }))}
             className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50">
             <option value="anual">Anual</option>
@@ -871,7 +905,7 @@ export default function Financeiro() {
           {/* Filtro de propriedades */}
           <div className="relative" data-dropdown-prop>
             <button type="button" onClick={() => setDropdownAberto(a => !a)}
-              className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-gray-50 hover:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[160px] flex items-center justify-between gap-2">
+              className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-gray-50 hover:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[140px] flex items-center justify-between gap-2">
               <span className="text-gray-700 truncate">
                 {filtro.propriedadeIds?.length > 0
                   ? propriedades.filter(p => filtro.propriedadeIds.includes(p.id)).map(p => p.nome).join(', ')
@@ -903,14 +937,26 @@ export default function Financeiro() {
               </div>
             )}
           </div>
-
           {filtro.propriedadeIds?.length > 0 && (
             <button onClick={() => setFiltro(f => ({ ...f, propriedadeIds: [] }))}
               className="text-xs text-gray-400 hover:text-red-400 underline">Limpar</button>
           )}
+
+          {/* Busca por texto — ao lado dos filtros no desktop */}
+          <div className="relative flex-1 min-w-[180px]">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            <input type="text" value={busca} onChange={e => setBusca(e.target.value)}
+              placeholder="Buscar descrição, categoria..."
+              className="w-full border border-gray-200 rounded-lg pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50" />
+            {busca && (
+              <button onClick={() => setBusca('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                <X size={11} />
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Mobile — igual ao desktop mas em coluna */}
+        {/* Mobile: período + propriedades + busca */}
         <div className="flex sm:hidden flex-wrap items-center gap-2">
           <select value={filtro.tipo} onChange={e => setFiltro(f => ({ ...f, tipo: e.target.value }))}
             className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50">
@@ -955,10 +1001,29 @@ export default function Financeiro() {
                 className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50" />
             </>
           )}
+
+          {/* Filtro de propriedades — restaurado no mobile */}
+          <select value={filtro.propriedadeIds?.[0] || ''}
+            onChange={e => setFiltro(f => ({ ...f, propriedadeIds: e.target.value ? [e.target.value] : [] }))}
+            className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50">
+            <option value="">Todas as propriedades</option>
+            {propriedades.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+          </select>
+
+          {/* Busca — abaixo no mobile */}
+          <div className="relative w-full">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            <input type="text" value={busca} onChange={e => setBusca(e.target.value)}
+              placeholder="Buscar descrição, categoria..."
+              className="w-full border border-gray-200 rounded-lg pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50" />
+            {busca && (
+              <button onClick={() => setBusca('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                <X size={11} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
-
-      {/* Cards resumo */}
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-white rounded-xl p-3 shadow-sm border border-gray-100">
           <div className="flex items-center gap-1.5 mb-1">
@@ -1056,22 +1121,63 @@ export default function Financeiro() {
 
       {/* Fluxo de Caixa */}
       {aba === 'Fluxo de Caixa' && (
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+        <div className="space-y-4">
           {dadosFluxo.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-8">Sem dados no período.</p>
+            <div className="bg-white rounded-xl p-10 text-center text-gray-400 shadow-sm border border-gray-100 text-sm">
+              Sem dados no período.
+            </div>
           ) : (
-            <ResponsiveContainer width="100%" height={280}>
-              <ComposedChart data={dadosFluxo} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${(v / 1000).toFixed(0)}k`} />
-                <Tooltip formatter={(v) => `R$ ${formatarMoeda(Math.abs(v))}`} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="receitas" name="Receitas" fill="#16a34a" radius={[3, 3, 0, 0]} />
-                <Bar dataKey="despesasNeg" name="Despesas" fill="#ef4444" radius={[3, 3, 0, 0]} />
-                <Line dataKey="saldoAcumulado" name="Saldo acumulado" stroke="#2563eb" strokeWidth={2} dot={false} />
-              </ComposedChart>
-            </ResponsiveContainer>
+            <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 space-y-4">
+              <h2 className="font-semibold text-gray-700">Fluxo de caixa</h2>
+              <ResponsiveContainer width="100%" height={280}>
+                <ComposedChart data={dadosFluxo} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${(v / 1000).toFixed(0)}k`} />
+                  <Tooltip formatter={(v, name) => {
+                    const labels = { receitas: 'Receitas', despesasNeg: 'Despesas', saldoAcumulado: 'Saldo acumulado' }
+                    return [`R$ ${formatarMoeda(Math.abs(v))}`, labels[name] || name]
+                  }} />
+                  <Legend formatter={v => ({ receitas: 'Receitas', despesasNeg: 'Despesas', saldoAcumulado: 'Saldo acumulado' }[v] || v)} />
+                  <Bar dataKey="receitas" name="receitas" fill="#16a34a" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="despesasNeg" name="despesasNeg" fill="#ef4444" radius={[3, 3, 0, 0]} />
+                  <Line dataKey="saldoAcumulado" name="saldoAcumulado" stroke="#2563eb" strokeWidth={2} dot={false} />
+                </ComposedChart>
+              </ResponsiveContainer>
+
+              {/* Tabela mensal */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-2 text-gray-500 font-medium">Mês</th>
+                      <th className="text-right py-2 text-green-600 font-medium">Receitas</th>
+                      <th className="text-right py-2 text-red-500 font-medium">Despesas</th>
+                      <th className="text-right py-2 text-gray-600 font-medium">Saldo mês</th>
+                      <th className="text-right py-2 text-blue-600 font-medium">Acumulado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dadosFluxo.map(m => {
+                      const saldoMes = m.receitas - m.despesas
+                      return (
+                        <tr key={m.mes} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
+                          <td className="py-1.5 font-medium text-gray-700 capitalize">{m.label}</td>
+                          <td className="py-1.5 text-right text-green-600">+R$ {formatarMoeda(m.receitas)}</td>
+                          <td className="py-1.5 text-right text-red-500">−R$ {formatarMoeda(m.despesas)}</td>
+                          <td className={`py-1.5 text-right font-medium ${saldoMes >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                            {saldoMes >= 0 ? '+' : '−'}R$ {formatarMoeda(Math.abs(saldoMes))}
+                          </td>
+                          <td className={`py-1.5 text-right font-bold ${m.saldoAcumulado >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                            R$ {formatarMoeda(m.saldoAcumulado)}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           )}
         </div>
       )}
@@ -1151,37 +1257,21 @@ export default function Financeiro() {
                 </div>
               )}
 
-              {/* Categoria — Receita (Receita Agrícola bloqueada + Receitas Diversas livre) */}
+              {/* Categoria — Receita: dropdown igual ao de despesas */}
               {form.tipo === 'receita' && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
-                  <div className="flex gap-2">
-                    {['Receita Agrícola', 'Receitas Diversas'].map(cat => (
-                      <button key={cat} type="button"
-                        onClick={() => setForm(f => ({ ...f, categoria: cat, tipoDespesa: '', safraId: '', propriedadeId: '' }))}
-                        className={`flex-1 py-2 rounded-lg text-sm border transition-colors ${
-                          form.categoria === cat ? 'border-green-600 bg-green-50 text-green-700 font-medium' : 'border-gray-200 text-gray-500 hover:border-gray-300'
-                        }`}>
-                        {cat}
-                      </button>
-                    ))}
-                  </div>
+                  <select value={form.categoria}
+                    onChange={e => setForm(f => ({ ...f, categoria: e.target.value, tipoDespesa: '', safraId: '', propriedadeId: '' }))}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" required>
+                    <option value="">Selecione...</option>
+                    <option value="Receita Agrícola">Receita Agrícola</option>
+                    <option value="Receitas Diversas">Receitas Diversas</option>
+                  </select>
                 </div>
               )}
 
-              {/* Card bloqueado — Receita Agrícola selecionada manualmente */}
-              {form.tipo === 'receita' && form.categoria === 'Receita Agrícola' && (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
-                  <Lock size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-medium text-amber-800">Lançamento automático</p>
-                    <p className="text-xs text-amber-700 mt-0.5">Receitas agrícolas são geradas automaticamente ao registrar vendas na página Estoque de Produção.</p>
-                    <p className="text-xs text-amber-600 mt-1">📍 Página: <strong>Estoque de Produção</strong></p>
-                  </div>
-                </div>
-              )}
-
-              {/* Card bloqueado — categoria inteiramente automática (despesas) */}
+              {/* Card bloqueado — categoria inteiramente automática (despesas e Receita Agrícola) */}
               {categoriaBloqueada && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
                   <Lock size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
@@ -1344,20 +1434,9 @@ export default function Financeiro() {
                     </>
                   )}
 
-                  {/* Receitas Diversas — propriedade + safra opcional */}
+                  {/* Receitas Diversas — propriedade + safra opcional, sem tipo */}
                   {form.tipo === 'receita' && form.categoria === 'Receitas Diversas' && (
                     <>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
-                        <select value={form.tipoDespesa}
-                          onChange={e => setForm(f => ({ ...f, tipoDespesa: e.target.value }))}
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" required>
-                          <option value="">Selecione...</option>
-                          {(CONFIG_CATEGORIAS['Receitas Diversas']?.tipos || []).map(t => (
-                            <option key={t}>{t}</option>
-                          ))}
-                        </select>
-                      </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Propriedade <span className="text-red-500">*</span></label>
                         <select value={form.propriedadeId}

@@ -734,13 +734,19 @@ function ModalTransferencia({ lotes, onClose, onSalvo, sugestoesLocal }) {
   const lotesSelecionados = lotes.filter(l => selecoes[l.id] !== undefined)
   const unidade = lotes[0]?.unidade || 'sc'
 
+  // Filtrar locais de origem dos lotes selecionados das sugestões de destino
+  const locaisOrigem = new Set(lotesSelecionados.map(l => l.localArmazenagem).filter(Boolean))
+  const erroDestino  = localDestino.trim() && locaisOrigem.has(localDestino.trim())
+    ? 'O destino não pode ser igual ao local de origem do lote'
+    : null
+
   const errosQtd = {}
   lotesSelecionados.forEach(l => {
     const q = Number(selecoes[l.id])
     if (!q || q <= 0) errosQtd[l.id] = 'Informe uma quantidade'
     else if (q > l.saldoAtual) errosQtd[l.id] = `Máx: ${fmtNum(l.saldoAtual, 2)} ${unidade}`
   })
-  const invalido = lotesSelecionados.length === 0 || !localDestino.trim() || Object.keys(errosQtd).length > 0
+  const invalido = lotesSelecionados.length === 0 || !localDestino.trim() || !!erroDestino || Object.keys(errosQtd).length > 0
 
   function toggleLote(loteId, saldoAtual) {
     setSelecoes(s => {
@@ -780,7 +786,9 @@ function ModalTransferencia({ lotes, onClose, onSalvo, sugestoesLocal }) {
             tipo: 'despesa', categoria: 'Cultivo', tipoDespesa: 'Pós-Colheita',
             valor: custo, vencimento: dataMov, status: 'pago', notaRef: docRef.trim(),
             propriedadeId: lote.propriedadeId, propriedadeNome: lote.propriedadeNome,
-            safraId: lote.safraId || '', patrimonioId: '', movimentacaoId: movId,
+            safraId: lote.safraId || '', patrimonioId: '',
+            movimentacaoId: movId,
+            origemEstoqueProducao: true,  // marca como automático no Financeiro
             cancelado: false, uid: usuario.uid, criadoEm: new Date(),
           })
         }
@@ -862,8 +870,9 @@ function ModalTransferencia({ lotes, onClose, onSalvo, sugestoesLocal }) {
             <label className="block text-xs font-medium text-gray-600 mb-1">Local de destino <span className="text-red-500">*</span></label>
             <AutocompleteInput value={localDestino} onChange={setLocalDestino}
               placeholder="Silo, cooperativa, armazém..."
-              sugestoes={sugestoesLocal}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+              sugestoes={sugestoesLocal.filter(s => !locaisOrigem.has(s))}
+              className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 ${erroDestino ? 'border-red-400' : 'border-gray-200'}`} />
+            {erroDestino && <p className="text-xs text-red-500 mt-1">{erroDestino}</p>}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -944,8 +953,8 @@ function CardLote({ lote, movs, idx, onEditar, onCancelarLote, onCancelarSaida, 
   const unidade = lote.unidade || 'sc'
   const bg = idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/60'
   const podeCancelar = lote.saldoAtual === lote.quantidadeEntrada
+  const isTransferencia = !!lote.transferenciaOrigemId
 
-  // Custo estimado do lote (ponto 17 — subtil)
   const custoLote = safra ? getCustoLote(safra, lote.lavouraId) : null
 
   return (
@@ -953,20 +962,24 @@ function CardLote({ lote, movs, idx, onEditar, onCancelarLote, onCancelarSaida, 
       <div className={`${bg}`}>
         <div className="flex items-center gap-2 px-4 py-2">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-xs font-bold text-gray-800">{idLoteExibicao(lote)}</span>
               <span className="text-xs text-gray-400">{formatarData(lote.dataColheita)}</span>
               {lote.lavouraNome && <span className="text-xs text-gray-400 hidden sm:inline">· {lote.lavouraNome}</span>}
+              {/* Badge de entrada via transferência */}
+              {isTransferencia && (
+                <span className="inline-flex items-center gap-0.5 text-xs bg-blue-50 text-blue-600 border border-blue-200 px-1.5 py-0.5 rounded-full font-medium flex-shrink-0">
+                  <ArrowRightLeft size={9} />
+                  Transferência
+                </span>
+              )}
             </div>
-            {/* Ponto 1b: badges de qualidade */}
             <BadgesQualidade lote={lote} />
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <div className="text-right">
-              {/* Ponto 11: saldo acima em destaque, entrada abaixo menor */}
               <p className="text-sm font-bold text-green-700"><span className="text-xs font-normal text-gray-500">saldo: </span> {fmtNum(lote.saldoAtual)} <span className="text-xs font-normal text-gray-500">{unidade}</span></p>
               <p className="text-xs text-gray-400">entrada: {fmtNum(lote.quantidadeEntrada)} {unidade}</p>
-              {/* Custo estimado discreto (ponto 17) */}
               {custoLote && (
                 <p className="text-xs text-gray-400">
                   custo est.: R$ {fmtMoeda(custoLote.valor)}/{custoLote.unidade}
@@ -978,8 +991,6 @@ function CardLote({ lote, movs, idx, onEditar, onCancelarLote, onCancelarSaida, 
             <button onClick={() => onCancelarLote(lote, podeCancelar)} title="Cancelar entrada" className="text-gray-300 hover:text-red-500 p-0.5"><Ban size={13} /></button>
           </div>
         </div>
-
-        {/* Ponto 12: saídas sempre visíveis, sem colapso */}
         {movs.length > 0 && (
           <div className="mx-4 mb-2 border border-gray-100 rounded-lg overflow-hidden">
             {movs.map(m => (
@@ -1465,27 +1476,28 @@ export default function EstoqueProducao() {
           })
         }
 
-        // 3. Se for transferência: cancelar também o lote de destino
-        if (mov.tipo === 'transferencia_estoque' && mov.movimentacaoId) {
+        // 3. Se for transferência: cancelar o lote de destino
+        const movId = mov.movimentacaoId || mov.id
+        if (mov.tipo === 'transferencia_estoque') {
           const destSnap = await getDocs(query(
             collection(db, 'estoqueProducao'),
             where('uid', '==', usuario.uid),
-            where('transferenciaOrigemId', '==', mov.movimentacaoId)
+            where('transferenciaOrigemId', '==', movId)
           ))
           await Promise.all(
             destSnap.docs.map(d => updateDoc(d.ref, { cancelado: true, saldoAtual: 0 }))
           )
         }
 
-        // 4. Cancelar lançamento(s) financeiro(s) vinculados pelo movimentacaoId
-        if (mov.movimentacaoId) {
-          const finSnap = await getDocs(query(
-            collection(db, 'financeiro'),
-            where('uid', '==', usuario.uid),
-            where('movimentacaoId', '==', mov.movimentacaoId)
-          ))
+        // 4. Cancelar lançamento(s) financeiro(s) — buscar por movimentacaoId (campo salvo)
+        const finQuery1 = await getDocs(query(
+          collection(db, 'financeiro'),
+          where('uid', '==', usuario.uid),
+          where('movimentacaoId', '==', movId)
+        ))
+        if (finQuery1.docs.length > 0) {
           await Promise.all(
-            finSnap.docs.map(d => updateDoc(d.ref, { cancelado: true, status: 'cancelado' }))
+            finQuery1.docs.map(d => updateDoc(d.ref, { cancelado: true, status: 'cancelado' }))
           )
         }
 
