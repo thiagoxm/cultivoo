@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react'
 import {
   collection, query, where, getDocs,
-  addDoc, doc, updateDoc, deleteDoc
+  addDoc, doc, updateDoc
 } from 'firebase/firestore'
 import { db } from '../services/firebase'
 import { useAuth } from '../contexts/AuthContext'
@@ -1443,13 +1443,13 @@ export default function EstoqueProducao() {
                 saldoAtual: loteOrigem.saldoAtual + (mov.quantidade || 0)
               })
             }
-            // Apagar lançamento financeiro vinculado (não deve permanecer no financeiro)
+            // Cancelar lançamento financeiro vinculado
             const finSnap = await getDocs(query(
               collection(db, 'financeiro'),
               where('uid', '==', usuario.uid),
               where('movimentacaoId', '==', lote.transferenciaOrigemId)
             ))
-            await Promise.all(finSnap.docs.map(d => deleteDoc(d.ref)))
+            await Promise.all(finSnap.docs.map(d => updateDoc(d.ref, { cancelado: true, status: 'cancelado' })))
           }
         }
 
@@ -1489,7 +1489,7 @@ export default function EstoqueProducao() {
           )
         }
 
-        // 4. Apagar lançamento(s) financeiro(s) vinculados (não devem permanecer no financeiro)
+        // 4. Cancelar lançamento(s) financeiro(s) — buscar por movimentacaoId (campo salvo)
         const finQuery1 = await getDocs(query(
           collection(db, 'financeiro'),
           where('uid', '==', usuario.uid),
@@ -1497,7 +1497,7 @@ export default function EstoqueProducao() {
         ))
         if (finQuery1.docs.length > 0) {
           await Promise.all(
-            finQuery1.docs.map(d => deleteDoc(d.ref))
+            finQuery1.docs.map(d => updateDoc(d.ref, { cancelado: true, status: 'cancelado' }))
           )
         }
 

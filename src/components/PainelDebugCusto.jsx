@@ -7,9 +7,16 @@ import { useState, useCallback } from 'react'
 import { ChevronDown, ChevronUp, RefreshCw } from 'lucide-react'
 import { calcularCustoProducaoDebug, calcularCustoProducao } from '../hooks/useCustoProducao'
 import { useAuth } from '../contexts/AuthContext'
+import { format, parseISO } from 'date-fns'
+import { ptBR } from 'date-fns/locale'
 
 function fmtR(v) {
   return Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function fmtData(iso) {
+  if (!iso) return ''
+  try { return format(parseISO(iso), 'dd/MM/yy', { locale: ptBR }) } catch { return iso }
 }
 
 function SecaoDebug({ titulo, itens, cor }) {
@@ -36,6 +43,9 @@ function SecaoDebug({ titulo, itens, cor }) {
               <div key={i} className="flex items-center justify-between gap-2 text-xs border-t border-black/5 pt-0.5">
                 <span className="truncate flex-1">{item.descricao}</span>
                 <span className="flex-shrink-0 opacity-60">{item.lavoura}</span>
+                {item.data && (
+                  <span className="flex-shrink-0 opacity-50 font-mono">{fmtData(item.data)}</span>
+                )}
                 <span className="flex-shrink-0 opacity-60">{item.fator}{item.fonte ? ` [${item.fonte}]` : ''}</span>
                 <span className="flex-shrink-0 font-semibold">R$ {fmtR(item.valor)}</span>
               </div>
@@ -128,7 +138,6 @@ export function PainelDebugCusto({ safras }) {
                   await calcularCustoProducao(usuario.uid)
                   setSalvoOk(true)
                   setTimeout(() => setSalvoOk(false), 3000)
-                  // Recarregar resultado após salvar
                   await recalcular(safraSel || safrasDisponiveis[0]?.id)
                 } catch(e) { setErro(e.message) }
                 finally { setSalvando(false) }

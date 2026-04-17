@@ -424,6 +424,14 @@ export default function Estoque() {
     () => produtosEnriquecidos.find(p => p.id === formMov.produtoId) || null,
     [produtosEnriquecidos, formMov.produtoId]
   )
+  // Safras filtradas pela propriedade do produto (ponto 4)
+  const safrasParaMov = useMemo(() => {
+    const propId = produtoMov?.propriedadeId
+    return safras.filter(s =>
+      s.status === 'Em andamento' &&
+      (!propId || s.propriedadeId === propId)
+    )
+  }, [safras, produtoMov])
   const vinculos = useMemo(() => {
     if (!produtoMov) return { safra: 'opcional', lavoura: 'opcional', patrimonio: 'oculto' }
     return getVinculosInsumo(produtoMov.tipo)
@@ -1147,7 +1155,7 @@ export default function Estoque() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Safra{' '}{vinculos.safra === 'obrigatorio' ? <span className="text-red-500">*</span> : <span className="text-gray-400 font-normal text-xs">(opcional)</span>}</label>
                       <select value={formMov.safraId} onChange={e => setFormMov(f => ({ ...f, safraId: e.target.value, lavouraIds: [] }))} className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
                         <option value="">Selecione a safra...</option>
-                        {safras.filter(s => s.status === 'Em andamento').map(s => <option key={s.id} value={s.id}>{s.nome} — {s.cultura}</option>)}
+                        {safrasParaMov.map(s => <option key={s.id} value={s.id}>{s.nome} — {s.cultura}</option>)}
                       </select>
                     </div>
                   )}
