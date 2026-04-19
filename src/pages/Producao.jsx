@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from 'react'
 import { collection, query, where, getDocs, addDoc, deleteDoc, doc, updateDoc } from 'firebase/firestore'
 import { db } from '../services/firebase'
 import { useAuth } from '../contexts/AuthContext'
-import { Plus, Trash2, Wheat, Pencil, X, ChevronDown, ChevronUp, CheckCircle, AlertCircle, PackagePlus } from 'lucide-react'
+import { Plus, Trash2, Wheat, Pencil, X, ChevronDown, ChevronUp, CheckCircle, AlertCircle, PackagePlus, Search, Info } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { getCamposQualidade, getCultura, UNIDADES, getLabelUnidade } from '../config/culturasConfig'
@@ -30,6 +30,7 @@ const HOJE = getHoje()
 const FORM_PADRAO = {
   safraId: '', lavouraId: '', dataColheita: '', errData: '',
   quantidade: '', unidade: 'sc', observacoes: '',
+  colheitaConcluida: false, // toggle: 'Colheita desta lavoura concluída'
 }
 
 function IconeCultura({ nomeCultura, size = 14 }) {
@@ -202,6 +203,9 @@ export default function Producao() {
   const [modalIniciar, setModalIniciar] = useState(null)
   const [gruposExpandidos, setGruposExpandidos] = useState({})
   const [aba, setAba] = useState('atuais')
+  const [visaoProd, setVisaoProd] = useState('lavoura') // 'lavoura' | 'mes'
+  const [modalLavoura, setModalLavoura] = useState(null)
+  const [buscaLavoura, setBuscaLavoura] = useState('')
   const [filtroPropriedadeIds, setFiltroPropriedadeIds] = useState([])
   const [filtroSafraId, setFiltroSafraId] = useState('')
   const [dropdownFiltroAberto, setDropdownFiltroAberto] = useState(false)
@@ -286,13 +290,19 @@ export default function Producao() {
         const areaTotal = lavourasVinculadas.reduce((a, l) => a + (Number(l.areaHa) || 0), 0)
         const produtividade = areaTotal > 0 ? totalColhido / areaTotal : null
         const lavouraIdsComColheita = [...new Set(colheitasDaSafra.map(c => c.lavouraId).filter(Boolean))]
-        const lavourasPendentes = lavourasVinculadas.filter(l => !lavouraIdsComColheita.includes(l.id))
+        // Lavoura "concluída" = tem colheita com colheitaConcluida === true
+        const lavouraIdsConcluidas = [...new Set(
+          colheitasDaSafra.filter(c => c.colheitaConcluida === true).map(c => c.lavouraId).filter(Boolean)
+        )]
+        // Pendente = sem colheita OU com colheita mas sem conclusão
+        const lavourasPendentes = lavourasVinculadas.filter(l => !lavouraIdsConcluidas.includes(l.id))
         const areaPendente = lavourasPendentes.reduce((a, l) => a + (Number(l.areaHa) || 0), 0)
+        const todasConcluidas = lavourasVinculadas.length > 0 && lavourasVinculadas.every(l => lavouraIdsConcluidas.includes(l.id))
         const chavesOrdenadas = Object.keys(mapaColheitas[s.id] || {}).sort((a, b) => b.localeCompare(a))
         return {
           safraId: s.id, safraNome: s.nome, cultura: s.cultura, unidade,
           totalColhido, produtividade, nColheitas: colheitasDaSafra.length,
-          lavourasPendentes: lavourasPendentes.length, areaPendente,
+          lavourasPendentes: lavourasPendentes.length, areaPendente, todasConcluidas,
           custoEstimado: s.custoEstimado || null,
           // Ponto 7: itens dentro de cada mês ordenados do mais recente para o mais antigo
           meses: chavesOrdenadas.map(chave => {
@@ -312,6 +322,44 @@ export default function Producao() {
     return base
   }, [safrasDaAba, filtroPropriedadeIds])
 
+  // Visão por lavoura — safra → lavoura (inclui lavouras pendentes)
+  const agrupadoPorLavoura = useMemo(() => {
+    return agrupado.map(grupo => {
+      const safra = safrasDaAba.find(s => s.id === grupo.safraId)
+      const lavourasVinculadas = lavouras.filter(l => safra?.lavouraIds?.includes(l.id))
+      return {
+        ...grupo,
+        lavouras: lavourasVinculadas.map(lav => {
+          const colheitasLav = listaFiltrada.filter(c => c.safraId === grupo.safraId && c.lavouraId === lav.id)
+          const totalColhidoLav = colheitasLav.reduce((a, c) => a + (Number(c.quantidade) || 0), 0)
+          const produtividadeLav = Number(lav.areaHa) > 0 ? totalColhidoLav / Number(lav.areaHa) : null
+          const lotesLav = lotesEstoque.filter(l => !l.cancelado && colheitasLav.some(c => c.id === l.colheitaOrigemId))
+          const qtdEstocada = lotesLav.reduce((s, l) => s + (Number(l.quantidadeEntrada) || 0), 0)
+          const saldoDisponivel = Math.max(0, totalColhidoLav - qtdEstocada)
+          const custoLav = grupo.custoEstimado?.porLavoura?.[lav.id]
+          const ultimaColheita = [...colheitasLav].sort((a, b) => (b.dataColheita || '').localeCompare(a.dataColheita || ''))[0] || null
+          // Status agronômico (colheita): baseado no toggle colheitaConcluida
+          const colheitaConcluida = colheitasLav.some(c => c.colheitaConcluida === true)
+          let statusColheita = 'pendente' // sem colheita
+          if (colheitasLav.length > 0) statusColheita = colheitaConcluida ? 'concluida' : 'em_colheita'
+          // Status logístico (estoque)
+          let statusEstoque = 'sem_colheita'
+          if (colheitasLav.length > 0) {
+            if (saldoDisponivel === 0 && qtdEstocada > 0) statusEstoque = 'estocado'
+            else if (qtdEstocada > 0) statusEstoque = 'parcial'
+            else statusEstoque = 'nao_estocado'
+          }
+          return {
+            lav, colheitas: colheitasLav, totalColhido: totalColhidoLav,
+            produtividade: produtividadeLav, qtdEstocada, saldoDisponivel,
+            custoSc: custoLav?.custoSc ?? null,
+            statusColheita, statusEstoque, ultimaColheita,
+          }
+        }),
+      }
+    })
+  }, [agrupado, safrasDaAba, lavouras, listaFiltrada, lotesEstoque])
+
   function expandidoPorPadrao(safraId) { return safraId in gruposExpandidos ? gruposExpandidos[safraId] : aba === 'atuais' }
   function toggleGrupo(safraId) { setGruposExpandidos(g => ({ ...g, [safraId]: !expandidoPorPadrao(safraId) })) }
 
@@ -322,7 +370,7 @@ export default function Producao() {
   }
   function abrirEdicao(c) {
     setEditando(c.id)
-    setForm({ safraId: c.safraId || '', lavouraId: c.lavouraId || '', dataColheita: c.dataColheita || '', errData: '', quantidade: String(c.quantidade || ''), unidade: c.unidade || 'sc', observacoes: c.observacoes || '' })
+    setForm({ safraId: c.safraId || '', lavouraId: c.lavouraId || '', dataColheita: c.dataColheita || '', errData: '', quantidade: String(c.quantidade || ''), unidade: c.unidade || 'sc', observacoes: c.observacoes || '', colheitaConcluida: c.colheitaConcluida === true })
     setDarEntradaEstoque(false); setIdLoteEstoque(''); setLocalArmazenagem(''); setClassificacaoEstoque(''); setQualidadeEstoque({})
     setModal(true)
   }
@@ -374,7 +422,9 @@ export default function Producao() {
       lavouraId: form.lavouraId || '', lavouraNome: lavoura?.nome || '',
       propriedadeId: safra?.propriedadeId || '', propriedadeNome: prop?.nome || '',
       dataColheita: form.dataColheita, quantidade: Number(form.quantidade),
-      unidade: form.unidade, observacoes: form.observacoes || '', uid: usuario.uid,
+      unidade: form.unidade, observacoes: form.observacoes || '',
+      colheitaConcluida: form.colheitaConcluida === true,
+      uid: usuario.uid,
     }
     let colheitaId = editando
     if (editando) { await updateDoc(doc(db, 'colheitas', editando), payload) }
@@ -444,6 +494,16 @@ export default function Producao() {
             </select>
           )}
           {(filtroPropriedadeIds.length > 0 || filtroSafraId) && <button onClick={() => { setFiltroPropriedadeIds([]); setFiltroSafraId('') }} className="text-xs text-gray-400 hover:text-red-400 underline">Limpar</button>}
+          {/* Busca por lavoura */}
+          <div className="relative flex-1 min-w-[140px]">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            <input type="text" value={buscaLavoura} onChange={e => setBuscaLavoura(e.target.value)}
+              placeholder="Buscar lavoura..."
+              className="w-full border border-gray-200 rounded-lg pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 bg-gray-50" />
+            {buscaLavoura && (
+              <button onClick={() => setBuscaLavoura('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"><X size={11} /></button>
+            )}
+          </div>
         </div>
       </div>
       <div className="flex gap-1 border-b border-gray-200">
@@ -453,6 +513,17 @@ export default function Producao() {
             {a.label}
           </button>
         ))}
+        {/* Toggle de visão */}
+        <div className="ml-auto flex items-center gap-1 pb-1">
+          {[{ val: 'lavoura', label: 'Por lavoura' }, { val: 'mes', label: 'Por mês' }].map(v => (
+            <button key={v.val} onClick={() => setVisaoProd(v.val)}
+              className={`px-2.5 py-1 text-xs rounded-lg transition-colors ${
+                visaoProd === v.val ? 'bg-green-700 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+              }`}>
+              {v.label}
+            </button>
+          ))}
+        </div>
       </div>
       {agrupado.length === 0 && (
         <div className="bg-white rounded-xl p-10 text-center text-gray-400 shadow-sm border border-gray-100">
@@ -487,70 +558,228 @@ export default function Producao() {
                   </div>
                   <div className="w-px bg-green-100 self-stretch" />
                   <div className="flex-1 flex flex-col items-center justify-center py-2 px-1">
-                    {grupo.lavourasPendentes > 0 ? (<><p className="text-sm font-bold text-amber-600 leading-tight">{formatarNumero(grupo.areaPendente)} <span className="text-xs font-medium">ha</span></p><p className="text-xs text-gray-400 leading-tight">{grupo.lavourasPendentes} pendente{grupo.lavourasPendentes !== 1 ? 's' : ''}</p></>) : (<><p className="text-sm font-bold text-green-600 leading-tight">✓ concluída</p><p className="text-xs text-gray-400 leading-tight">todas colhidas</p></>)}
+                    {grupo.todasConcluidas ? (<><p className="text-sm font-bold text-green-600 leading-tight">✓ concluída</p><p className="text-xs text-gray-400 leading-tight">todas colhidas</p></>) : grupo.lavourasPendentes > 0 ? (<><p className="text-sm font-bold text-amber-600 leading-tight">{formatarNumero(grupo.areaPendente)} <span className="text-xs font-medium">ha</span></p><p className="text-xs text-gray-400 leading-tight">{grupo.lavourasPendentes} pendente{grupo.lavourasPendentes !== 1 ? 's' : ''}</p></>) : (<><p className="text-sm font-bold text-blue-600 leading-tight">⏳ em colheita</p><p className="text-xs text-gray-400 leading-tight">aguardando conclusão</p></>)}
                   </div>
                 </div>
               </button>
               {expandido && (
                 <div className="border-t border-gray-100">
-                  {grupo.meses.map(mes => (
-                    <div key={mes.chave}>
-                      <div className="flex items-center justify-between px-4 py-2 border-b border-green-100 bg-green-50">
-                        <p className="text-xs font-semibold text-green-800 capitalize">{nomeMes(mes.chave)}</p>
-                        <p className="text-xs font-semibold text-green-700">{formatarNumero(mes.totalMes)} {grupo.unidade}</p>
-                      </div>
-                      {mes.itens.map((c, idx) => {
-                        const bgZebra = idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/70'
-                        const { qtdEmEstoque, saldoDisponivel, temLote } = colheitaInfoEstoque(c.id, c.quantidade)
-                        const totalNoEstoque = temLote && saldoDisponivel === 0
-                        const parcialEstoque = temLote && saldoDisponivel > 0
-                        return (
-                          <div key={c.id} className={`${bgZebra} px-4 py-2.5 transition-colors hover:bg-blue-50/30`}>
-                            <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-4">
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-gray-800 truncate">{c.lavouraNome || 'Sem lavoura'}</p>
-                                <p className="text-xs text-gray-400 truncate">{c.propriedadeNome}</p>
-                                <p className="text-xs text-gray-400">{formatarData(c.dataColheita)}</p>
-                              </div>
-                              {c.observacoes && <div className="flex-1 min-w-0"><p className="text-xs text-gray-400 italic truncate">{c.observacoes}</p></div>}
-                              <div className="flex items-center justify-between md:justify-end gap-2 flex-shrink-0">
-                                <p className="text-sm font-bold text-green-700 whitespace-nowrap">{formatarNumero(c.quantidade)} {c.unidade}</p>
-                                {totalNoEstoque ? (
-                                  <span className="text-xs text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">✓ No estoque</span>
-                                ) : parcialEstoque ? (
-                                  <div className="flex items-center gap-1.5">
-                                    <div className="text-right">
-                                      <p className="text-xs text-green-600 font-medium leading-tight">estocado: {formatarNumero(qtdEmEstoque)} {c.unidade}</p>
-                                      <p className="text-xs text-amber-600 font-medium leading-tight">a estocar: {formatarNumero(saldoDisponivel)} {c.unidade}</p>
+                  {/* ── VISÃO POR LAVOURA ── */}
+                  {visaoProd === 'lavoura' && (() => {
+                    const grupoLav = agrupadoPorLavoura.find(g => g.safraId === grupo.safraId)
+                    if (!grupoLav?.lavouras?.length) return (
+                      <p className="text-xs text-gray-400 px-4 py-3">Nenhuma lavoura vinculada a esta safra.</p>
+                    )
+                    const lavFiltradas = buscaLavoura.trim()
+                      ? grupoLav.lavouras.filter(i => i.lav.nome.toLowerCase().includes(buscaLavoura.toLowerCase()))
+                      : grupoLav.lavouras
+                    return lavFiltradas.map((item, idx) => {
+                      const bgZ = idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
+                      // Badge colheita
+                      const colheitaCor = item.statusColheita === 'pendente' ? 'bg-amber-100 text-amber-700'
+                        : item.statusColheita === 'concluida' ? 'bg-green-100 text-green-700'
+                        : 'bg-blue-100 text-blue-700'
+                      const colheitaLabel = item.statusColheita === 'pendente' ? 'Pendente'
+                        : item.statusColheita === 'concluida' ? 'Concluída' : 'Em colheita'
+                      // Badge estoque
+                      const estoqueCor = item.statusEstoque === 'estocado' ? 'text-green-600'
+                        : item.statusEstoque === 'parcial' ? 'text-amber-600'
+                        : item.statusEstoque === 'nao_estocado' ? 'text-gray-400'
+                        : ''
+                      const estoqueLabel = item.statusEstoque === 'estocado' ? '✓ Estocado'
+                        : item.statusEstoque === 'parcial' ? `⏳ ${formatarNumero(item.saldoDisponivel)} a estocar`
+                        : item.statusEstoque === 'nao_estocado' ? 'Não estocado'
+                        : ''
+                      return (
+                        <div key={item.lav.id}
+                          className={`${bgZ} px-4 py-2 border-b border-gray-100 last:border-0 flex items-center gap-2`}>
+                          {/* Info principal */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="text-sm font-medium text-gray-800 leading-tight">{item.lav.nome}</p>
+                              <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium leading-tight ${colheitaCor}`}>{colheitaLabel}</span>
+                            </div>
+                            <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                              <span className="text-xs text-gray-400">{formatarNumero(item.lav.areaHa)} ha</span>
+                              {item.statusColheita !== 'pendente' && (
+                                <>
+                                  <span className="text-xs text-green-700 font-medium">{formatarNumero(item.totalColhido)} {grupo.unidade}</span>
+                                  {item.produtividade !== null && <span className="text-xs text-gray-400">{formatarNumero(item.produtividade)} {grupo.unidade}/ha</span>}
+                                  {estoqueLabel && <span className={`text-xs font-medium ${estoqueCor}`}>{estoqueLabel}</span>}
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          {/* Botão de detalhes */}
+                          <button type="button"
+                            onClick={() => setModalLavoura({ grupo, item, safraId: grupo.safraId, unidade: grupo.unidade })}
+                            className="flex-shrink-0 text-gray-300 hover:text-blue-500 p-1" title="Ver detalhes">
+                            <Info size={16} />
+                          </button>
+                        </div>
+                      )
+                    })
+                  })()}
+
+                  {/* ── VISÃO POR MÊS ── */}
+                  {visaoProd === 'mes' && (
+                    grupo.meses.length === 0 ? (
+                      <p className="text-xs text-gray-400 px-4 py-3">Nenhuma colheita registrada.</p>
+                    ) : grupo.meses.map(mes => (
+                      <div key={mes.chave}>
+                        <div className="flex items-center justify-between px-4 py-2 border-b border-green-100 bg-green-50">
+                          <p className="text-xs font-semibold text-green-800 capitalize">{nomeMes(mes.chave)}</p>
+                          <p className="text-xs font-semibold text-green-700">{formatarNumero(mes.totalMes)} {grupo.unidade}</p>
+                        </div>
+                        {mes.itens.map((c, idx) => {
+                          const bgZebra = idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/70'
+                          const { qtdEmEstoque, saldoDisponivel, temLote } = colheitaInfoEstoque(c.id, c.quantidade)
+                          const totalNoEstoque = temLote && saldoDisponivel === 0
+                          const parcialEstoque = temLote && saldoDisponivel > 0
+                          return (
+                            <div key={c.id} className={`${bgZebra} px-4 py-2.5 transition-colors hover:bg-blue-50/30`}>
+                              <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-4">
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium text-gray-800 truncate">{c.lavouraNome || 'Sem lavoura'}</p>
+                                  <p className="text-xs text-gray-400 truncate">{c.propriedadeNome}</p>
+                                  <p className="text-xs text-gray-400">{formatarData(c.dataColheita)}</p>
+                                </div>
+                                {c.observacoes && <div className="flex-1 min-w-0"><p className="text-xs text-gray-400 italic truncate">{c.observacoes}</p></div>}
+                                <div className="flex items-center justify-between md:justify-end gap-2 flex-shrink-0">
+                                  <p className="text-sm font-bold text-green-700 whitespace-nowrap">{formatarNumero(c.quantidade)} {c.unidade}</p>
+                                  {totalNoEstoque ? (
+                                    <span className="text-xs text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">✓ No estoque</span>
+                                  ) : parcialEstoque ? (
+                                    <div className="flex items-center gap-1.5">
+                                      <div className="text-right">
+                                        <p className="text-xs text-green-600 font-medium leading-tight">estocado: {formatarNumero(qtdEmEstoque)} {c.unidade}</p>
+                                        <p className="text-xs text-amber-600 font-medium leading-tight">a estocar: {formatarNumero(saldoDisponivel)} {c.unidade}</p>
+                                      </div>
+                                      <button onClick={e => { e.stopPropagation(); setModalEntradaEstoque({ ...c, saldoDisponivel }) }} title="Dar entrada do saldo restante"
+                                        className="flex items-center gap-1 text-xs text-white px-2 py-1 rounded-lg shadow-sm hover:opacity-90 flex-shrink-0" style={{ background: 'var(--brand-gradient)' }}>
+                                        <PackagePlus size={11} /><span className="hidden sm:inline">Estoque</span>
+                                      </button>
                                     </div>
-                                    <button onClick={e => { e.stopPropagation(); setModalEntradaEstoque({ ...c, saldoDisponivel }) }} title="Dar entrada do saldo restante"
-                                      className="flex items-center gap-1 text-xs text-white px-2 py-1 rounded-lg shadow-sm hover:opacity-90 flex-shrink-0" style={{ background: 'var(--brand-gradient)' }}>
+                                  ) : (
+                                    <button onClick={e => { e.stopPropagation(); setModalEntradaEstoque({ ...c, saldoDisponivel: c.quantidade }) }} title="Dar entrada no estoque de produção"
+                                      className="flex items-center gap-1 text-xs text-white px-2 py-1 rounded-lg shadow-sm hover:opacity-90" style={{ background: 'var(--brand-gradient)' }}>
                                       <PackagePlus size={11} /><span className="hidden sm:inline">Estoque</span>
                                     </button>
+                                  )}
+                                  <div className="flex items-center gap-0.5">
+                                    <button onClick={e => { e.stopPropagation(); abrirEdicao(c) }} className="text-gray-300 hover:text-blue-500 p-1"><Pencil size={15} /></button>
+                                    <button onClick={e => { e.stopPropagation(); excluir(c.id, c.lavouraNome || 'colheita') }} className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={15} /></button>
                                   </div>
-                                ) : (
-                                  <button onClick={e => { e.stopPropagation(); setModalEntradaEstoque({ ...c, saldoDisponivel: c.quantidade }) }} title="Dar entrada no estoque de produção"
-                                    className="flex items-center gap-1 text-xs text-white px-2 py-1 rounded-lg shadow-sm hover:opacity-90" style={{ background: 'var(--brand-gradient)' }}>
-                                    <PackagePlus size={11} /><span className="hidden sm:inline">Estoque</span>
-                                  </button>
-                                )}
-                                <div className="flex items-center gap-0.5">
-                                  <button onClick={e => { e.stopPropagation(); abrirEdicao(c) }} className="text-gray-300 hover:text-blue-500 p-1"><Pencil size={15} /></button>
-                                  <button onClick={e => { e.stopPropagation(); excluir(c.id, c.lavouraNome || 'colheita') }} className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={15} /></button>
                                 </div>
                               </div>
                             </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ))}
+                          )
+                        })}
+                      </div>
+                    ))
+                  )}
                 </div>
               )}
             </div>
           )
         })}
       </div>
+      {/* ── MODAL DE DETALHE DA LAVOURA ── */}
+      {modalLavoura && (() => {
+        const { grupo, item, unidade } = modalLavoura
+        const colheitasOrdenadas = [...item.colheitas].sort((a, b) => (b.dataColheita || '').localeCompare(a.dataColheita || ''))
+        return (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+            <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg shadow-xl max-h-[90vh] flex flex-col">
+              <div className="p-5 border-b border-gray-100 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="font-bold text-gray-800 text-base">{item.lav.nome}</h2>
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
+                      item.statusColheita === 'pendente' ? 'bg-amber-100 text-amber-700' :
+                      item.statusColheita === 'concluida' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
+                    }`}>{item.statusColheita === 'pendente' ? 'Pendente' : item.statusColheita === 'concluida' ? 'Concluída' : 'Em colheita'}</span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5">{grupo.safraNome} · {formatarNumero(item.lav.areaHa)} ha</p>
+                </div>
+                <button onClick={() => setModalLavoura(null)} className="text-gray-400 hover:text-gray-600 flex-shrink-0"><X size={18} /></button>
+              </div>
+              {item.statusColheita !== 'pendente' && (
+                <div className="flex border-b border-gray-100">
+                  <div className="flex-1 flex flex-col items-center py-3 px-2">
+                    <p className="text-sm font-bold text-green-700">{formatarNumero(item.totalColhido)} <span className="text-xs">{unidade}</span></p>
+                    <p className="text-xs text-gray-400">total colhido</p>
+                  </div>
+                  <div className="w-px bg-gray-100" />
+                  <div className="flex-1 flex flex-col items-center py-3 px-2">
+                    {item.produtividade !== null ? (<><p className="text-sm font-bold text-green-700">{formatarNumero(item.produtividade)} <span className="text-xs">{unidade}/ha</span></p><p className="text-xs text-gray-400">produtividade</p></>) : (<><p className="text-sm font-bold text-gray-300">—</p><p className="text-xs text-gray-400">produtividade</p></>)}
+                  </div>
+                  <div className="w-px bg-gray-100" />
+                  <div className="flex-1 flex flex-col items-center py-3 px-2">
+                    {item.custoSc !== null ? (<><p className="text-sm font-bold text-green-700">R$ {formatarNumero(item.custoSc)}</p><p className="text-xs text-gray-400">custo/{unidade}</p></>) : (<><p className="text-sm font-bold text-gray-300">—</p><p className="text-xs text-gray-400">custo est.</p></>)}
+                  </div>
+                  {(item.qtdEstocada > 0 || item.saldoDisponivel > 0) && (<>
+                    <div className="w-px bg-gray-100" />
+                    <div className="flex-1 flex flex-col items-center py-3 px-2">
+                      <p className="text-sm font-bold text-green-600">{formatarNumero(item.qtdEstocada)} <span className="text-xs">{unidade}</span></p>
+                      <p className="text-xs text-gray-400">estocado</p>
+                      {item.saldoDisponivel > 0 && <p className="text-xs text-amber-600 font-medium mt-0.5">{formatarNumero(item.saldoDisponivel)} a estocar</p>}
+                    </div>
+                  </>)}
+                </div>
+              )}
+              <div className="flex-1 overflow-y-auto">
+                {colheitasOrdenadas.length === 0 ? (
+                  <div className="py-10 text-center text-gray-400">
+                    <Wheat size={28} className="mx-auto mb-2 opacity-30" />
+                    <p className="text-sm">Nenhuma colheita registrada nesta lavoura.</p>
+                  </div>
+                ) : colheitasOrdenadas.map((c, idx) => {
+                  const { qtdEmEstoque, saldoDisponivel, temLote } = colheitaInfoEstoque(c.id, c.quantidade)
+                  const totalNoEstoque = temLote && saldoDisponivel === 0
+                  const parcialEstoque = temLote && saldoDisponivel > 0
+                  return (
+                    <div key={c.id} className={`px-5 py-3 border-b border-gray-100 last:border-0 ${idx % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-green-700">{formatarNumero(c.quantidade)} {c.unidade}</p>
+                          <p className="text-xs text-gray-400">{formatarData(c.dataColheita)}</p>
+                          {c.observacoes && <p className="text-xs text-gray-400 italic mt-0.5 truncate">{c.observacoes}</p>}
+                          <div className="mt-1">
+                            {totalNoEstoque && <span className="text-xs text-green-600">✓ No estoque</span>}
+                            {parcialEstoque && (
+                              <span className="text-xs">
+                                <span className="text-green-600">{formatarNumero(qtdEmEstoque)} {c.unidade} estocado</span>
+                                <span className="text-gray-300"> · </span>
+                                <span className="text-amber-600">{formatarNumero(saldoDisponivel)} {c.unidade} a estocar</span>
+                              </span>
+                            )}
+                            {!temLote && <span className="text-xs text-gray-400">Não estocado</span>}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          {!totalNoEstoque && (
+                            <button onClick={() => { setModalEntradaEstoque({ ...c, saldoDisponivel: saldoDisponivel || c.quantidade }); setModalLavoura(null) }}
+                              className="flex items-center gap-1 text-xs text-white px-2 py-1 rounded-lg shadow-sm hover:opacity-90" style={{ background: 'var(--brand-gradient)' }}>
+                              <PackagePlus size={11} /><span className="hidden sm:inline">Estoque</span>
+                            </button>
+                          )}
+                          <button onClick={() => { abrirEdicao(c); setModalLavoura(null) }} className="text-gray-300 hover:text-blue-500 p-1"><Pencil size={15} /></button>
+                          <button onClick={() => { excluir(c.id, c.lavouraNome || 'colheita'); setModalLavoura(null) }} className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={15} /></button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="p-4 border-t border-gray-100">
+                <button onClick={() => setModalLavoura(null)} className="w-full border border-gray-300 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">Fechar</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-2">
         {fabAberto && (<div className="flex flex-col items-end gap-2 mb-1"><div className="flex items-center gap-2"><span className="bg-white text-gray-600 text-xs px-3 py-1.5 rounded-full shadow border border-gray-200 whitespace-nowrap">Registrar colheita</span><button onClick={abrirModal} className="w-11 h-11 rounded-full text-white flex items-center justify-center shadow hover:opacity-90" style={{ background: 'var(--brand-gradient)' }}><Plus size={18} /></button></div></div>)}
         <button onClick={() => setFabAberto(!fabAberto)} className={`w-14 h-14 rounded-full text-white flex items-center justify-center shadow-lg transition-all duration-200 ${fabAberto ? 'rotate-45' : ''}`} style={{ background: fabAberto ? '#4B5563' : 'var(--brand-gradient)' }}><Plus size={24} /></button>
@@ -571,6 +800,18 @@ export default function Producao() {
                 <div><label className="block text-sm font-medium text-gray-700 mb-1">Unidade</label><select value={form.unidade} onChange={e => setForm(f => ({ ...f, unidade: e.target.value }))} className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">{UNIDADES.map(u => <option key={u.value} value={u.value}>{u.label}</option>)}</select>{safraSelecionada?.unidade && <p className="text-xs text-gray-400 mt-1">Padrão: {getLabelUnidade(safraSelecionada.unidade)}</p>}</div>
               </div>
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Observações</label><textarea value={form.observacoes} onChange={e => setForm(f => ({ ...f, observacoes: e.target.value }))} placeholder="Condições climáticas, ocorrências, etc." rows={2} className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 resize-none" /></div>
+              {/* Toggle: colheita concluída */}
+              <label className="flex items-start gap-3 cursor-pointer select-none">
+                <div className="relative flex-shrink-0 mt-0.5" onClick={() => setForm(f => ({ ...f, colheitaConcluida: !f.colheitaConcluida }))}>
+                  <div className={`w-10 h-6 rounded-full transition-colors ${form.colheitaConcluida ? 'bg-green-600' : 'bg-gray-300'}`}>
+                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${form.colheitaConcluida ? 'translate-x-5' : 'translate-x-1'}`} />
+                  </div>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-700">Colheita desta lavoura concluída</p>
+                  <p className="text-xs text-gray-400">Desmarque se ainda haverá mais colheitas nesta lavoura</p>
+                </div>
+              </label>
               {!editando && (
                 <div className="border-t border-gray-100 pt-4">
                   <label className="flex items-center gap-3 cursor-pointer select-none">

@@ -288,39 +288,8 @@ export default function Financeiro() {
     dataInicio: '', dataFim: '', safraId: '', propriedadeIds: [],
   })
 
-  // ── Scroll lock: captura scrollY ANTES do setState (elimina race condition) ──
-  const scrollLockRef = useRef(0)
-  const lockAtivo = useRef(false)
-
-  function abrirComScrollLock(abrirFn) {
-    scrollLockRef.current = window.scrollY
-    lockAtivo.current = true
-    document.body.style.position = 'fixed'
-    document.body.style.top = `-${scrollLockRef.current}px`
-    document.body.style.width = '100%'
-    abrirFn()
-  }
-
-  function fecharComScrollUnlock(fecharFn) {
-    lockAtivo.current = false
-    document.body.style.position = ''
-    document.body.style.top = ''
-    document.body.style.width = ''
-    window.scrollTo(0, scrollLockRef.current)
-    fecharFn()
-  }
-
-  // Guardião: só desfaz o lock se nenhum modal estiver aberto E o lock não foi recém ativado
-  useEffect(() => {
-    const algumAberto = modal || modalImport || !!modalDetalhe || !!confirmacao
-    if (!algumAberto && !lockAtivo.current && document.body.style.position === 'fixed') {
-      const savedY = Math.abs(parseInt(document.body.style.top || '0', 10))
-      document.body.style.position = ''
-      document.body.style.top = ''
-      document.body.style.width = ''
-      if (savedY) window.scrollTo(0, savedY)
-    }
-  }, [modal, modalImport, modalDetalhe, confirmacao])
+  function abrirComScrollLock(abrirFn) { abrirFn() }
+  function fecharComScrollUnlock(fecharFn) { fecharFn() }
 
   async function carregar() {
     const uid = usuario.uid

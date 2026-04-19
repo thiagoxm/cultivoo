@@ -196,6 +196,7 @@ const MOV_PADRAO = {
   safraId: '', lavouraIds: [], dosagem: '', usarDosagem: false,
   editandoLotes: false, lotesEditados: [],
   patrimonioId: '', propriedadeDestinoId: '',
+  tipoRateioPatrimonio: 'igualitario', percentuaisRateioPatrimonio: {},
   dataMovimento: HOJE, observacoes: '',
 }
 
@@ -432,6 +433,18 @@ export default function Estoque() {
       (!propId || s.propriedadeId === propId)
     )
   }, [safras, produtoMov])
+
+  // Patrimônio selecionado e suas propriedades (para rateio P1)
+  const patrimonioSelecionado = useMemo(
+    () => patrimonios.find(p => p.id === formMov.patrimonioId) || null,
+    [patrimonios, formMov.patrimonioId]
+  )
+  const propriedadesDoPatrimonio = useMemo(() => {
+    if (!patrimonioSelecionado) return []
+    return (patrimonioSelecionado.propriedadeIds || []).map(id => propriedades.find(p => p.id === id)).filter(Boolean)
+  }, [patrimonioSelecionado, propriedades])
+  // Rateio só aparece quando o patrimônio pertence a mais de uma propriedade
+  const patrimonioTemRateio = propriedadesDoPatrimonio.length > 1
   const vinculos = useMemo(() => {
     if (!produtoMov) return { safra: 'opcional', lavoura: 'opcional', patrimonio: 'oculto' }
     return getVinculosInsumo(produtoMov.tipo)
@@ -647,6 +660,10 @@ export default function Estoque() {
       lavouraIds: formMov.lavouraIds, lavouraNomes: lavouras.filter(l => formMov.lavouraIds.includes(l.id)).map(l => l.nome),
       areaHa: areaLavourasSelecionadas || null, dosagem: dosagemCalculada,
       patrimonioId: formMov.patrimonioId || '', patrimonioNome: patrimonio?.nome || '',
+      // Rateio de custo do patrimônio entre propriedades (P1)
+      tipoRateioPatrimonio: (formMov.tipoMov === 'saida' && patrimonioTemRateio) ? formMov.tipoRateioPatrimonio : null,
+      percentuaisRateioPatrimonio: (formMov.tipoMov === 'saida' && patrimonioTemRateio && formMov.tipoRateioPatrimonio === 'personalizado') ? formMov.percentuaisRateioPatrimonio : null,
+      patrimonioPropriedadeIds: (formMov.tipoMov === 'saida' && patrimonioTemRateio) ? (patrimonioSelecionado?.propriedadeIds || []) : null,
       statusPagamento: formMov.statusPagamento || 'pendente',
       dataVencimentoPagamento: formMov.dataVencimentoPagamento || '',
       notaRef: formMov.notaRef || '',
@@ -1213,10 +1230,72 @@ export default function Estoque() {
                   {vinculos.patrimonio !== 'oculto' && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Equipamento{' '}{vinculos.patrimonio === 'obrigatorio' ? <span className="text-red-500">*</span> : <span className="text-gray-400 font-normal text-xs">(opcional)</span>}</label>
-                      <select value={formMov.patrimonioId} onChange={e => setFormMov(f => ({ ...f, patrimonioId: e.target.value }))} className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+                      <select value={formMov.patrimonioId} onChange={e => {
+                        const pat = patrimonios.find(p => p.id === e.target.value)
+                        setFormMov(f => ({
+                          ...f,
+                          patrimonioId: e.target.value,
+                          tipoRateioPatrimonio: pat?.tipoRateio || 'igualitario',
+                          percentuaisRateioPatrimonio: pat?.percentuaisRateio || {},
+                        }))
+                      }} className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
                         <option value="">Selecione o equipamento...</option>
                         {patrimonios.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
                       </select>
+                    </div>
+                  )}
+                  {/* Rateio de custo entre propriedades — aparece quando patrimônio pertence a >1 propriedade */}
+                  {vinculos.patrimonio !== 'oculto' && patrimonioTemRateio && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 space-y-2">
+                      <p className="text-xs font-semibold text-blue-800">Rateio de custo entre propriedades</p>
+                      <p className="text-xs text-blue-600">Este equipamento pertence a mais de uma propriedade. Defina como o custo deste consumo será distribuído para fins de custo de produção.</p>
+                      <div className="flex gap-2">
+                        {[{ val: 'igualitario', label: 'Igualitário' }, { val: 'area', label: 'Por área' }, { val: 'personalizado', label: 'Personalizado' }].map(op => (
+                          <button key={op.val} type="button"
+                            onClick={() => setFormMov(f => ({ ...f, tipoRateioPatrimonio: op.val, percentuaisRateioPatrimonio: {} }))}
+                            className={`flex-1 py-1.5 text-xs rounded-lg border transition-colors ${
+                              formMov.tipoRateioPatrimonio === op.val
+                                ? 'border-blue-600 bg-blue-100 text-blue-800 font-medium'
+                                : 'border-blue-200 bg-white text-blue-600'
+                            }`}>
+                            {op.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="space-y-1">
+                        {propriedadesDoPatrimonio.map(p => {
+                          let pct = 0
+                          if (formMov.tipoRateioPatrimonio === 'igualitario') {
+                            pct = 100 / propriedadesDoPatrimonio.length
+                          } else if (formMov.tipoRateioPatrimonio === 'area') {
+                            const totalArea = propriedadesDoPatrimonio.reduce((s, pp) => s + (Number(lavouras.filter(l => l.propriedadeId === pp.id).reduce((a, l) => a + (Number(l.areaHa) || 0), 0)) || 0), 0)
+                            const areaProp = lavouras.filter(l => l.propriedadeId === p.id).reduce((a, l) => a + (Number(l.areaHa) || 0), 0)
+                            pct = totalArea > 0 ? (areaProp / totalArea) * 100 : 0
+                          } else {
+                            pct = Number(formMov.percentuaisRateioPatrimonio[p.id]) || 0
+                          }
+                          return (
+                            <div key={p.id} className="flex items-center justify-between gap-2 text-xs">
+                              <span className="text-blue-700">{p.nome}</span>
+                              {formMov.tipoRateioPatrimonio === 'personalizado' ? (
+                                <input type="number" min="0" max="100" step="0.1"
+                                  value={formMov.percentuaisRateioPatrimonio[p.id] || ''}
+                                  onChange={e => setFormMov(f => ({ ...f, percentuaisRateioPatrimonio: { ...f.percentuaisRateioPatrimonio, [p.id]: e.target.value } }))}
+                                  className="w-20 border border-blue-200 rounded px-2 py-1 text-right text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                                  placeholder="%" />
+                              ) : (
+                                <span className="font-medium text-blue-800">{pct.toFixed(1)}%</span>
+                              )}
+                            </div>
+                          )
+                        })}
+                        {formMov.tipoRateioPatrimonio === 'personalizado' && (() => {
+                          const total = propriedadesDoPatrimonio.reduce((s, p) => s + (Number(formMov.percentuaisRateioPatrimonio[p.id]) || 0), 0)
+                          return Math.abs(total - 100) > 0.01 ? (
+                            <p className="text-xs text-red-500">Os percentuais devem somar 100% (atual: {total.toFixed(1)}%)</p>
+                          ) : null
+                        })()}
+                      </div>
                     </div>
                   )}
                   {resumoFIFO.length > 0 && !formMov.editandoLotes && (
