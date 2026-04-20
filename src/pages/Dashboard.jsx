@@ -3,9 +3,9 @@ import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/fire
 import { db } from '../services/firebase'
 import { useAuth } from '../contexts/AuthContext'
 import {
-  AlertCircle, ChevronDown, ChevronUp, CalendarClock, Wheat,
-  TrendingUp, TrendingDown, CheckCircle, X, ExternalLink,
-  AlertTriangle, BarChart2
+  AlertCircle, CalendarClock, Wheat,
+  TrendingUp, TrendingDown, CheckCircle, X,
+  AlertTriangle, BarChart2, Info
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useClima, diasBonsParaColheita, nomeDiaSemana } from '../hooks/useClima'
@@ -140,7 +140,7 @@ function Tooltip({ texto, children }) {
     <div className="relative inline-flex items-center" onMouseEnter={() => setVis(true)} onMouseLeave={() => setVis(false)} onTouchStart={handleTouch}>
       {children}
       {vis && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 bg-gray-800 text-white text-xs rounded-lg px-2.5 py-1.5 whitespace-nowrap z-50 pointer-events-none shadow-lg max-w-[200px] text-center">
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 bg-gray-800 text-white text-xs rounded-lg px-2.5 py-1.5 z-50 pointer-events-none shadow-lg" style={{ whiteSpace: 'normal', width: 'max-content', maxWidth: '220px', textAlign: 'center' }}>
           {texto}
           <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-800" />
         </div>
@@ -452,7 +452,6 @@ export default function Dashboard() {
   const [produtos, setProdutos] = useState([])
   const [movInsumos, setMovInsumos] = useState([])
 
-  const [alertasExpandido, setAlertasExpandido] = useState(true)
   const [modalAlerta, setModalAlerta] = useState(null) // alerta com itens p/ popup
   const [confirmacaoStatus, setConfirmacaoStatus] = useState(null)
   const [salvandoStatus, setSalvandoStatus] = useState(false)
@@ -650,45 +649,39 @@ export default function Dashboard() {
         {/* ── ALERTAS ── */}
         {alertasCriticos.length > 0 && (
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-            <button type="button" onClick={() => setAlertasExpandido(v => !v)}
-              className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-gray-800">Alertas</span>
-                {criticos.length > 0 && <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-50 text-red-700">{criticos.length} urgente{criticos.length > 1 ? 's' : ''}</span>}
-                {atencao.length > 0 && <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">{atencao.length} atenção</span>}
-              </div>
-              {alertasExpandido ? <ChevronUp size={15} className="text-gray-400" /> : <ChevronDown size={15} className="text-gray-400" />}
-            </button>
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100">
+              <AlertCircle size={15} className="text-gray-400" />
+              <span className="text-sm font-semibold text-gray-800">Alertas</span>
+              {criticos.length > 0 && <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-50 text-red-700">{criticos.length} urgente{criticos.length > 1 ? 's' : ''}</span>}
+              {atencao.length > 0 && <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">{atencao.length} atenção</span>}
+            </div>
 
-            {alertasExpandido && (
-              <div className="border-t border-gray-100">
-                {alertasCriticos.map(a => (
-                  <div key={a.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
-                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${a.tipo === 'critico' ? 'bg-red-50' : 'bg-amber-50'}`}>
-                      <AlertCircle size={14} className={a.tipo === 'critico' ? 'text-red-600' : 'text-amber-600'} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-800 truncate">{a.titulo}</p>
-                      <p className="text-xs text-gray-400 truncate">{a.subtitulo}</p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${a.tipo === 'critico' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>
-                        {a.badge}
-                      </span>
-                      {/* Botão popup apenas para alertas com itens acionáveis */}
-                      {a.itens?.length > 0 && (
-                        <button type="button"
-                          onClick={() => setModalAlerta(a)}
-                          className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-0.5 border border-gray-200 rounded px-1.5 py-0.5 hover:border-gray-300 transition-colors">
-                          <ExternalLink size={10} />
-                          ver
-                        </button>
-                      )}
-                    </div>
+            <div>
+              {alertasCriticos.map(a => (
+                <div key={a.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${a.tipo === 'critico' ? 'bg-red-50' : 'bg-amber-50'}`}>
+                    <AlertCircle size={14} className={a.tipo === 'critico' ? 'text-red-600' : 'text-amber-600'} />
                   </div>
-                ))}
-              </div>
-            )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate">{a.titulo}</p>
+                    <p className="text-xs text-gray-400 truncate">{a.subtitulo}</p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${a.tipo === 'critico' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>
+                      {a.badge}
+                    </span>
+                    {a.itens?.length > 0 && (
+                      <button type="button"
+                        onClick={() => setModalAlerta(a)}
+                        className="text-gray-300 hover:text-blue-500 p-0.5 transition-colors"
+                        title="Ver detalhes">
+                        <Info size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
