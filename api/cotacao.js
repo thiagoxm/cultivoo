@@ -108,6 +108,35 @@ async function fetchPreco(ticker) {
   return preco
 }
 
+async function fetchHistorico7d(ticker) {
+  // Busca fechamentos dos últimos 7 dias úteis
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=10d&interval=1d&includePrePost=false`
+  try {
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        Accept: 'application/json',
+      },
+    })
+    if (!res.ok) return []
+    const data = await res.json()
+    const result = data?.chart?.result?.[0]
+    if (!result) return []
+    const timestamps = result.timestamp || []
+    const closes = result.indicators?.quote?.[0]?.close || []
+    return timestamps
+      .map((ts, i) => ({
+        data: new Date(ts * 1000).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+        ts,
+        valor: closes[i],
+      }))
+      .filter(h => h.valor != null)
+      .slice(-7)
+  } catch {
+    return []
+  }
+}
+
 export default async function handler(req) {
   const headers = {
     'Content-Type': 'application/json',
@@ -129,6 +158,14 @@ export default async function handler(req) {
       })
     )
 
+    // Buscar histórico 7d para tickers únicos
+    const historicoPorTicker = {}
+    await Promise.allSettled(
+      tickersUnicos.map(async ticker => {
+        historicoPorTicker[ticker] = await fetchHistorico7d(ticker)
+      })
+    )
+
     const resultados = {}
     for (const [key, cfg] of Object.entries(CULTURAS)) {
       const preco = precosPorTicker[cfg.ticker]
@@ -137,6 +174,12 @@ export default async function handler(req) {
         continue
       }
       const valorBR = cfg.conv(preco, cambio)
+      // Converter histórico para R$/unidade BR
+      const historicoRaw = historicoPorTicker[cfg.ticker] || []
+      const historico = historicoRaw.map(h => ({
+        data: h.data,
+        valor: Math.round(cfg.conv(h.valor, cambio) * 100) / 100,
+      }))
       resultados[key] = {
         ok: true,
         ticker: cfg.ticker,
@@ -148,6 +191,7 @@ export default async function handler(req) {
         unidadeBR: cfg.unidBR,
         cambio: Math.round(cambio * 100) / 100,
         timestamp: new Date().toISOString(),
+        historico,
       }
     }
 

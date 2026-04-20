@@ -13,6 +13,7 @@ import Configuracoes from './pages/Configuracoes'
 import Producao from './pages/Producao'
 import Estoque from './pages/Estoque'
 import EstoqueProducao from './pages/EstoqueProducao'
+import Indicadores from './pages/Indicadores'
 import { useCustoProducaoBackground } from './hooks/useCustoProducao'
 
 function RotaProtegida({ children }) {
@@ -38,6 +39,7 @@ export default function App() {
           <Route path="/configuracoes" element={<Configuracoes />} />
           <Route path="estoque" element={<Estoque />} />
           <Route path="/estoque-producao" element={<EstoqueProducao />} />
+          <Route path="/indicadores" element={<Indicadores />} />
         </Route>
       </Routes>
     </BrowserRouter>

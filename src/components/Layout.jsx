@@ -4,20 +4,21 @@ import { auth } from '../services/firebase'
 import {
   LayoutDashboard, MapPin, Sprout, Layers,
   Tractor, DollarSign, LogOut, Menu, X, Leaf, Settings, Wheat, Package,
-  Warehouse
+  Warehouse, BarChart2
 } from 'lucide-react'
 import { useState } from 'react'
 
 const menus = [
-  { to: '/',               icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/propriedades',   icon: MapPin,           label: 'Propriedades' },
-  { to: '/lavouras',       icon: Sprout,           label: 'Lavouras' },
-  { to: '/safras',         icon: Layers,           label: 'Safras' },
-  { to: '/producao',       icon: Wheat,            label: 'Produção' },
-  { to: '/patrimonio',     icon: Tractor,          label: 'Patrimônio' },
-  { to: '/financeiro',     icon: DollarSign,       label: 'Financeiro' },
-  { to: '/estoque',        icon: Package,          label: 'Estoque Insumos' },
-  { to: '/estoque-producao',        icon: Warehouse,          label: 'Estoque Produção' },
+  { to: '/',                 icon: LayoutDashboard, label: 'Início' },
+  { to: '/indicadores',      icon: BarChart2,        label: 'Indicadores' },
+  { to: '/propriedades',     icon: MapPin,           label: 'Propriedades' },
+  { to: '/lavouras',         icon: Sprout,           label: 'Lavouras' },
+  { to: '/safras',           icon: Layers,           label: 'Safras' },
+  { to: '/producao',         icon: Wheat,            label: 'Produção' },
+  { to: '/patrimonio',       icon: Tractor,          label: 'Patrimônio' },
+  { to: '/financeiro',       icon: DollarSign,       label: 'Financeiro' },
+  { to: '/estoque',          icon: Package,          label: 'Estoque Insumos' },
+  { to: '/estoque-producao', icon: Warehouse,        label: 'Estoque Produção' },
 ]
 
 export default function Layout() {
@@ -32,11 +33,10 @@ export default function Layout() {
   return (
     <div className="flex h-screen bg-[#F1F8F1]">
 
-      {/* ── Sidebar desktop ── */}
+      {/* Sidebar desktop */}
       <aside className="hidden md:flex flex-col w-60"
         style={{ background: 'var(--sidebar-bg)' }}>
 
-        {/* Logo */}
         <div className="flex items-center gap-3 px-5 py-5"
           style={{ borderBottom: '1px solid var(--sidebar-border)' }}>
           <div className="w-9 h-9 rounded-xl overflow-hidden flex-shrink-0 shadow-md">
@@ -50,7 +50,6 @@ export default function Layout() {
           </div>
         </div>
 
-        {/* Menu */}
         <nav className="flex-1 px-3 py-4 space-y-0.5">
           {menus.map(({ to, icon: Icon, label }) => (
             <NavLink
@@ -76,7 +75,6 @@ export default function Layout() {
           ))}
         </nav>
 
-        {/* Rodapé */}
         <div style={{ borderTop: '1px solid var(--sidebar-border)' }}>
           <NavLink to="/configuracoes"
             className={({ isActive }) =>
@@ -98,7 +96,7 @@ export default function Layout() {
         </div>
       </aside>
 
-      {/* ── Header mobile ── */}
+      {/* Header mobile */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 py-3 shadow-md"
         style={{ background: 'var(--sidebar-bg)' }}>
         <div className="flex items-center gap-2.5">
@@ -112,12 +110,10 @@ export default function Layout() {
         </button>
       </div>
 
-      {/* ── Menu mobile overlay ── */}
+      {/* Menu mobile overlay */}
       {aberto && (
         <div className="md:hidden fixed inset-0 z-40 pt-14 flex flex-col"
           style={{ background: 'var(--sidebar-bg)' }}>
-
-          {/* Itens principais — ocupam o espaço disponível */}
           <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
             {menus.map(({ to, icon: Icon, label }) => (
               <NavLink
@@ -140,8 +136,6 @@ export default function Layout() {
               </NavLink>
             ))}
           </nav>
-
-          {/* Rodapé mobile — Configurações + Sair fixos na base */}
           <div className="px-4 pb-6" style={{ borderTop: '1px solid var(--sidebar-border)' }}>
             <NavLink to="/configuracoes"
               onClick={() => setAberto(false)}
@@ -161,7 +155,7 @@ export default function Layout() {
         </div>
       )}
 
-      {/* ── Conteúdo principal ── */}
+      {/* Conteúdo principal */}
       <main className="flex-1 overflow-y-auto pt-14 md:pt-0">
         <div className="max-w-5xl mx-auto p-4 md:p-8">
           <Outlet />

@@ -279,6 +279,8 @@ export default function Financeiro() {
   const [previewImport, setPreviewImport] = useState([])
   const [modalDetalhe, setModalDetalhe] = useState(null)
   const [confirmacao, setConfirmacao] = useState(null)
+  const [confirmacaoStatus, setConfirmacaoStatus] = useState(null) // { id, novoStatus, descricao, valor, dataConfirmacao }
+  const [salvandoStatus, setSalvandoStatus] = useState(false)
   const [fabAberto, setFabAberto] = useState(false)
   const [dropdownAberto, setDropdownAberto] = useState(false)
   const fileRef = useRef(null)
@@ -466,9 +468,22 @@ export default function Financeiro() {
     }))
   }
 
-  async function marcarStatus(id, novoStatus) {
-    await updateDoc(doc(db, 'financeiro', id), { status: novoStatus })
-    await carregar()
+  function solicitarMarcarStatus(id, novoStatus, item) {
+    const dataHoje = new Date().toISOString().split('T')[0]
+    setConfirmacaoStatus({ id, novoStatus, descricao: item.descricao || item.categoria || '—', valor: item.valor, dataConfirmacao: dataHoje })
+  }
+
+  async function confirmarMarcarStatus() {
+    if (!confirmacaoStatus) return
+    setSalvandoStatus(true)
+    try {
+      const { id, novoStatus, dataConfirmacao } = confirmacaoStatus
+      await updateDoc(doc(db, 'financeiro', id), { status: novoStatus, dataPagamento: dataConfirmacao })
+      await carregar()
+    } finally {
+      setSalvandoStatus(false)
+      setConfirmacaoStatus(null)
+    }
   }
 
   function abrirImport() {
@@ -721,7 +736,7 @@ export default function Financeiro() {
           {agruparPorPropMes(contasPagar).map(({ propId, propNome, meses }) => (
             <div key={propId} className="space-y-3">
               <h2 className="text-sm font-bold text-gray-700 border-b border-gray-200 pb-1">{propNome}</h2>
-              {meses.map(({ chave, itens }) => (<GrupoMes key={chave} chave={chave} itens={itens} renderCard={c => <CardConta key={c.id} c={c} tipoAcao="pagar" onMarcarStatus={marcarStatus} />} />))}
+              {meses.map(({ chave, itens }) => (<GrupoMes key={chave} chave={chave} itens={itens} renderCard={c => <CardConta key={c.id} c={c} tipoAcao="pagar" onMarcarStatus={(id, novoStatus) => solicitarMarcarStatus(id, novoStatus, c)} />} />))}
             </div>
           ))}
         </div>
@@ -733,7 +748,7 @@ export default function Financeiro() {
           {agruparPorPropMes(contasReceber).map(({ propId, propNome, meses }) => (
             <div key={propId} className="space-y-3">
               <h2 className="text-sm font-bold text-gray-700 border-b border-gray-200 pb-1">{propNome}</h2>
-              {meses.map(({ chave, itens }) => (<GrupoMes key={chave} chave={chave} itens={itens} renderCard={c => <CardConta key={c.id} c={c} tipoAcao="receber" onMarcarStatus={marcarStatus} />} />))}
+              {meses.map(({ chave, itens }) => (<GrupoMes key={chave} chave={chave} itens={itens} renderCard={c => <CardConta key={c.id} c={c} tipoAcao="receber" onMarcarStatus={(id, novoStatus) => solicitarMarcarStatus(id, novoStatus, c)} />} />))}
             </div>
           ))}
         </div>
@@ -899,6 +914,40 @@ export default function Financeiro() {
             <div className="flex gap-3">
               <button onClick={() => fecharComScrollUnlock(() => setConfirmacao(null))} className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">Cancelar</button>
               <button onClick={() => { confirmacao.onConfirmar(); fecharComScrollUnlock(() => setConfirmacao(null)) }} className="flex-1 bg-red-600 text-white py-2 rounded-xl text-sm hover:bg-red-700">Excluir</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal confirmação de pagamento/recebimento ── */}
+      {confirmacaoStatus && (
+        <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl p-6 space-y-4">
+            <h3 className="font-bold text-gray-800">
+              {confirmacaoStatus.novoStatus === 'recebido' ? 'Confirmar recebimento' : 'Confirmar pagamento'}
+            </h3>
+            <p className="text-sm text-gray-600">
+              Confirma o {confirmacaoStatus.novoStatus === 'recebido' ? 'recebimento' : 'pagamento'} de{' '}
+              <span className="font-semibold">R$ {Number(confirmacaoStatus.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>{' '}
+              referente a <span className="font-semibold">{confirmacaoStatus.descricao}</span>?
+            </p>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Data do {confirmacaoStatus.novoStatus === 'recebido' ? 'recebimento' : 'pagamento'}
+              </label>
+              <input
+                type="date"
+                value={confirmacaoStatus.dataConfirmacao}
+                onChange={e => setConfirmacaoStatus(c => ({ ...c, dataConfirmacao: e.target.value }))}
+                className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              />
+              <p className="text-xs text-gray-400 mt-1">A data será registrada no lançamento.</p>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmacaoStatus(null)} className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">Cancelar</button>
+              <button onClick={confirmarMarcarStatus} disabled={salvandoStatus} className="flex-1 text-white py-2 rounded-xl text-sm font-medium disabled:opacity-50 shadow-md" style={{ background: 'var(--brand-gradient)' }}>
+                {salvandoStatus ? 'Salvando...' : 'Confirmar'}
+              </button>
             </div>
           </div>
         </div>
