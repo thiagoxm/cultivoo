@@ -172,7 +172,7 @@ function GraficoCotacao({ historico, cor = '#16a34a' }) {
 
   const W = 600, H = 150
   const padLeft = 52
-  const padRight = 8
+  const padRight = 28
   const padTop = 10
   const padBottom = 28
   const chartW = W - padLeft - padRight
