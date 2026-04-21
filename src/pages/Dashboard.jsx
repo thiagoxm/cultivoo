@@ -158,8 +158,8 @@ const CULTURA_KEY_MAP = {
 }
 
 function GraficoCotacao({ historico, cor = '#16a34a' }) {
-  const containerRef = useRef(null)
-  const [tooltip, setTooltip] = useState(null)
+  const svgRef = useRef(null)
+  const [tooltip, setTooltip] = useState(null) // { svgX, svgY, ponto }
 
   if (!historico || historico.length < 2) return (
     <div className="flex items-center justify-center h-28 text-xs text-gray-400">Sem dados para o período</div>
@@ -170,13 +170,11 @@ function GraficoCotacao({ historico, cor = '#16a34a' }) {
   const maxV = Math.max(...valores)
   const amp = maxV - minV || 1
 
-  // Área do gráfico com espaço para rótulos
   const W = 600, H = 150
-  const padLeft = 52  // espaço para eixo Y
+  const padLeft = 52
   const padRight = 8
   const padTop = 10
-  const padBottom = 28 // espaço para eixo X
-
+  const padBottom = 28
   const chartW = W - padLeft - padRight
   const chartH = H - padTop - padBottom
 
@@ -190,131 +188,122 @@ function GraficoCotacao({ historico, cor = '#16a34a' }) {
     pontos.map(p => `L ${p.x},${p.y}`).join(' ') +
     ` L ${pontos[pontos.length - 1].x},${padTop + chartH} Z`
 
-  // Rótulos do eixo Y (4 níveis)
   const niveisY = 4
-  const labelsY = Array.from({ length: niveisY + 1 }, (_, i) => {
-    const v = minV + (amp * i) / niveisY
-    const y = toY(v)
-    return { v, y }
-  })
+  const labelsY = Array.from({ length: niveisY + 1 }, (_, i) => ({
+    v: minV + (amp * i) / niveisY,
+    y: toY(minV + (amp * i) / niveisY),
+  }))
 
-  // Rótulos do eixo X — distribuição uniforme de até 6 labels
   const maxLabelsX = Math.min(6, historico.length)
-  const stepX = Math.floor((historico.length - 1) / (maxLabelsX - 1)) || 1
+  const stepX = Math.max(1, Math.floor((historico.length - 1) / (maxLabelsX - 1)))
   const labelsX = []
-  for (let i = 0; i < historico.length; i += stepX) {
-    labelsX.push({ i, x: toX(i), label: historico[i].label })
-  }
-  // Garantir que o último ponto também tenha rótulo
+  for (let i = 0; i < historico.length; i += stepX) labelsX.push({ i, x: toX(i), label: historico[i].label })
   const last = historico.length - 1
-  if (labelsX[labelsX.length - 1]?.i !== last) {
-    labelsX.push({ i: last, x: toX(last), label: historico[last].label })
-  }
+  if (labelsX[labelsX.length - 1]?.i !== last) labelsX.push({ i: last, x: toX(last), label: historico[last].label })
 
   function handleMouseMove(e) {
-    const container = containerRef.current
-    if (!container) return
-    const rect = container.getBoundingClientRect()
-    // Posição do mouse em pixels dentro do container
-    const mouseXpx = e.clientX - rect.left
-    // Converter para coordenadas do viewBox SVG
-    const scaleX = W / rect.width
-    const mouseXsvg = mouseXpx * scaleX
-    // Só ativar dentro da área do gráfico
+    const svg = svgRef.current
+    if (!svg) return
+    // Usar getScreenCTM para converter coordenadas de tela para SVG com precisão
+    const pt = svg.createSVGPoint()
+    pt.x = e.clientX
+    pt.y = e.clientY
+    const svgP = pt.matrixTransform(svg.getScreenCTM().inverse())
+    const mouseXsvg = svgP.x
     if (mouseXsvg < padLeft || mouseXsvg > W - padRight) { setTooltip(null); return }
     let closest = pontos[0], minDist = Infinity
     pontos.forEach(p => {
       const dist = Math.abs(p.x - mouseXsvg)
       if (dist < minDist) { minDist = dist; closest = p }
     })
-    // Posição em pixels reais no container (para o tooltip HTML)
-    const tooltipXpx = closest.x / scaleX
-    setTooltip({ svgX: closest.x, svgY: closest.y, ponto: closest, tooltipXpx, containerW: rect.width })
+    setTooltip({ svgX: closest.x, svgY: closest.y, ponto: closest })
   }
 
+  // Box do tooltip: renderizado dentro do próprio SVG com <foreignObject>
+  const TOOLTIP_W = 110
+  const tooltipX = tooltip
+    ? (tooltip.svgX + TOOLTIP_W > W - padRight ? tooltip.svgX - TOOLTIP_W - 6 : tooltip.svgX + 6)
+    : 0
+  const tooltipY = padTop + 2
+
   return (
-    <div
-      ref={containerRef}
-      className="relative w-full select-none"
-      onMouseMove={handleMouseMove}
-      onMouseLeave={() => setTooltip(null)}
-    >
+    <div className="w-full">
       <svg
+        ref={svgRef}
         viewBox={`0 0 ${W} ${H}`}
-        className="w-full"
-        style={{ height: 150, display: 'block' }}
+        className="w-full block"
+        style={{ height: 150 }}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={() => setTooltip(null)}
       >
         <defs>
           <linearGradient id="grad-cot" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={cor} stopOpacity="0.18" />
             <stop offset="100%" stopColor={cor} stopOpacity="0" />
           </linearGradient>
-          {/* Clip para não vazar fora da área do gráfico */}
           <clipPath id="clip-chart">
             <rect x={padLeft} y={padTop} width={chartW} height={chartH} />
           </clipPath>
         </defs>
 
-        {/* Linhas de grade horizontais */}
-        {labelsY.map(({ v, y }, i) => (
-          <line key={i} x1={padLeft} y1={y} x2={W - padRight} y2={y}
-            stroke="#f3f4f6" strokeWidth="1" />
+        {/* Grade horizontal */}
+        {labelsY.map(({ y }, i) => (
+          <line key={i} x1={padLeft} y1={y} x2={W - padRight} y2={y} stroke="#f3f4f6" strokeWidth="1" />
         ))}
 
-        {/* Área + linha (dentro do clip) */}
+        {/* Área + linha */}
         <g clipPath="url(#clip-chart)">
           <path d={areaPath} fill="url(#grad-cot)" />
-          <polyline points={polyline} fill="none" stroke={cor} strokeWidth="1.8"
-            strokeLinejoin="round" strokeLinecap="round" />
+          <polyline points={polyline} fill="none" stroke={cor} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
         </g>
 
-        {/* Eixo Y — rótulos de preço */}
+        {/* Rótulos eixo Y */}
         {labelsY.map(({ v, y }, i) => (
-          <text key={i} x={padLeft - 5} y={y + 3.5}
-            textAnchor="end" fontSize="9" fill="#9ca3af" fontFamily="sans-serif">
+          <text key={i} x={padLeft - 5} y={y + 3.5} textAnchor="end" fontSize="9" fill="#9ca3af" fontFamily="sans-serif">
             {v.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
           </text>
         ))}
 
-        {/* Eixo X — rótulos de data/hora */}
+        {/* Rótulos eixo X */}
         {labelsX.map(({ x, label, i: idx }) => (
-          <text key={idx} x={x} y={H - 6}
-            textAnchor="middle" fontSize="9" fill="#9ca3af" fontFamily="sans-serif">
+          <text key={idx} x={x} y={H - 6} textAnchor="middle" fontSize="9" fill="#9ca3af" fontFamily="sans-serif">
             {label}
           </text>
         ))}
 
-        {/* Linha vertical do tooltip */}
+        {/* Linha vertical + ponto */}
         {tooltip && (
-          <line x1={tooltip.svgX} y1={padTop} x2={tooltip.svgX} y2={padTop + chartH}
-            stroke="#d1d5db" strokeWidth="1" strokeDasharray="3,3" />
+          <>
+            <line x1={tooltip.svgX} y1={padTop} x2={tooltip.svgX} y2={padTop + chartH}
+              stroke="#d1d5db" strokeWidth="1" strokeDasharray="3,3" />
+            <circle cx={tooltip.svgX} cy={tooltip.svgY} r="4" fill={cor} stroke="white" strokeWidth="2" />
+          </>
         )}
 
-        {/* Ponto do tooltip */}
+        {/* Tooltip dentro do SVG via foreignObject */}
         {tooltip && (
-          <circle cx={tooltip.svgX} cy={tooltip.svgY} r="4"
-            fill={cor} stroke="white" strokeWidth="2" />
+          <foreignObject x={tooltipX} y={tooltipY} width={TOOLTIP_W} height={44}>
+            <div
+              xmlns="http://www.w3.org/1999/xhtml"
+              style={{
+                background: '#1f2937',
+                color: 'white',
+                borderRadius: 8,
+                padding: '4px 8px',
+                fontSize: 11,
+                lineHeight: '1.4',
+                whiteSpace: 'nowrap',
+                pointerEvents: 'none',
+              }}
+            >
+              <div style={{ fontWeight: 600 }}>
+                R$ {Number(tooltip.ponto.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+              <div style={{ color: '#9ca3af', fontSize: 10 }}>{tooltip.ponto.label}</div>
+            </div>
+          </foreignObject>
         )}
       </svg>
-
-      {/* Tooltip flutuante — posicionado em pixels reais do container */}
-      {tooltip && (() => {
-        const isRight = tooltip.tooltipXpx > tooltip.containerW * 0.72
-        return (
-          <div
-            className="absolute pointer-events-none bg-gray-800 text-white text-xs rounded-lg px-2.5 py-1.5 shadow-lg z-10"
-            style={{
-              left: tooltip.tooltipXpx,
-              top: 6,
-              transform: isRight ? 'translateX(-108%)' : 'translateX(6%)',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            <div className="font-semibold">R$ {Number(tooltip.ponto.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-            <div className="text-gray-400">{tooltip.ponto.label}</div>
-          </div>
-        )
-      })()}
     </div>
   )
 }
