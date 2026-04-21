@@ -250,12 +250,12 @@ function GraficoCotacao({ historico, cor = '#16a34a' }) {
   const tooltipY = padTop + 2
 
   return (
-    <div className="w-full">
+    <div className="w-full h-full">
       <svg
         ref={svgRef}
         viewBox={`0 0 ${W} ${H}`}
         className="w-full block"
-        style={{ height: 150, touchAction: 'none' }}
+        style={{ height: '100%', minHeight: 150, touchAction: 'none' }}
         onMouseMove={handleMouseMove}
         onMouseLeave={() => setTooltip(null)}
         onTouchMove={handleTouchMove}
@@ -385,7 +385,7 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
       {/* Layout web: 2 colunas — info à esquerda, gráfico à direita */}
-      <div className="flex flex-col md:flex-row">
+      <div className="flex flex-col md:flex-row md:h-64">
 
         {/* Coluna esquerda: preço + estatísticas + seletor cultura */}
         <div className="md:w-44 md:flex-shrink-0 px-4 pt-3 pb-3 md:border-r border-gray-100 flex flex-col gap-3">
@@ -434,12 +434,6 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
               <p className="text-[10px] text-gray-400">Mín. {periodo}</p>
               <p className="text-xs font-semibold text-red-600">{minPeriodo != null ? `R$ ${Number(minPeriodo).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</p>
             </div>
-            <div>
-              <p className="text-[10px] text-gray-400">Var. {periodo}</p>
-              <p className={`text-xs font-semibold ${variacaoPeriodo == null ? 'text-gray-400' : variacaoPeriodo >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                {variacaoPeriodo != null ? `${variacaoPeriodo >= 0 ? '+' : ''}${variacaoPeriodo.toFixed(2)}%` : '—'}
-              </p>
-            </div>
           </div>
 
           {/* Seletor cultura (se houver mais de uma) */}
@@ -458,9 +452,9 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
         </div>
 
         {/* Coluna direita: gráfico + seletor período */}
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 flex flex-col min-w-0 min-h-[200px]">
           {/* Gráfico */}
-          <div className="relative flex-1">
+          <div className="relative flex-1 overflow-hidden">
             {carregandoGrafico && (
               <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10">
                 <span className="text-xs text-gray-400">Carregando...</span>
