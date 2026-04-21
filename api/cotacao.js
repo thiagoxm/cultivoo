@@ -1,21 +1,13 @@
 // api/cotacao.js — Vercel Edge Function
 // Cotações de commodities via Yahoo Finance → converte para R$/unidade BR
 //
+// Suporta parâmetros opcionais:
+//   ?cultura=soja         → retorna histórico só desta cultura (mais rápido)
+//   ?periodo=1M           → range do histórico: 1D, 5D, 1M, 6M, YTD, 1Y, 5Y, All
+//
 // FÓRMULA CORRETA (verificada e corrigida em 04/04/2026):
 // US¢/bushel → R$/saca (60kg):
 //   R$/sc = (centavos ÷ 100) × (60 ÷ kg_por_bushel) × câmbio_BRL
-//
-// Exemplos:
-//   Milho CBOT = 450 US¢/bu → US$ 4,50/bu
-//   US$/saca = 4,50 × (60 ÷ 25,401) = 4,50 × 2,362 = 10,63 US$/sc
-//   R$/saca (cambio 5,80) = 10,63 × 5,80 = 61,65 R$/sc
-//
-//   Soja CBOT = 1174 US¢/bu → US$ 11,74/bu
-//   R$/saca = 11,74 × (60 ÷ 27,216) × 5,80 = 150,11 R$/sc
-//
-// ERROS ANTERIORES (para referência):
-//   Soja, milho e trigo tinham o fator INVERTIDO: (kg/60) ao invés de (60/kg)
-//   Café, algodão e boi estavam corretos.
 
 export const config = { runtime: 'edge' }
 
@@ -25,7 +17,6 @@ const CULTURAS = {
     bolsa: 'CBOT Chicago',
     unidBR: 'R$/sc',
     orig: 'US¢/bu',
-    // 1 bushel soja = 27,216 kg → sacas/bu = 60/27,216 = 2,205
     conv: (p, fx) => (p / 100) * (60 / 27.216) * fx,
     fmt: p => `${p.toFixed(2)} US¢/bu`,
   },
@@ -34,7 +25,6 @@ const CULTURAS = {
     bolsa: 'CBOT Chicago',
     unidBR: 'R$/sc',
     orig: 'US¢/bu',
-    // 1 bushel milho = 25,401 kg → sacas/bu = 60/25,401 = 2,362
     conv: (p, fx) => (p / 100) * (60 / 25.401) * fx,
     fmt: p => `${p.toFixed(2)} US¢/bu`,
   },
@@ -43,7 +33,6 @@ const CULTURAS = {
     bolsa: 'ICE Nova York',
     unidBR: 'R$/sc',
     orig: 'US¢/lb',
-    // 1 libra = 0,453592 kg → 1 saca 60kg = 60/0,453592 = 132,277 libras
     conv: (p, fx) => (p / 100) * (60 / 0.453592) * fx,
     fmt: p => `${p.toFixed(2)} US¢/lb`,
   },
@@ -68,7 +57,6 @@ const CULTURAS = {
     bolsa: 'CBOT Chicago',
     unidBR: 'R$/sc',
     orig: 'US¢/bu',
-    // 1 bushel trigo = 27,216 kg (mesmo que soja)
     conv: (p, fx) => (p / 100) * (60 / 27.216) * fx,
     fmt: p => `${p.toFixed(2)} US¢/bu`,
   },
@@ -77,7 +65,6 @@ const CULTURAS = {
     bolsa: 'ICE',
     unidBR: 'R$/@',
     orig: 'US¢/lb',
-    // 1 arroba = 15 kg = 15/0,453592 = 33,069 libras
     conv: (p, fx) => (p / 100) * (15 / 0.453592) * fx,
     fmt: p => `${p.toFixed(2)} US¢/lb`,
   },
@@ -86,21 +73,31 @@ const CULTURAS = {
     bolsa: 'CME',
     unidBR: 'R$/@',
     orig: 'US$/cwt',
-    // Boi cotado em US$/cwt (100 libras = 45,359 kg); 1 arroba = 15 kg
-    // ATENÇÃO: LE=F retorna em dólares (não centavos), sem dividir por 100
     conv: (p, fx) => p * (45.359 / 15) * fx,
     fmt: p => `${p.toFixed(2)} US$/cwt`,
   },
 }
 
+// Mapeamento de período → { range, interval } do Yahoo Finance
+const PERIODO_CONFIG = {
+  '1D':  { range: '1d',  interval: '5m'  },
+  '5D':  { range: '5d',  interval: '30m' },
+  '1M':  { range: '1mo', interval: '1d'  },
+  '6M':  { range: '6mo', interval: '1wk' },
+  'YTD': { range: 'ytd', interval: '1d'  },
+  '1Y':  { range: '1y',  interval: '1wk' },
+  '5Y':  { range: '5y',  interval: '1mo' },
+  'All': { range: 'max', interval: '3mo' },
+}
+
+const HEADERS_YAHOO = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+  Accept: 'application/json',
+}
+
 async function fetchPreco(ticker) {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=1d&interval=1d&includePrePost=false`
-  const res = await fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      Accept: 'application/json',
-    },
-  })
+  const res = await fetch(url, { headers: HEADERS_YAHOO })
   if (!res.ok) throw new Error(`HTTP ${res.status} para ${ticker}`)
   const data = await res.json()
   const preco = data?.chart?.result?.[0]?.meta?.regularMarketPrice
@@ -108,30 +105,37 @@ async function fetchPreco(ticker) {
   return preco
 }
 
-async function fetchHistorico7d(ticker) {
-  // Busca fechamentos dos últimos 7 dias úteis
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=10d&interval=1d&includePrePost=false`
+async function fetchHistorico(ticker, periodo = '1M') {
+  const cfg = PERIODO_CONFIG[periodo] || PERIODO_CONFIG['1M']
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=${cfg.range}&interval=${cfg.interval}&includePrePost=false`
   try {
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        Accept: 'application/json',
-      },
-    })
+    const res = await fetch(url, { headers: HEADERS_YAHOO })
     if (!res.ok) return []
     const data = await res.json()
     const result = data?.chart?.result?.[0]
     if (!result) return []
+
     const timestamps = result.timestamp || []
     const closes = result.indicators?.quote?.[0]?.close || []
+    const opens = result.indicators?.quote?.[0]?.open || []
+    const highs = result.indicators?.quote?.[0]?.high || []
+    const lows = result.indicators?.quote?.[0]?.low || []
+
+    // Para 1D, formatar como hora; para os demais, como data
+    const ehIntraday = cfg.interval === '5m' || cfg.interval === '30m'
+
     return timestamps
       .map((ts, i) => ({
-        data: new Date(ts * 1000).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
         ts,
-        valor: closes[i],
+        label: ehIntraday
+          ? new Date(ts * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+          : new Date(ts * 1000).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: periodo === '5Y' || periodo === 'All' ? '2-digit' : undefined }),
+        close: closes[i],
+        open: opens[i],
+        high: highs[i],
+        low: lows[i],
       }))
-      .filter(h => h.valor != null)
-      .slice(-7)
+      .filter(h => h.close != null)
   } catch {
     return []
   }
@@ -140,46 +144,65 @@ async function fetchHistorico7d(ticker) {
 export default async function handler(req) {
   const headers = {
     'Content-Type': 'application/json',
-    'Cache-Control': 'public, s-maxage=900, stale-while-revalidate=1800',
+    'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
     'Access-Control-Allow-Origin': '*',
   }
 
   try {
+    const { searchParams } = new URL(req.url)
+    const culturaFiltro = searchParams.get('cultura') // ex: 'soja'
+    const periodo = searchParams.get('periodo') || '1M'
+
     // Câmbio USD/BRL
     const cambio = await fetchPreco('USDBRL=X')
 
-    // Buscar tickers únicos (café usa o mesmo para 3 culturas)
-    const tickersUnicos = [...new Set(Object.values(CULTURAS).map(c => c.ticker))]
-    const precosPorTicker = {}
-    await Promise.allSettled(
-      tickersUnicos.map(async ticker => {
-        try { precosPorTicker[ticker] = await fetchPreco(ticker) }
-        catch { precosPorTicker[ticker] = null }
-      })
-    )
+    // Filtrar culturas se solicitado
+    const culturasFiltradas = culturaFiltro
+      ? Object.fromEntries(Object.entries(CULTURAS).filter(([k]) => k === culturaFiltro))
+      : CULTURAS
 
-    // Buscar histórico 7d para tickers únicos
-    const historicoPorTicker = {}
-    await Promise.allSettled(
-      tickersUnicos.map(async ticker => {
-        historicoPorTicker[ticker] = await fetchHistorico7d(ticker)
-      })
-    )
+    // Tickers únicos das culturas filtradas
+    const tickersUnicos = [...new Set(Object.values(culturasFiltradas).map(c => c.ticker))]
+
+    // Buscar preços atuais e histórico em paralelo
+    const [precosPorTicker, historicoPorTicker] = await Promise.all([
+      Promise.allSettled(
+        tickersUnicos.map(async ticker => {
+          try { return [ticker, await fetchPreco(ticker)] }
+          catch { return [ticker, null] }
+        })
+      ).then(results => Object.fromEntries(results.map(r => r.value || []))),
+
+      Promise.allSettled(
+        tickersUnicos.map(async ticker => {
+          const hist = await fetchHistorico(ticker, periodo)
+          return [ticker, hist]
+        })
+      ).then(results => Object.fromEntries(results.map(r => r.value || []))),
+    ])
 
     const resultados = {}
-    for (const [key, cfg] of Object.entries(CULTURAS)) {
+    for (const [key, cfg] of Object.entries(culturasFiltradas)) {
       const preco = precosPorTicker[cfg.ticker]
       if (preco == null) {
         resultados[key] = { ok: false, erro: `Preço indisponível para ${cfg.ticker}` }
         continue
       }
+
       const valorBR = cfg.conv(preco, cambio)
-      // Converter histórico para R$/unidade BR
       const historicoRaw = historicoPorTicker[cfg.ticker] || []
+
+      // Converter histórico inteiro para R$/unidade BR
       const historico = historicoRaw.map(h => ({
-        data: h.data,
-        valor: Math.round(cfg.conv(h.valor, cambio) * 100) / 100,
+        ts: h.ts,
+        label: h.label,
+        valor: Math.round(cfg.conv(h.close, cambio) * 100) / 100,
+        // open/high/low também convertidos (úteis para futuras velas)
+        valorOpen: h.open != null ? Math.round(cfg.conv(h.open, cambio) * 100) / 100 : null,
+        valorHigh: h.high != null ? Math.round(cfg.conv(h.high, cambio) * 100) / 100 : null,
+        valorLow: h.low != null ? Math.round(cfg.conv(h.low, cambio) * 100) / 100 : null,
       }))
+
       resultados[key] = {
         ok: true,
         ticker: cfg.ticker,
@@ -191,12 +214,13 @@ export default async function handler(req) {
         unidadeBR: cfg.unidBR,
         cambio: Math.round(cambio * 100) / 100,
         timestamp: new Date().toISOString(),
+        periodo,
         historico,
       }
     }
 
     return new Response(
-      JSON.stringify({ ok: true, cambio: Math.round(cambio * 100) / 100, culturas: resultados }),
+      JSON.stringify({ ok: true, cambio: Math.round(cambio * 100) / 100, periodo, culturas: resultados }),
       { headers }
     )
   } catch (err) {

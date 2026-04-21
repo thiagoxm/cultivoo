@@ -149,36 +149,99 @@ function Tooltip({ texto, children }) {
   )
 }
 
-// ── Mini gráfico SVG de cotação ────────────────────────────────────────────
-function MiniGraficoCotacao({ historico }) {
-  if (!historico || historico.length < 2) return null
+// ── Gráfico de cotação interativo ──────────────────────────────────────────
+const PERIODOS = ['1D', '5D', '1M', '6M', 'YTD', '1Y', '5Y', 'All']
+const CULTURA_KEY_MAP = {
+  'Soja': 'soja', 'Milho': 'milho', 'Café': 'cafe',
+  'Café Arábica': 'cafe_arabica', 'Café Conilon': 'cafe_conilon',
+  'Trigo': 'trigo', 'Algodão': 'algodao', 'Boi Gordo': 'boi_gordo',
+}
+
+function GraficoCotacao({ historico, cor = '#16a34a' }) {
+  const svgRef = useRef(null)
+  const [tooltip, setTooltip] = useState(null)
+
+  if (!historico || historico.length < 2) return (
+    <div className="flex items-center justify-center h-28 text-xs text-gray-400">Sem dados para o período</div>
+  )
+
   const valores = historico.map(h => h.valor)
-  const min = Math.min(...valores)
-  const max = Math.max(...valores)
-  const amplitude = max - min || 1
-  const W = 120, H = 32, pad = 2
-  const pts = valores.map((v, i) => {
-    const x = pad + (i / (valores.length - 1)) * (W - pad * 2)
-    const y = H - pad - ((v - min) / amplitude) * (H - pad * 2)
-    return `${x},${y}`
-  }).join(' ')
-  const ultimo = historico[historico.length - 1]?.valor
-  const penultimo = historico[historico.length - 2]?.valor
-  const subiu = ultimo >= penultimo
-  const cor = subiu ? '#16a34a' : '#dc2626'
+  const minV = Math.min(...valores)
+  const maxV = Math.max(...valores)
+  const amp = maxV - minV || 1
+  const W = 600, H = 110, padX = 4, padY = 10
+
+  const toX = i => padX + (i / (historico.length - 1)) * (W - padX * 2)
+  const toY = v => H - padY - ((v - minV) / amp) * (H - padY * 2)
+
+  const pontos = historico.map((h, i) => ({ x: toX(i), y: toY(h.valor), ...h }))
+  const polyline = pontos.map(p => `${p.x},${p.y}`).join(' ')
+  const areaPath = `M ${pontos[0].x},${H} ` +
+    pontos.map(p => `L ${p.x},${p.y}`).join(' ') +
+    ` L ${pontos[pontos.length - 1].x},${H} Z`
+
+  function handleMouseMove(e) {
+    const svg = svgRef.current
+    if (!svg) return
+    const rect = svg.getBoundingClientRect()
+    const mouseX = ((e.clientX - rect.left) / rect.width) * W
+    let closest = pontos[0], minDist = Infinity
+    pontos.forEach(p => {
+      const dist = Math.abs(p.x - mouseX)
+      if (dist < minDist) { minDist = dist; closest = p }
+    })
+    setTooltip({ svgX: closest.x, svgY: closest.y, ponto: closest, pctX: (closest.x / W) * 100 })
+  }
+
   return (
-    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="opacity-80">
-      <polyline points={pts} fill="none" stroke={cor} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
-      <circle cx={pts.split(' ').pop().split(',')[0]} cy={pts.split(' ').pop().split(',')[1]} r="2" fill={cor} />
-    </svg>
+    <div className="relative w-full select-none">
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full"
+        style={{ height: 110 }}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={() => setTooltip(null)}
+      >
+        <defs>
+          <linearGradient id="grad-cot" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={cor} stopOpacity="0.20" />
+            <stop offset="100%" stopColor={cor} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={areaPath} fill="url(#grad-cot)" />
+        <polyline points={polyline} fill="none" stroke={cor} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
+        {tooltip && (
+          <>
+            <line x1={tooltip.svgX} y1={padY} x2={tooltip.svgX} y2={H} stroke="#9ca3af" strokeWidth="1" strokeDasharray="3,3" />
+            <circle cx={tooltip.svgX} cy={tooltip.svgY} r="4" fill={cor} stroke="white" strokeWidth="2" />
+          </>
+        )}
+      </svg>
+      {tooltip && (
+        <div
+          className="absolute pointer-events-none bg-gray-800 text-white text-xs rounded-lg px-2.5 py-1.5 shadow-lg z-10"
+          style={{
+            left: `${tooltip.pctX}%`,
+            top: 4,
+            transform: tooltip.pctX > 72 ? 'translateX(-108%)' : 'translateX(6%)',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <div className="font-semibold">R$ {Number(tooltip.ponto.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+          <div className="text-gray-400">{tooltip.ponto.label}</div>
+        </div>
+      )}
+    </div>
   )
 }
 
 // ── Card cotação ───────────────────────────────────────────────────────────
-function CardCotacao({ safrasAtivas, cotacoes }) {
+function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
   const [culturaSel, setCulturaSel] = useState('')
+  const [periodo, setPeriodo] = useState('1M')
+  const [carregandoGrafico, setCarregandoGrafico] = useState(false)
 
-  // Culturas das safras ativas que têm cotação disponível
   const culturasDisp = useMemo(() => {
     const culturas = [...new Set(safrasAtivas.map(s => s.cultura).filter(Boolean))]
     return culturas.filter(c => cotacoes[c])
@@ -187,35 +250,52 @@ function CardCotacao({ safrasAtivas, cotacoes }) {
   const culturaEfetiva = culturaSel && cotacoes[culturaSel] ? culturaSel : culturasDisp[0] || ''
   const cot = cotacoes[culturaEfetiva]
 
+  useEffect(() => {
+    if (!culturaEfetiva) return
+    const chaveAPI = CULTURA_KEY_MAP[culturaEfetiva]
+    if (!chaveAPI) return
+    setCarregandoGrafico(true)
+    fetch(`/api/cotacao?cultura=${chaveAPI}&periodo=${periodo}`)
+      .then(r => r.json())
+      .then(data => {
+        if (!data.ok) return
+        const novoCot = data.culturas?.[chaveAPI]
+        if (novoCot?.ok) {
+          setCotacoes(prev => ({
+            ...prev,
+            [culturaEfetiva]: { ...prev[culturaEfetiva], historico: novoCot.historico, periodo },
+          }))
+        }
+      })
+      .catch(() => {})
+      .finally(() => setCarregandoGrafico(false))
+  }, [culturaEfetiva, periodo])
+
   if (!cot && culturasDisp.length === 0) return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3 text-xs text-gray-400">
-      Cotação indisponível
-    </div>
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3 text-xs text-gray-400">Cotação indisponível</div>
   )
   if (!cot) return null
 
-  const variacao = cot.historico?.length >= 2
-    ? ((cot.historico[cot.historico.length - 1].valor - cot.historico[cot.historico.length - 2].valor) / cot.historico[cot.historico.length - 2].valor * 100)
-    : null
-  const var7d = cot.historico?.length >= 2
-    ? ((cot.historico[cot.historico.length - 1].valor - cot.historico[0].valor) / cot.historico[0].valor * 100)
-    : null
-  const subiu = variacao !== null && variacao >= 0
+  const historico = cot.historico || []
+  const valores = historico.map(h => h.valor).filter(Boolean)
+  const subiu = valores.length >= 2 ? valores[valores.length - 1] >= valores[0] : true
+  const cor = subiu ? '#16a34a' : '#dc2626'
+  const variacaoPeriodo = valores.length >= 2 ? ((valores[valores.length - 1] - valores[0]) / valores[0]) * 100 : null
+  const maxPeriodo = valores.length ? Math.max(...valores) : null
+  const minPeriodo = valores.length ? Math.min(...valores) : null
+  const abertura = valores.length ? valores[0] : null
 
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
       {/* Cabeçalho */}
-      <div className="flex items-center justify-between px-4 pt-3 pb-2">
+      <div className="flex items-center justify-between px-4 pt-3 pb-2 flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <BarChart2 size={14} className="text-gray-400" />
           <span className="text-sm font-semibold text-gray-800">Cotação</span>
           {cot.timestamp && (
-            <span className="text-[10px] text-gray-400">
-              · {new Date(cot.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-            </span>
+            <span className="text-[10px] text-gray-400">· {new Date(cot.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
           )}
         </div>
-        {/* Seletor de cultura */}
         {culturasDisp.length > 1 && (
           <div className="flex gap-1">
             {culturasDisp.map(c => (
@@ -228,75 +308,63 @@ function CardCotacao({ safrasAtivas, cotacoes }) {
         )}
       </div>
 
-      {/* Corpo */}
-      <div className="grid grid-cols-2 gap-px bg-gray-100 border-t border-gray-100">
-        {/* Preço atual + gráfico */}
-        <div className="bg-white px-4 py-3">
-          <p className="text-[10px] text-gray-400 mb-0.5">{culturaEfetiva} · {cot.bolsa} · {cot.originalFormatado}</p>
-          <p className="text-2xl font-bold text-gray-800">R$ {formatarValor(cot.valorBR, 2)}</p>
-          <div className="flex items-center gap-2 mt-1">
-            {variacao !== null && (
-              <span className={`flex items-center gap-0.5 text-xs font-medium ${subiu ? 'text-green-600' : 'text-red-600'}`}>
-                {subiu ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
-                {subiu ? '+' : ''}{variacao.toFixed(2)}% hoje
-              </span>
-            )}
-          </div>
-          {cot.historico && <MiniGraficoCotacao historico={cot.historico} />}
+      {/* Preço + variação */}
+      <div className="px-4 pb-2 flex items-end gap-3">
+        <div>
+          <p className="text-[10px] text-gray-400">{culturaEfetiva} · {cot.bolsa} · {cot.originalFormatado}</p>
+          <p className="text-3xl font-bold text-gray-800 leading-tight">R$ {Number(cot.valorBR || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+          <p className="text-[10px] text-gray-400">{cot.unidBR || 'R$/sc'}</p>
         </div>
-
-        {/* Variações */}
-        <div className="bg-white px-4 py-3 flex flex-col justify-center gap-2">
-          {var7d !== null && (
-            <div>
-              <p className="text-[10px] text-gray-400">Últimos 7 dias</p>
-              <p className={`text-sm font-semibold ${var7d >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {var7d >= 0 ? '+' : ''}{var7d.toFixed(2)}%
-              </p>
-            </div>
-          )}
-          {cot.historico?.length > 0 && (
-            <div>
-              <p className="text-[10px] text-gray-400">Máx. 7d</p>
-              <p className="text-sm font-medium text-gray-700">
-                R$ {formatarValor(Math.max(...cot.historico.map(h => h.valor)), 2)}
-              </p>
-            </div>
-          )}
-          {cot.historico?.length > 0 && (
-            <div>
-              <p className="text-[10px] text-gray-400">Mín. 7d</p>
-              <p className="text-sm font-medium text-gray-700">
-                R$ {formatarValor(Math.min(...cot.historico.map(h => h.valor)), 2)}
-              </p>
-            </div>
-          )}
-        </div>
+        {variacaoPeriodo !== null && (
+          <span className={`flex items-center gap-0.5 text-sm font-semibold mb-1 ${variacaoPeriodo >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+            {variacaoPeriodo >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+            {variacaoPeriodo >= 0 ? '+' : ''}{variacaoPeriodo.toFixed(2)}%
+            <span className="text-[10px] font-normal text-gray-400 ml-0.5">{periodo}</span>
+          </span>
+        )}
       </div>
 
-      {/* Mini tabela histórico */}
-      {cot.historico?.length > 1 && (
-        <div className="px-4 pt-2 pb-3 border-t border-gray-100">
-          <p className="text-[10px] text-gray-400 mb-1.5">Histórico recente ({cot.bolsa})</p>
-          <div className="flex gap-1 overflow-x-auto">
-            {cot.historico.slice(-7).map((h, i, arr) => {
-              const ant = arr[i - 1]?.valor
-              const var_ = ant ? (h.valor - ant) / ant * 100 : null
-              return (
-                <div key={i} className="flex flex-col items-center flex-1 min-w-[36px]">
-                  <span className="text-[9px] text-gray-400 leading-tight">{h.data}</span>
-                  <span className="text-[10px] font-medium text-gray-700 leading-tight">{formatarValor(h.valor, 2)}</span>
-                  {var_ !== null && (
-                    <span className={`text-[9px] leading-tight ${var_ >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {var_ >= 0 ? '+' : ''}{var_.toFixed(1)}%
-                    </span>
-                  )}
-                </div>
-              )
-            })}
+      {/* Gráfico */}
+      <div className="px-2 pb-0 relative">
+        {carregandoGrafico && (
+          <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10 rounded">
+            <span className="text-xs text-gray-400">Carregando...</span>
           </div>
+        )}
+        <GraficoCotacao historico={historico} cor={cor} />
+      </div>
+
+      {/* Seletor de período */}
+      <div className="flex border-t border-gray-100">
+        {PERIODOS.map(p => (
+          <button key={p} onClick={() => setPeriodo(p)}
+            className={`flex-1 py-2 text-[11px] font-medium transition-colors ${periodo === p ? 'text-green-700 border-t-2 border-green-600 -mt-px bg-green-50' : 'text-gray-400 hover:text-gray-600'}`}>
+            {p}
+          </button>
+        ))}
+      </div>
+
+      {/* Estatísticas do período */}
+      <div className="grid grid-cols-4 gap-px bg-gray-100 border-t border-gray-100">
+        <div className="bg-white px-3 py-2">
+          <p className="text-[10px] text-gray-400">Abertura</p>
+          <p className="text-xs font-semibold text-gray-700">{abertura != null ? `R$ ${Number(abertura).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</p>
         </div>
-      )}
+        <div className="bg-white px-3 py-2">
+          <p className="text-[10px] text-gray-400">Máx. {periodo}</p>
+          <p className="text-xs font-semibold text-green-700">{maxPeriodo != null ? `R$ ${Number(maxPeriodo).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</p>
+        </div>
+        <div className="bg-white px-3 py-2">
+          <p className="text-[10px] text-gray-400">Mín. {periodo}</p>
+          <p className="text-xs font-semibold text-red-600">{minPeriodo != null ? `R$ ${Number(minPeriodo).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</p>
+        </div>
+        <div className="bg-white px-3 py-2">
+          <p className="text-[10px] text-gray-400">Var. {periodo}</p>
+          <p className={`text-xs font-semibold ${variacaoPeriodo == null ? 'text-gray-400' : variacaoPeriodo >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+            {variacaoPeriodo != null ? `${variacaoPeriodo >= 0 ? '+' : ''}${variacaoPeriodo.toFixed(2)}%` : '—'}
+          </p>
+        </div>
+      </div>
     </div>
   )
 }
@@ -372,7 +440,6 @@ function CardSafraColheita({ safra, colheitas, lotesEstoque, climaProp }) {
 
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-      {/* Cabeçalho */}
       <div className="flex items-start justify-between gap-3 px-4 pt-3 pb-2">
         <div className="flex items-start gap-2 min-w-0">
           <div className="w-2 h-2 rounded-full bg-green-600 flex-shrink-0 mt-1.5" />
@@ -384,7 +451,6 @@ function CardSafraColheita({ safra, colheitas, lotesEstoque, climaProp }) {
         <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 flex-shrink-0 whitespace-nowrap font-medium">colheita ativa</span>
       </div>
 
-      {/* Progresso */}
       <div className="px-4 pb-2 space-y-1.5">
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-400 w-28 flex-shrink-0">Lavouras concluídas</span>
@@ -399,7 +465,6 @@ function CardSafraColheita({ safra, colheitas, lotesEstoque, climaProp }) {
         </div>
       </div>
 
-      {/* KPIs — "a estocar" com ícone de alerta inline */}
       <div className="grid grid-cols-3 gap-px bg-gray-100 border-t border-gray-100">
         <div className="bg-white px-3 py-2">
           <p className="text-sm font-semibold text-gray-800">{totalSemana.toLocaleString('pt-BR')} <span className="text-xs font-normal">{unidade}</span></p>
@@ -412,10 +477,7 @@ function CardSafraColheita({ safra, colheitas, lotesEstoque, climaProp }) {
             </p>
             {saldoEstocar > 0 && (
               <Tooltip texto={tooltipEstocar}>
-                <AlertTriangle
-                  size={12}
-                  className={temGargalo ? 'text-red-500 cursor-help' : 'text-amber-500 cursor-help'}
-                />
+                <AlertTriangle size={12} className={temGargalo ? 'text-red-500 cursor-help' : 'text-amber-500 cursor-help'} />
               </Tooltip>
             )}
           </div>
@@ -427,7 +489,6 @@ function CardSafraColheita({ safra, colheitas, lotesEstoque, climaProp }) {
         </div>
       </div>
 
-      {/* Alertas INMET graves */}
       {alertasINMET.length > 0 && (
         <div className="mx-4 my-2 flex items-start gap-2 bg-red-50 rounded-lg px-3 py-2">
           <AlertCircle size={13} className="text-red-600 flex-shrink-0 mt-0.5" />
@@ -452,11 +513,9 @@ export default function Dashboard() {
   const [produtos, setProdutos] = useState([])
   const [movInsumos, setMovInsumos] = useState([])
 
-  const [modalAlerta, setModalAlerta] = useState(null) // alerta com itens p/ popup
+  const [modalAlerta, setModalAlerta] = useState(null)
   const [confirmacaoStatus, setConfirmacaoStatus] = useState(null)
   const [salvandoStatus, setSalvandoStatus] = useState(false)
-
-  // Cotações
   const [cotacoes, setCotacoes] = useState({})
 
   const clima = useClima(
@@ -477,7 +536,6 @@ export default function Dashboard() {
     ])
     const props = propsSnap.docs.map(d => ({ id: d.id, ...d.data() }))
     setPropriedades(props)
-    // Enriquecer safras com cidade/estado da propriedade
     const propMap = Object.fromEntries(props.map(p => [p.id, p]))
     setSafrasAtivas(
       safrasSnap.docs.map(d => {
@@ -496,12 +554,12 @@ export default function Dashboard() {
 
   useEffect(() => { carregar() }, [carregar])
 
-  // Busca cotações (mesma estratégia do EstoqueProducao)
+  // Busca cotações iniciais (preço atual + histórico 1M padrão)
   useEffect(() => {
     const MAP = { soja: 'Soja', milho: 'Milho', cafe: 'Café', cafe_arabica: 'Café Arábica', cafe_conilon: 'Café Conilon', trigo: 'Trigo', algodao: 'Algodão' }
     async function buscar() {
       try {
-        const res = await fetch('/api/cotacao')
+        const res = await fetch('/api/cotacao?periodo=1M')
         if (!res.ok) return
         const data = await res.json()
         if (!data.ok) return
@@ -512,6 +570,7 @@ export default function Dashboard() {
               valorBR: v.valorBR,
               bolsa: v.bolsa,
               originalFormatado: v.precoOriginalFormatado,
+              unidBR: v.unidadeBR,
               timestamp: v.timestamp,
               historico: v.historico || [],
             }
@@ -525,7 +584,6 @@ export default function Dashboard() {
     return () => clearInterval(t)
   }, [])
 
-  // Produtos enriquecidos
   const produtosEnriquecidos = useMemo(() =>
     produtos.map(p => {
       const movs = movInsumos.filter(m => m.produtoId === p.id)
@@ -536,7 +594,6 @@ export default function Dashboard() {
     })
   , [produtos, movInsumos])
 
-  // Alertas críticos
   const alertasCriticos = useMemo(() => {
     const lista = []
     const vencidos = financeiro.filter(f =>
@@ -545,53 +602,28 @@ export default function Dashboard() {
     if (vencidos.length > 0) {
       const total = vencidos.reduce((s, f) => s + (Number(f.valor) || 0), 0)
       lista.push({
-        id: 'pagamentos-vencidos',
-        tipo: 'critico',
+        id: 'pagamentos-vencidos', tipo: 'critico',
         titulo: `${vencidos.length} pagamento${vencidos.length > 1 ? 's' : ''} vencido${vencidos.length > 1 ? 's' : ''}`,
-        subtitulo: `Total: R$ ${formatarValor(total)}`,
-        badge: 'pagar',
+        subtitulo: `Total: R$ ${formatarValor(total)}`, badge: 'pagar',
         itens: vencidos.map(f => ({ id: f.id, descricao: f.descricao || f.categoria || '—', valor: f.valor, vencimento: f.vencimento, tipo: f.tipo })),
       })
     }
-
     produtosEnriquecidos.filter(i => i.abaixoMinimo).forEach(i => {
-      lista.push({
-        id: `min-${i.id}`,
-        tipo: 'atencao',
-        titulo: `${i.produto || i.nome || 'Insumo'} — estoque mínimo`,
-        subtitulo: `Saldo: ${i.saldo.toFixed(1)} ${i.unidade || ''} · Mínimo: ${i.estoqueMinimo}`,
-        badge: 'estoque',
-      })
+      lista.push({ id: `min-${i.id}`, tipo: 'atencao', titulo: `${i.produto || i.nome || 'Insumo'} — estoque mínimo`, subtitulo: `Saldo: ${i.saldo.toFixed(1)} ${i.unidade || ''} · Mínimo: ${i.estoqueMinimo}`, badge: 'estoque' })
     })
-
     const em30DiasStr = new Date(HOJE_DATE.getTime() + 30 * 86400000).toISOString().split('T')[0]
-    produtosEnriquecidos.filter(i => {
-      const v = i.validade
-      return v && (v.tipo === 'vencido' || (v.tipo === 'alerta' && v.dataValidade <= em30DiasStr))
-    }).forEach(i => {
+    produtosEnriquecidos.filter(i => { const v = i.validade; return v && (v.tipo === 'vencido' || (v.tipo === 'alerta' && v.dataValidade <= em30DiasStr)) }).forEach(i => {
       const diff = diffDias(i.validade.dataValidade)
-      lista.push({
-        id: `val-${i.id}`,
-        tipo: i.validade.tipo === 'vencido' ? 'critico' : 'atencao',
-        titulo: i.validade.tipo === 'vencido'
-          ? `${i.produto} — validade vencida`
-          : `${i.produto} — vence em ${diff} dia${diff !== 1 ? 's' : ''}`,
-        subtitulo: `Saldo: ${i.saldo.toFixed(1)} ${i.unidade || ''} · Validade: ${formatarData(i.validade.dataValidade)}`,
-        badge: 'validade',
-      })
+      lista.push({ id: `val-${i.id}`, tipo: i.validade.tipo === 'vencido' ? 'critico' : 'atencao', titulo: i.validade.tipo === 'vencido' ? `${i.produto} — validade vencida` : `${i.produto} — vence em ${diff} dia${diff !== 1 ? 's' : ''}`, subtitulo: `Saldo: ${i.saldo.toFixed(1)} ${i.unidade || ''} · Validade: ${formatarData(i.validade.dataValidade)}`, badge: 'validade' })
     })
     return lista
   }, [financeiro, produtosEnriquecidos])
 
-  // Vencimentos 7 dias
   const vencimentos7Dias = useMemo(() =>
-    financeiro
-      .filter(f => f.status === 'pendente' && f.vencimento && f.vencimento >= HOJE && f.vencimento <= EM7DIAS_STR && !f.cancelado)
-      .sort((a, b) => a.vencimento.localeCompare(b.vencimento))
-      .slice(0, 6)
+    financeiro.filter(f => f.status === 'pendente' && f.vencimento && f.vencimento >= HOJE && f.vencimento <= EM7DIAS_STR && !f.cancelado)
+      .sort((a, b) => a.vencimento.localeCompare(b.vencimento)).slice(0, 6)
   , [financeiro])
 
-  // Resumo financeiro do mês
   const resumoMes = useMemo(() => {
     const anoMes = HOJE.substring(0, 7)
     const doPeriodo = financeiro.filter(f => f.data?.startsWith(anoMes) && !f.cancelado)
@@ -600,18 +632,10 @@ export default function Dashboard() {
     return { receitas, despesas, saldo: receitas - despesas }
   }, [financeiro])
 
-  const safrasComColheita = useMemo(() =>
-    new Set(colheitas.map(c => c.safraId).filter(Boolean))
-  , [colheitas])
+  const safrasComColheita = useMemo(() => new Set(colheitas.map(c => c.safraId).filter(Boolean)), [colheitas])
 
   function solicitarMarcarStatus(item, novoStatus) {
-    setConfirmacaoStatus({
-      id: item.id,
-      novoStatus,
-      descricao: item.descricao || item.categoria || '—',
-      valor: item.valor,
-      dataConfirmacao: HOJE,
-    })
+    setConfirmacaoStatus({ id: item.id, novoStatus, descricao: item.descricao || item.categoria || '—', valor: item.valor, dataConfirmacao: HOJE })
   }
 
   async function confirmarMarcarStatus() {
@@ -620,13 +644,7 @@ export default function Dashboard() {
     try {
       const { id, novoStatus, dataConfirmacao } = confirmacaoStatus
       await updateDoc(doc(db, 'financeiro', id), { status: novoStatus, dataPagamento: dataConfirmacao })
-      // Se havia um modal de alerta aberto, atualizar seus itens
-      if (modalAlerta) {
-        setModalAlerta(prev => prev ? {
-          ...prev,
-          itens: prev.itens?.filter(i => i.id !== id) || []
-        } : null)
-      }
+      if (modalAlerta) setModalAlerta(prev => prev ? { ...prev, itens: prev.itens?.filter(i => i.id !== id) || [] } : null)
       await carregar()
     } finally {
       setSalvandoStatus(false)
@@ -643,10 +661,7 @@ export default function Dashboard() {
     <div className="pb-8">
       <h1 className="text-2xl font-bold text-gray-800 mb-4">Início</h1>
 
-      {/* Grid web 2 colunas: alertas + vencimentos */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-
-        {/* ── ALERTAS ── */}
         {alertasCriticos.length > 0 && (
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100">
@@ -655,7 +670,6 @@ export default function Dashboard() {
               {criticos.length > 0 && <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-50 text-red-700">{criticos.length} urgente{criticos.length > 1 ? 's' : ''}</span>}
               {atencao.length > 0 && <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">{atencao.length} atenção</span>}
             </div>
-
             <div>
               {alertasCriticos.map(a => (
                 <div key={a.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
@@ -667,14 +681,9 @@ export default function Dashboard() {
                     <p className="text-xs text-gray-400 truncate">{a.subtitulo}</p>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${a.tipo === 'critico' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>
-                      {a.badge}
-                    </span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${a.tipo === 'critico' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>{a.badge}</span>
                     {a.itens?.length > 0 && (
-                      <button type="button"
-                        onClick={() => setModalAlerta(a)}
-                        className="text-gray-300 hover:text-blue-500 p-0.5 transition-colors"
-                        title="Ver detalhes">
+                      <button type="button" onClick={() => setModalAlerta(a)} className="text-gray-300 hover:text-blue-500 p-0.5 transition-colors" title="Ver detalhes">
                         <Info size={14} />
                       </button>
                     )}
@@ -685,7 +694,6 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ── VENCIMENTOS 7 DIAS ── */}
         {vencimentos7Dias.length > 0 && (
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100">
@@ -708,11 +716,7 @@ export default function Dashboard() {
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${isReceita ? 'bg-green-50 text-green-700' : diff <= 1 ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>
                       {isReceita ? 'a receber' : diff <= 0 ? 'hoje' : `em ${diff}d`}
                     </span>
-                    <button
-                      onClick={() => solicitarMarcarStatus(f, isReceita ? 'recebido' : 'pago')}
-                      disabled={salvandoStatus}
-                      title={isReceita ? 'Marcar como recebido' : 'Marcar como pago'}
-                      className="text-gray-300 hover:text-green-600 disabled:opacity-40 transition-colors p-0.5">
+                    <button onClick={() => solicitarMarcarStatus(f, isReceita ? 'recebido' : 'pago')} disabled={salvandoStatus} title={isReceita ? 'Marcar como recebido' : 'Marcar como pago'} className="text-gray-300 hover:text-green-600 disabled:opacity-40 transition-colors p-0.5">
                       <CheckCircle size={15} />
                     </button>
                   </div>
@@ -726,7 +730,6 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* ── SAFRAS ── */}
       {safrasAtivas.length > 0 && (
         <div className="space-y-3 mb-4">
           <div className="flex items-center gap-2">
@@ -738,38 +741,28 @@ export default function Dashboard() {
               const colheitasDaSafra = colheitas.filter(c => c.safraId === safra.id)
               const climaProp = clima[safra.propriedadeId] || null
               const temColheita = safrasComColheita.has(safra.id)
-              if (temColheita) {
-                return <CardSafraColheita key={safra.id} safra={safra} colheitas={colheitasDaSafra} lotesEstoque={lotesEstoque} climaProp={climaProp} />
-              }
+              if (temColheita) return <CardSafraColheita key={safra.id} safra={safra} colheitas={colheitasDaSafra} lotesEstoque={lotesEstoque} climaProp={climaProp} />
               return <CardSafraSimples key={safra.id} safra={safra} climaProp={climaProp} />
             })}
           </div>
         </div>
       )}
 
-      {/* ── COTAÇÃO ── */}
       {safrasAtivas.length > 0 && (
         <div className="mb-4">
-          <CardCotacao safrasAtivas={safrasAtivas} cotacoes={cotacoes} />
+          <CardCotacao safrasAtivas={safrasAtivas} cotacoes={cotacoes} setCotacoes={setCotacoes} />
         </div>
       )}
 
-      {/* ── RESUMO FINANCEIRO DO MÊS ── */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="grid grid-cols-3 gap-px bg-gray-100">
           <div className="bg-white px-4 py-3">
-            <div className="flex items-center gap-1.5 mb-1">
-              <TrendingUp size={13} className="text-green-600" />
-              <p className="text-xs text-gray-400">Receitas</p>
-            </div>
+            <div className="flex items-center gap-1.5 mb-1"><TrendingUp size={13} className="text-green-600" /><p className="text-xs text-gray-400">Receitas</p></div>
             <p className="text-base font-bold text-green-700">{formatarMoeda(resumoMes.receitas)}</p>
             <p className="text-[10px] text-gray-400 mt-0.5">este mês</p>
           </div>
           <div className="bg-white px-4 py-3">
-            <div className="flex items-center gap-1.5 mb-1">
-              <TrendingDown size={13} className="text-red-500" />
-              <p className="text-xs text-gray-400">Despesas</p>
-            </div>
+            <div className="flex items-center gap-1.5 mb-1"><TrendingDown size={13} className="text-red-500" /><p className="text-xs text-gray-400">Despesas</p></div>
             <p className="text-base font-bold text-red-600">{formatarMoeda(resumoMes.despesas)}</p>
             <p className="text-[10px] text-gray-400 mt-0.5">este mês</p>
           </div>
@@ -778,14 +771,11 @@ export default function Dashboard() {
             <p className={`text-base font-bold ${resumoMes.saldo >= 0 ? 'text-green-700' : 'text-red-600'}`}>
               {resumoMes.saldo < 0 ? '−' : ''}{formatarMoeda(Math.abs(resumoMes.saldo))}
             </p>
-            <Link to="/indicadores" className="text-[10px] text-gray-400 hover:text-green-700 transition-colors mt-0.5 block">
-              ver Indicadores →
-            </Link>
+            <Link to="/indicadores" className="text-[10px] text-gray-400 hover:text-green-700 transition-colors mt-0.5 block">ver Indicadores →</Link>
           </div>
         </div>
       </div>
 
-      {/* Estado vazio */}
       {alertasCriticos.length === 0 && vencimentos7Dias.length === 0 && safrasAtivas.length === 0 && (
         <div className="bg-white rounded-xl p-10 text-center text-gray-400 shadow-sm border border-gray-100 mt-4">
           <Wheat size={36} className="mx-auto mb-3 opacity-30" />
@@ -793,11 +783,9 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* ── Modal detalhe de alerta (popup) ── */}
       {modalAlerta && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl max-h-[80vh] flex flex-col">
-            {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
               <div className="flex items-center gap-2">
                 <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${modalAlerta.tipo === 'critico' ? 'bg-red-50' : 'bg-amber-50'}`}>
@@ -808,30 +796,18 @@ export default function Dashboard() {
                   <p className="text-xs text-gray-400">{modalAlerta.subtitulo}</p>
                 </div>
               </div>
-              <button onClick={() => setModalAlerta(null)} className="text-gray-400 hover:text-gray-600 p-1">
-                <X size={18} />
-              </button>
+              <button onClick={() => setModalAlerta(null)} className="text-gray-400 hover:text-gray-600 p-1"><X size={18} /></button>
             </div>
-            {/* Lista de itens */}
             <div className="overflow-y-auto flex-1 divide-y divide-gray-50">
-              {modalAlerta.itens?.length === 0 && (
-                <p className="text-sm text-gray-400 text-center py-8">Todos os itens foram resolvidos.</p>
-              )}
+              {modalAlerta.itens?.length === 0 && <p className="text-sm text-gray-400 text-center py-8">Todos os itens foram resolvidos.</p>}
               {modalAlerta.itens?.map(item => (
                 <div key={item.id} className="flex items-center gap-3 px-5 py-3">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-800 truncate">{item.descricao}</p>
-                    <p className="text-xs text-gray-400">
-                      Venc. {formatarData(item.vencimento)} · R$ {formatarValor(item.valor)}
-                    </p>
+                    <p className="text-xs text-gray-400">Venc. {formatarData(item.vencimento)} · R$ {formatarValor(item.valor)}</p>
                   </div>
-                  <button
-                    onClick={() => solicitarMarcarStatus(item, 'pago')}
-                    disabled={salvandoStatus}
-                    className="flex items-center gap-1 text-xs text-white px-3 py-1.5 rounded-lg disabled:opacity-50 flex-shrink-0"
-                    style={{ background: 'var(--brand-gradient)' }}>
-                    <CheckCircle size={11} />
-                    Pago
+                  <button onClick={() => solicitarMarcarStatus(item, 'pago')} disabled={salvandoStatus} className="flex items-center gap-1 text-xs text-white px-3 py-1.5 rounded-lg disabled:opacity-50 flex-shrink-0" style={{ background: 'var(--brand-gradient)' }}>
+                    <CheckCircle size={11} />Pago
                   </button>
                 </div>
               ))}
@@ -840,28 +816,18 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* ── Modal confirmação de pagamento/recebimento ── */}
       {confirmacaoStatus && (
         <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl p-6 space-y-4">
-            <h3 className="font-bold text-gray-800">
-              {confirmacaoStatus.novoStatus === 'recebido' ? 'Confirmar recebimento' : 'Confirmar pagamento'}
-            </h3>
+            <h3 className="font-bold text-gray-800">{confirmacaoStatus.novoStatus === 'recebido' ? 'Confirmar recebimento' : 'Confirmar pagamento'}</h3>
             <p className="text-sm text-gray-600">
               Confirma o {confirmacaoStatus.novoStatus === 'recebido' ? 'recebimento' : 'pagamento'} de{' '}
               <span className="font-semibold">R$ {Number(confirmacaoStatus.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>{' '}
               referente a <span className="font-semibold">{confirmacaoStatus.descricao}</span>?
             </p>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Data do {confirmacaoStatus.novoStatus === 'recebido' ? 'recebimento' : 'pagamento'}
-              </label>
-              <input
-                type="date"
-                value={confirmacaoStatus.dataConfirmacao}
-                onChange={e => setConfirmacaoStatus(c => ({ ...c, dataConfirmacao: e.target.value }))}
-                className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-              />
+              <label className="block text-sm font-medium text-gray-700 mb-1">Data do {confirmacaoStatus.novoStatus === 'recebido' ? 'recebimento' : 'pagamento'}</label>
+              <input type="date" value={confirmacaoStatus.dataConfirmacao} onChange={e => setConfirmacaoStatus(c => ({ ...c, dataConfirmacao: e.target.value }))} className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
               <p className="text-xs text-gray-400 mt-1">A data será registrada no lançamento Financeiro.</p>
             </div>
             <div className="flex gap-3">
