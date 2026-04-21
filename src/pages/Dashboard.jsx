@@ -204,7 +204,6 @@ function GraficoCotacao({ historico, cor = '#16a34a' }) {
   function handleMouseMove(e) {
     const svg = svgRef.current
     if (!svg) return
-    // Usar getScreenCTM para converter coordenadas de tela para SVG com precisão
     const pt = svg.createSVGPoint()
     pt.x = e.clientX
     pt.y = e.clientY
@@ -217,6 +216,30 @@ function GraficoCotacao({ historico, cor = '#16a34a' }) {
       if (dist < minDist) { minDist = dist; closest = p }
     })
     setTooltip({ svgX: closest.x, svgY: closest.y, ponto: closest })
+  }
+
+  function handleTouchMove(e) {
+    e.preventDefault()
+    const touch = e.touches[0]
+    if (!touch) return
+    const svg = svgRef.current
+    if (!svg) return
+    const pt = svg.createSVGPoint()
+    pt.x = touch.clientX
+    pt.y = touch.clientY
+    const svgP = pt.matrixTransform(svg.getScreenCTM().inverse())
+    const touchXsvg = svgP.x
+    if (touchXsvg < padLeft || touchXsvg > W - padRight) return
+    let closest = pontos[0], minDist = Infinity
+    pontos.forEach(p => {
+      const dist = Math.abs(p.x - touchXsvg)
+      if (dist < minDist) { minDist = dist; closest = p }
+    })
+    setTooltip({ svgX: closest.x, svgY: closest.y, ponto: closest })
+  }
+
+  function handleTouchEnd() {
+    setTimeout(() => setTooltip(null), 2000)
   }
 
   // Box do tooltip: renderizado dentro do próprio SVG com <foreignObject>
@@ -232,9 +255,11 @@ function GraficoCotacao({ historico, cor = '#16a34a' }) {
         ref={svgRef}
         viewBox={`0 0 ${W} ${H}`}
         className="w-full block"
-        style={{ height: 150 }}
+        style={{ height: 150, touchAction: 'none' }}
         onMouseMove={handleMouseMove}
         onMouseLeave={() => setTooltip(null)}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
       >
         <defs>
           <linearGradient id="grad-cot" x1="0" y1="0" x2="0" y2="1">
@@ -359,82 +384,104 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
 
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-      {/* Cabeçalho */}
-      <div className="flex items-center justify-between px-4 pt-3 pb-2 flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <BarChart2 size={14} className="text-gray-400" />
-          <span className="text-sm font-semibold text-gray-800">Cotação</span>
-          {cot.timestamp && (
-            <span className="text-[10px] text-gray-400">· {new Date(cot.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+      {/* Layout web: 2 colunas — info à esquerda, gráfico à direita */}
+      <div className="flex flex-col md:flex-row">
+
+        {/* Coluna esquerda: preço + estatísticas + seletor cultura */}
+        <div className="md:w-44 md:flex-shrink-0 px-4 pt-3 pb-3 md:border-r border-gray-100 flex flex-col gap-3">
+          {/* Cabeçalho */}
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5">
+              <BarChart2 size={13} className="text-gray-400" />
+              <span className="text-sm font-semibold text-gray-800">Cotação</span>
+            </div>
+            {cot.timestamp && (
+              <span className="text-[10px] text-gray-400">
+                {new Date(cot.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )}
+          </div>
+
+          {/* Preço atual */}
+          <div>
+            <p className="text-[10px] text-gray-400 leading-tight">{culturaEfetiva} · {cot.bolsa}</p>
+            <p className="text-2xl font-bold text-gray-800 leading-tight">
+              R$ {Number(cot.valorBR || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+            <p className="text-[10px] text-gray-400">{cot.unidBR || 'R$/sc'}</p>
+            {variacaoPeriodo !== null && (
+              <span className={`inline-flex items-center gap-0.5 text-xs font-semibold mt-1 ${
+                variacaoPeriodo >= 0 ? 'text-green-600' : 'text-red-600'
+              }`}>
+                {variacaoPeriodo >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                {variacaoPeriodo >= 0 ? '+' : ''}{variacaoPeriodo.toFixed(2)}%
+                <span className="text-[10px] font-normal text-gray-400 ml-0.5">{periodo}</span>
+              </span>
+            )}
+          </div>
+
+          {/* Estatísticas do período */}
+          <div className="grid grid-cols-2 md:grid-cols-1 gap-1.5">
+            <div>
+              <p className="text-[10px] text-gray-400">Abertura</p>
+              <p className="text-xs font-semibold text-gray-700">{abertura != null ? `R$ ${Number(abertura).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-gray-400">Máx. {periodo}</p>
+              <p className="text-xs font-semibold text-green-700">{maxPeriodo != null ? `R$ ${Number(maxPeriodo).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-gray-400">Mín. {periodo}</p>
+              <p className="text-xs font-semibold text-red-600">{minPeriodo != null ? `R$ ${Number(minPeriodo).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-gray-400">Var. {periodo}</p>
+              <p className={`text-xs font-semibold ${variacaoPeriodo == null ? 'text-gray-400' : variacaoPeriodo >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                {variacaoPeriodo != null ? `${variacaoPeriodo >= 0 ? '+' : ''}${variacaoPeriodo.toFixed(2)}%` : '—'}
+              </p>
+            </div>
+          </div>
+
+          {/* Seletor cultura (se houver mais de uma) */}
+          {culturasDisp.length > 1 && (
+            <div className="flex flex-wrap gap-1">
+              {culturasDisp.map(c => (
+                <button key={c} onClick={() => setCulturaSel(c)}
+                  className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                    culturaEfetiva === c ? 'bg-green-700 text-white border-green-700' : 'border-gray-200 text-gray-500 hover:border-green-400'
+                  }`}>
+                  {c}
+                </button>
+              ))}
+            </div>
           )}
         </div>
-        {culturasDisp.length > 1 && (
-          <div className="flex gap-1">
-            {culturasDisp.map(c => (
-              <button key={c} onClick={() => setCulturaSel(c)}
-                className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${culturaEfetiva === c ? 'bg-green-700 text-white border-green-700' : 'border-gray-200 text-gray-500 hover:border-green-400'}`}>
-                {c}
+
+        {/* Coluna direita: gráfico + seletor período */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Gráfico */}
+          <div className="relative flex-1">
+            {carregandoGrafico && (
+              <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10">
+                <span className="text-xs text-gray-400">Carregando...</span>
+              </div>
+            )}
+            <GraficoCotacao historico={historico} cor={cor} />
+          </div>
+
+          {/* Seletor de período */}
+          <div className="flex border-t border-gray-100">
+            {PERIODOS.map(p => (
+              <button key={p} onClick={() => setPeriodo(p)}
+                className={`flex-1 py-2 text-[11px] font-medium transition-colors ${
+                  periodo === p
+                    ? 'text-green-700 border-t-2 border-green-600 -mt-px bg-green-50'
+                    : 'text-gray-400 hover:text-gray-600'
+                }`}>
+                {p}
               </button>
             ))}
           </div>
-        )}
-      </div>
-
-      {/* Preço + variação */}
-      <div className="px-4 pb-2 flex items-end gap-3">
-        <div>
-          <p className="text-[10px] text-gray-400">{culturaEfetiva} · {cot.bolsa} · {cot.originalFormatado}</p>
-          <p className="text-3xl font-bold text-gray-800 leading-tight">R$ {Number(cot.valorBR || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-          <p className="text-[10px] text-gray-400">{cot.unidBR || 'R$/sc'}</p>
-        </div>
-        {variacaoPeriodo !== null && (
-          <span className={`flex items-center gap-0.5 text-sm font-semibold mb-1 ${variacaoPeriodo >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-            {variacaoPeriodo >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-            {variacaoPeriodo >= 0 ? '+' : ''}{variacaoPeriodo.toFixed(2)}%
-            <span className="text-[10px] font-normal text-gray-400 ml-0.5">{periodo}</span>
-          </span>
-        )}
-      </div>
-
-      {/* Gráfico */}
-      <div className="pb-0 relative">
-        {carregandoGrafico && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10 rounded">
-            <span className="text-xs text-gray-400">Carregando...</span>
-          </div>
-        )}
-        <GraficoCotacao historico={historico} cor={cor} />
-      </div>
-
-      {/* Seletor de período */}
-      <div className="flex border-t border-gray-100">
-        {PERIODOS.map(p => (
-          <button key={p} onClick={() => setPeriodo(p)}
-            className={`flex-1 py-2 text-[11px] font-medium transition-colors ${periodo === p ? 'text-green-700 border-t-2 border-green-600 -mt-px bg-green-50' : 'text-gray-400 hover:text-gray-600'}`}>
-            {p}
-          </button>
-        ))}
-      </div>
-
-      {/* Estatísticas do período */}
-      <div className="grid grid-cols-4 gap-px bg-gray-100 border-t border-gray-100">
-        <div className="bg-white px-3 py-2">
-          <p className="text-[10px] text-gray-400">Abertura</p>
-          <p className="text-xs font-semibold text-gray-700">{abertura != null ? `R$ ${Number(abertura).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</p>
-        </div>
-        <div className="bg-white px-3 py-2">
-          <p className="text-[10px] text-gray-400">Máx. {periodo}</p>
-          <p className="text-xs font-semibold text-green-700">{maxPeriodo != null ? `R$ ${Number(maxPeriodo).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</p>
-        </div>
-        <div className="bg-white px-3 py-2">
-          <p className="text-[10px] text-gray-400">Mín. {periodo}</p>
-          <p className="text-xs font-semibold text-red-600">{minPeriodo != null ? `R$ ${Number(minPeriodo).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</p>
-        </div>
-        <div className="bg-white px-3 py-2">
-          <p className="text-[10px] text-gray-400">Var. {periodo}</p>
-          <p className={`text-xs font-semibold ${variacaoPeriodo == null ? 'text-gray-400' : variacaoPeriodo >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-            {variacaoPeriodo != null ? `${variacaoPeriodo >= 0 ? '+' : ''}${variacaoPeriodo.toFixed(2)}%` : '—'}
-          </p>
         </div>
       </div>
     </div>
