@@ -215,19 +215,21 @@ function GraficoCotacao({ historico, cor = '#16a34a' }) {
     const container = containerRef.current
     if (!container) return
     const rect = container.getBoundingClientRect()
-    // Converter posição do mouse para coordenadas SVG
+    // Posição do mouse em pixels dentro do container
+    const mouseXpx = e.clientX - rect.left
+    // Converter para coordenadas do viewBox SVG
     const scaleX = W / rect.width
-    const mouseXsvg = (e.clientX - rect.left) * scaleX
-    // Só considerar área do gráfico (entre padLeft e W-padRight)
+    const mouseXsvg = mouseXpx * scaleX
+    // Só ativar dentro da área do gráfico
     if (mouseXsvg < padLeft || mouseXsvg > W - padRight) { setTooltip(null); return }
     let closest = pontos[0], minDist = Infinity
     pontos.forEach(p => {
       const dist = Math.abs(p.x - mouseXsvg)
       if (dist < minDist) { minDist = dist; closest = p }
     })
-    // Calcular posição do tooltip em % da largura do container
-    const pctX = (closest.x / W) * 100
-    setTooltip({ svgX: closest.x, svgY: closest.y, ponto: closest, pctX })
+    // Posição em pixels reais no container (para o tooltip HTML)
+    const tooltipXpx = closest.x / scaleX
+    setTooltip({ svgX: closest.x, svgY: closest.y, ponto: closest, tooltipXpx, containerW: rect.width })
   }
 
   return (
@@ -295,21 +297,24 @@ function GraficoCotacao({ historico, cor = '#16a34a' }) {
         )}
       </svg>
 
-      {/* Tooltip flutuante — posicionado em % do container */}
-      {tooltip && (
-        <div
-          className="absolute pointer-events-none bg-gray-800 text-white text-xs rounded-lg px-2.5 py-1.5 shadow-lg z-10"
-          style={{
-            left: `${tooltip.pctX}%`,
-            top: 6,
-            transform: tooltip.pctX > 72 ? 'translateX(-108%)' : 'translateX(6%)',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          <div className="font-semibold">R$ {Number(tooltip.ponto.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-          <div className="text-gray-400">{tooltip.ponto.label}</div>
-        </div>
-      )}
+      {/* Tooltip flutuante — posicionado em pixels reais do container */}
+      {tooltip && (() => {
+        const isRight = tooltip.tooltipXpx > tooltip.containerW * 0.72
+        return (
+          <div
+            className="absolute pointer-events-none bg-gray-800 text-white text-xs rounded-lg px-2.5 py-1.5 shadow-lg z-10"
+            style={{
+              left: tooltip.tooltipXpx,
+              top: 6,
+              transform: isRight ? 'translateX(-108%)' : 'translateX(6%)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <div className="font-semibold">R$ {Number(tooltip.ponto.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+            <div className="text-gray-400">{tooltip.ponto.label}</div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
