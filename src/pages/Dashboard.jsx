@@ -421,7 +421,7 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
           </div>
 
           {/* Estatísticas do período */}
-          <div className="grid grid-cols-2 md:grid-cols-1 gap-1.5">
+          <div className="grid grid-cols-3 md:grid-cols-1 gap-1.5">
             <div>
               <p className="text-[10px] text-gray-400">Abertura</p>
               <p className="text-xs font-semibold text-gray-700">{abertura != null ? `R$ ${Number(abertura).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</p>
