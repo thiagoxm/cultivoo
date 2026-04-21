@@ -99,16 +99,20 @@ function ClimaStrip({ previsao, modoColheita = false, localRef = '' }) {
       {localRef && (
         <p className="px-3 pt-1.5 text-[10px] text-gray-400 truncate">📍 {localRef}</p>
       )}
-      <div className="flex gap-1 px-3 py-2 overflow-x-auto">
+      <div className="flex divide-x divide-gray-100 px-1 py-2 overflow-x-auto">
         {previsao.slice(0, 7).map((d) => {
           const bom = d.precipitacao < 2
           const [, mes, dia] = d.data.split('-')
           return (
-            <div key={d.data} className="flex flex-col items-center gap-0.5 flex-1 min-w-[42px]">
+            <div key={d.data} className="flex flex-col items-center gap-0.5 flex-1 min-w-[46px] px-1">
               <span className="text-[10px] text-gray-400 leading-tight">{nomeDiaSemana(d.data)}</span>
               <span className="text-[10px] text-gray-300 leading-tight">{dia}/{mes}</span>
               <IconeClima tipo={d.condicao.icon} size={15} />
-              <span className="text-[10px] font-medium text-gray-600 leading-tight">{d.tempMin}° - {d.tempMax}°</span>
+              <span className="text-[10px] leading-tight">
+                <span className="font-medium text-orange-500">{d.tempMax}°</span>
+                <span className="text-gray-300 mx-0.5">|</span>
+                <span className="text-blue-400">{d.tempMin}°</span>
+              </span>
               {modoColheita ? (
                 <span className={`text-[10px] font-medium leading-tight ${bom ? 'text-green-700' : 'text-red-600'}`}>
                   {d.precipitacao === 0 ? '0mm' : `${d.precipitacao}mm`}
