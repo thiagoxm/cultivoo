@@ -489,6 +489,7 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
 // ── Card safra simples ─────────────────────────────────────────────────────
 function CardSafraSimples({ safra, climaProp }) {
   const previsao = climaProp?.previsao || []
+  const alertasINMET = climaProp?.alertas || []
   const diasBons = diasBonsParaColheita(previsao)
   const localRef = [safra.cidadePropriedade, safra.estadoPropriedade].filter(Boolean).join(' - ')
 
@@ -508,6 +509,12 @@ function CardSafraSimples({ safra, climaProp }) {
           </span>
         )}
       </div>
+      {alertasINMET.length > 0 && (
+        <div className="mx-4 mb-2 flex items-start gap-2 bg-amber-50 rounded-lg px-3 py-2">
+          <AlertCircle size={13} className="text-amber-600 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-amber-700">{alertasINMET[0].evento} — {alertasINMET[0].severidade}</p>
+        </div>
+      )}
       <ClimaStrip previsao={previsao} modoColheita={false} localRef={localRef} />
     </div>
   )
@@ -516,7 +523,7 @@ function CardSafraSimples({ safra, climaProp }) {
 // ── Card safra com colheita ────────────────────────────────────────────────
 function CardSafraColheita({ safra, colheitas, lotesEstoque, climaProp }) {
   const previsao = climaProp?.previsao || []
-  const alertasINMET = climaProp?.alertas?.filter(a => a.grave) || []
+  const alertasINMET = climaProp?.alertas || []
   const totalColhido = colheitas.reduce((s, c) => s + (Number(c.quantidade) || 0), 0)
   const unidade = safra.unidade || colheitas[0]?.unidade || 'sc'
   const totalLavouras = safra.lavouraIds?.length || 0
@@ -607,9 +614,11 @@ function CardSafraColheita({ safra, colheitas, lotesEstoque, climaProp }) {
       </div>
 
       {alertasINMET.length > 0 && (
-        <div className="mx-4 my-2 flex items-start gap-2 bg-red-50 rounded-lg px-3 py-2">
-          <AlertCircle size={13} className="text-red-600 flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-red-700">{alertasINMET[0].evento} — {alertasINMET[0].severidade}</p>
+        <div className={`mx-4 my-2 flex items-start gap-2 rounded-lg px-3 py-2 ${alertasINMET[0].grave ? 'bg-red-50' : 'bg-amber-50'}`}>
+          <AlertCircle size={13} className={`flex-shrink-0 mt-0.5 ${alertasINMET[0].grave ? 'text-red-600' : 'text-amber-600'}`} />
+          <p className={`text-xs ${alertasINMET[0].grave ? 'text-red-700' : 'text-amber-700'}`}>
+            {alertasINMET[0].evento} — {alertasINMET[0].severidade}
+          </p>
         </div>
       )}
 
