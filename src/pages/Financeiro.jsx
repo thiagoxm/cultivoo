@@ -300,12 +300,17 @@ export default function Financeiro() {
       getDocs(q('financeiro')), getDocs(q('propriedades')), getDocs(q('safras')),
       getDocs(q('patrimonios')), getDocs(q('lavouras')),
     ])
-    // Filtrar cancelados localmente — compatível com docs sem o campo 'cancelado'
     setLista(finSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado))
     setPropriedades(propSnap.docs.map(d => ({ id: d.id, ...d.data() })))
     setSafras(safSnap.docs.map(d => ({ id: d.id, ...d.data() })))
     setPatrimonios(patSnap.docs.map(d => ({ id: d.id, ...d.data() })))
     setLavouras(lavSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+  }
+
+  // Reler apenas financeiro após mutarções — evita reler 5 coleções
+  async function recarregarFinanceiro() {
+    const snap = await getDocs(query(collection(db, 'financeiro'), where('uid', '==', usuario.uid)))
+    setLista(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado))
   }
 
   useEffect(() => { carregar() }, [])
@@ -458,13 +463,13 @@ export default function Financeiro() {
 
     fecharComScrollUnlock(() => { setModal(false); setEditando(null) })
     setLoading(false)
-    await carregar()
+    await recarregarFinanceiro()
   }
 
   function excluir(id, descricao) {
     abrirComScrollLock(() => setConfirmacao({
       mensagem: `Deseja excluir o lançamento "${descricao}"?`,
-      onConfirmar: async () => { await deleteDoc(doc(db, 'financeiro', id)); await carregar() }
+      onConfirmar: async () => { await deleteDoc(doc(db, 'financeiro', id)); await recarregarFinanceiro() }
     }))
   }
 
@@ -479,7 +484,10 @@ export default function Financeiro() {
     try {
       const { id, novoStatus, dataConfirmacao } = confirmacaoStatus
       await updateDoc(doc(db, 'financeiro', id), { status: novoStatus, dataPagamento: dataConfirmacao })
-      await carregar()
+      // Atualizar estado local — sem nenhuma leitura do Firestore
+      setLista(prev => prev.map(f =>
+        f.id === id ? { ...f, status: novoStatus, dataPagamento: dataConfirmacao } : f
+      ))
     } finally {
       setSalvandoStatus(false)
       setConfirmacaoStatus(null)

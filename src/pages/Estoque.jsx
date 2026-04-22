@@ -288,6 +288,17 @@ export default function Estoque() {
     )
   }
 
+  // Reler apenas insumos + movimentações após mutações
+  async function recarregarEstoque() {
+    const uid = usuario.uid
+    const [prodSnap, movSnap] = await Promise.all([
+      getDocs(query(collection(db, 'insumos'), where('uid', '==', uid))),
+      getDocs(query(collection(db, 'movimentacoesInsumos'), where('uid', '==', uid))),
+    ])
+    setProdutos(prodSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+    setMovimentacoes(movSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+  }
+
   useEffect(() => { carregar() }, [])
   useEffect(() => {
     function fechar(e) {
@@ -535,12 +546,12 @@ export default function Estoque() {
       novoProdutoId = ref.id
     }
     setModalProduto(false); setEditandoProduto(null); setFormProduto(PRODUTO_PADRAO)
-    await carregar(); setLoading(false)
+    await recarregarEstoque(); setLoading(false)
     if (!editandoProduto) setModalSugerirEntrada({ produtoId: novoProdutoId, produtoNome: payload.produto })
   }
 
   function excluirProduto(id, nome) {
-    setConfirmacao({ mensagem: `Deseja excluir o produto "${nome}"? Todas as movimentações vinculadas também serão excluídas.`, onConfirmar: async () => { const movsVinculadas = movimentacoes.filter(m => m.produtoId === id); await Promise.all(movsVinculadas.map(m => deleteDoc(doc(db, 'movimentacoesInsumos', m.id)))); await deleteDoc(doc(db, 'insumos', id)); await carregar() } })
+    setConfirmacao({ mensagem: `Deseja excluir o produto "${nome}"? Todas as movimentações vinculadas também serão excluídas.`, onConfirmar: async () => { const movsVinculadas = movimentacoes.filter(m => m.produtoId === id); await Promise.all(movsVinculadas.map(m => deleteDoc(doc(db, 'movimentacoesInsumos', m.id)))); await deleteDoc(doc(db, 'insumos', id)); await recarregarEstoque() } })
   }
 
   function solicitarCancelamento(mov, prod) { setConfirmacaoCancelamento({ mov, prod }) }
@@ -560,7 +571,7 @@ export default function Estoque() {
       const dataRef = mov.dataVencimentoPagamento || mov.dataMovimento
       await Promise.all(finFallSnap.docs.filter(d => d.data().vencimento === dataRef && !d.data().cancelado).map(d => updateDoc(doc(db, 'financeiro', d.id), { cancelado: true, canceladoEm: new Date() })))
     }
-    await carregar(); setLoading(false)
+    await recarregarEstoque(); setLoading(false)
   }
 
   // Marcar pagamento como pago (mov + financeiro)
@@ -575,7 +586,11 @@ export default function Estoque() {
       const dataRef = mov.dataVencimentoPagamento || mov.dataMovimento
       await Promise.all(finFallSnap.docs.filter(d => d.data().vencimento === dataRef && d.data().status === 'pendente').map(d => updateDoc(doc(db, 'financeiro', d.id), { status: 'pago', vencimento: dataPagamento })))
     }
-    await carregar(); setLoading(false)
+    // Atualizar estado local da movimentação
+    setMovimentacoes(prev => prev.map(m =>
+      m.id === mov.id ? { ...m, statusPagamento: 'pago', dataVencimentoPagamento: dataPagamento } : m
+    ))
+    setLoading(false)
   }
 
   function abrirModalMov(produtoId, tipoMov = 'entrada') {
@@ -703,7 +718,7 @@ export default function Estoque() {
     }
 
     setModalMov(false); setFormMov(MOV_PADRAO)
-    await carregar(); setLoading(false)
+    await recarregarEstoque(); setLoading(false)
   }
 
   // ─────────────────────────────────────────────

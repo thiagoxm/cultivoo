@@ -235,6 +235,25 @@ export default function Producao() {
     setSugestoesLocal([...new Set(lotes.map(l => l.localArmazenagem).filter(Boolean))])
   }
 
+  // Reler apenas colheitas + estoqueProdução após mutações
+  async function recarregarColheitas() {
+    const uid = usuario.uid
+    const [colSnap, estSnap] = await Promise.all([
+      getDocs(query(collection(db, 'colheitas'), where('uid', '==', uid))),
+      getDocs(query(collection(db, 'estoqueProducao'), where('uid', '==', uid))),
+    ])
+    setLista(colSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+    const lotes = estSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    setLotesEstoque(lotes)
+    setSugestoesLocal([...new Set(lotes.map(l => l.localArmazenagem).filter(Boolean))])
+  }
+
+  // Reler apenas safras (para concluir/iniciar safra)
+  async function recarregarSafras() {
+    const snap = await getDocs(query(collection(db, 'safras'), where('uid', '==', usuario.uid)))
+    setSafras(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+  }
+
   useEffect(() => { carregar() }, [])
   useEffect(() => {
     function fechar(e) { if (!e.target.closest('[data-dropdown-prod]')) setDropdownFiltroAberto(false) }
@@ -396,16 +415,19 @@ export default function Producao() {
 
   async function concluirSafra() {
     await updateDoc(doc(db, 'safras', modalConcluir.safraId), { status: 'Colhida', dataTermino: modalConcluir.dataTermino })
-    setModalConcluir(null); await carregar()
+    setSafras(prev => prev.map(s => s.id === modalConcluir.safraId ? { ...s, status: 'Colhida', dataTermino: modalConcluir.dataTermino } : s))
+    setModalConcluir(null)
   }
   async function confirmarIniciarSafra() {
     await updateDoc(doc(db, 'safras', modalIniciar.safraId), { status: 'Em andamento' })
-    setModalIniciar(null); await carregar()
+    setSafras(prev => prev.map(s => s.id === modalIniciar.safraId ? { ...s, status: 'Em andamento' } : s))
+    setModalIniciar(null)
   }
   async function cancelarIniciarSafra() {
     if (!modalIniciar) return
     await deleteDoc(doc(db, 'colheitas', modalIniciar.colheitaId))
-    setModalIniciar(null); await carregar()
+    setLista(prev => prev.filter(c => c.id !== modalIniciar.colheitaId))
+    setModalIniciar(null)
   }
 
   async function salvar(e) {
@@ -443,7 +465,7 @@ export default function Producao() {
     }
     setModal(false); setEditando(null); setForm(FORM_PADRAO); setDarEntradaEstoque(false)
     setIdLoteEstoque(''); setLocalArmazenagem(''); setClassificacaoEstoque(''); setQualidadeEstoque({})
-    await carregar(); setLoading(false)
+    await recarregarColheitas(); setLoading(false)
     if (!editando) {
       if (safra?.status === 'Planejada') { setModalIniciar({ safraId: form.safraId, safraNome: safra.nome, colheitaId }); return }
       if (form.lavouraId) await verificarConclusaoSafra(form.safraId, form.lavouraId, form.dataColheita)
@@ -451,7 +473,7 @@ export default function Producao() {
   }
 
   function excluir(id, nome) {
-    setConfirmacao({ mensagem: `Deseja excluir o registro de colheita "${nome}"?`, onConfirmar: async () => { await deleteDoc(doc(db, 'colheitas', id)); await carregar() } })
+    setConfirmacao({ mensagem: `Deseja excluir o registro de colheita "${nome}"?`, onConfirmar: async () => { await deleteDoc(doc(db, 'colheitas', id)); setLista(prev => prev.filter(c => c.id !== id)) } })
   }
 
   function colheitaInfoEstoque(colheitaId, quantidadeColhida) {

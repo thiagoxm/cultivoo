@@ -1331,6 +1331,18 @@ export default function EstoqueProducao() {
     setCarregando(false)
   }
 
+  // Reler apenas estoqueProdução + movimentações após mutações
+  async function recarregarEstoqueProducao() {
+    if (!usuario) return
+    const uid = usuario.uid
+    const [lotSnap, movSnap] = await Promise.all([
+      getDocs(query(collection(db, 'estoqueProducao'), where('uid', '==', uid))),
+      getDocs(query(collection(db, 'movimentacoesProducao'), where('uid', '==', uid))),
+    ])
+    setLotes(lotSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+    setMovs(movSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+  }
+
   useEffect(() => { carregar() }, [usuario])
 
   // Cotações
@@ -1454,7 +1466,7 @@ export default function EstoqueProducao() {
         }
 
         setConfirmacaoCancelamento(null)
-        carregar()
+        recarregarEstoqueProducao()
       },
     })
   }
@@ -1502,7 +1514,7 @@ export default function EstoqueProducao() {
         }
 
         setConfirmacaoSaida(null)
-        carregar()
+        recarregarEstoqueProducao()
       },
     })
   }

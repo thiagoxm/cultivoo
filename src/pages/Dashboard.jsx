@@ -770,8 +770,11 @@ export default function Dashboard() {
     try {
       const { id, novoStatus, dataConfirmacao } = confirmacaoStatus
       await updateDoc(doc(db, 'financeiro', id), { status: novoStatus, dataPagamento: dataConfirmacao })
+      // Atualizar estado local — sem reler o Firestore
+      setFinanceiro(prev => prev.map(f =>
+        f.id === id ? { ...f, status: novoStatus, dataPagamento: dataConfirmacao } : f
+      ))
       if (modalAlerta) setModalAlerta(prev => prev ? { ...prev, itens: prev.itens?.filter(i => i.id !== id) || [] } : null)
-      await carregar()
     } finally {
       setSalvandoStatus(false)
       setConfirmacaoStatus(null)
