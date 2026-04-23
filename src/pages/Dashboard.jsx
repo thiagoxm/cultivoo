@@ -512,7 +512,12 @@ function CardSafraSimples({ safra, climaProp }) {
       {alertasINMET.length > 0 && (
         <div className="mx-4 mb-2 flex items-start gap-2 bg-amber-50 rounded-lg px-3 py-2">
           <AlertCircle size={13} className="text-amber-600 flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-amber-700">{alertasINMET[0].evento} — {alertasINMET[0].severidade}</p>
+          <div className="min-w-0">
+            <p className="text-xs text-amber-700 font-medium">{alertasINMET[0].evento} — {alertasINMET[0].severidade}</p>
+            {alertasINMET[0].statusLabel && (
+              <p className="text-[10px] text-amber-600 mt-0.5">{alertasINMET[0].statusLabel}</p>
+            )}
+          </div>
         </div>
       )}
       <ClimaStrip previsao={previsao} modoColheita={false} localRef={localRef} />
@@ -616,9 +621,16 @@ function CardSafraColheita({ safra, colheitas, lotesEstoque, climaProp }) {
       {alertasINMET.length > 0 && (
         <div className={`mx-4 my-2 flex items-start gap-2 rounded-lg px-3 py-2 ${alertasINMET[0].grave ? 'bg-red-50' : 'bg-amber-50'}`}>
           <AlertCircle size={13} className={`flex-shrink-0 mt-0.5 ${alertasINMET[0].grave ? 'text-red-600' : 'text-amber-600'}`} />
-          <p className={`text-xs ${alertasINMET[0].grave ? 'text-red-700' : 'text-amber-700'}`}>
-            {alertasINMET[0].evento} — {alertasINMET[0].severidade}
-          </p>
+          <div className="min-w-0">
+            <p className={`text-xs font-medium ${alertasINMET[0].grave ? 'text-red-700' : 'text-amber-700'}`}>
+              {alertasINMET[0].evento} — {alertasINMET[0].severidade}
+            </p>
+            {alertasINMET[0].statusLabel && (
+              <p className={`text-[10px] mt-0.5 ${alertasINMET[0].grave ? 'text-red-600' : 'text-amber-600'}`}>
+                {alertasINMET[0].statusLabel}
+              </p>
+            )}
+          </div>
         </div>
       )}
 
@@ -645,7 +657,7 @@ export default function Dashboard() {
   const [cotacoes, setCotacoes] = useState({})
 
   const clima = useClima(
-    propriedades.map(p => ({ id: p.id, nome: p.nome, lat: p.lat, lng: p.lng }))
+    propriedades.map(p => ({ id: p.id, nome: p.nome, lat: p.lat, lng: p.lng, cidade: p.cidade, estado: p.estado }))
   )
 
   const carregar = useCallback(async () => {
