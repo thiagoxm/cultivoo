@@ -1,26 +1,22 @@
-export const config = { runtime: 'edge' }
-
-export default async function handler(req) {
-  const headers = {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-  }
+// Node.js serverless (não edge) — acesso de rede irrestrito
+export default async function handler(req, res) {
   try {
-    const res = await fetch('https://apialerta.inmet.gov.br/v3/alertas', {
+    const response = await fetch('https://apialerta.inmet.gov.br/v3/alertas', {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Accept': 'application/json',
       }
     })
-    const status = res.status
-    const contentType = res.headers.get('content-type') || ''
-    const raw = await res.text()
+    const status = response.status
+    const contentType = response.headers.get('content-type') || ''
+    const raw = await response.text()
 
     let parsed = null
     let parseErr = null
     try { parsed = JSON.parse(raw) } catch(e) { parseErr = e.message }
 
-    return new Response(JSON.stringify({
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.json({
       httpStatus: status,
       contentType,
       rawLength: raw.length,
@@ -29,11 +25,8 @@ export default async function handler(req) {
       total: Array.isArray(parsed) ? parsed.length : null,
       keys: parsed?.[0] ? Object.keys(parsed[0]) : null,
       sample: Array.isArray(parsed) ? parsed.slice(0, 2) : parsed,
-    }, null, 2), { headers })
+    })
   } catch (err) {
-    return new Response(JSON.stringify({
-      erro: err.message,
-      stack: err.stack?.substring(0, 300),
-    }), { status: 500, headers })
+    res.status(500).json({ erro: err.message, stack: err.stack?.substring(0, 500) })
   }
 }
