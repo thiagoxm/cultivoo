@@ -440,9 +440,9 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
             </div>
           </div>
 
-          {/* Seletor cultura (se houver mais de uma) */}
+          {/* Seletor cultura no mobile (desktop usa o da coluna direita) */}
           {culturasDisp.length > 1 && (
-            <div className="flex flex-wrap gap-1">
+            <div className="flex md:hidden flex-wrap gap-1">
               {culturasDisp.map(c => (
                 <button key={c} onClick={() => setCulturaSel(c)}
                   className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
@@ -457,6 +457,19 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
 
         {/* Coluna direita: gráfico + seletor período */}
         <div className="flex-1 flex flex-col min-w-0 min-h-[200px]">
+          {/* Seletor cultura no topo do gráfico (visível apenas quando há mais de 1 cultura) */}
+          {culturasDisp.length > 1 && (
+            <div className="hidden md:flex items-center gap-1 px-3 pt-2">
+              {culturasDisp.map(c => (
+                <button key={c} onClick={() => setCulturaSel(c)}
+                  className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                    culturaEfetiva === c ? 'bg-green-700 text-white border-green-700' : 'border-gray-200 text-gray-500 hover:border-green-400'
+                  }`}>
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
           {/* Gráfico */}
           <div className="relative flex-1 overflow-hidden">
             {carregandoGrafico && (
