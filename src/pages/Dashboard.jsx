@@ -163,7 +163,7 @@ const CULTURA_KEY_MAP = {
 
 function GraficoCotacao({ historico, cor = '#16a34a' }) {
   const svgRef = useRef(null)
-  const [tooltip, setTooltip] = useState(null) // { svgX, svgY, ponto }
+  const [tooltip, setTooltip] = useState(null)
 
   if (!historico || historico.length < 2) return (
     <div className="flex items-center justify-center h-28 text-xs text-gray-400">Sem dados para o período</div>
@@ -175,10 +175,7 @@ function GraficoCotacao({ historico, cor = '#16a34a' }) {
   const amp = maxV - minV || 1
 
   const W = 600, H = 150
-  const padLeft = 52
-  const padRight = 28
-  const padTop = 10
-  const padBottom = 28
+  const padLeft = 52, padRight = 28, padTop = 10, padBottom = 28
   const chartW = W - padLeft - padRight
   const chartH = H - padTop - padBottom
 
@@ -192,10 +189,9 @@ function GraficoCotacao({ historico, cor = '#16a34a' }) {
     pontos.map(p => `L ${p.x},${p.y}`).join(' ') +
     ` L ${pontos[pontos.length - 1].x},${padTop + chartH} Z`
 
-  const niveisY = 4
-  const labelsY = Array.from({ length: niveisY + 1 }, (_, i) => ({
-    v: minV + (amp * i) / niveisY,
-    y: toY(minV + (amp * i) / niveisY),
+  const labelsY = Array.from({ length: 5 }, (_, i) => ({
+    v: minV + (amp * i) / 4,
+    y: toY(minV + (amp * i) / 4),
   }))
 
   const maxLabelsX = Math.min(6, historico.length)
@@ -206,65 +202,38 @@ function GraficoCotacao({ historico, cor = '#16a34a' }) {
   if (labelsX[labelsX.length - 1]?.i !== last) labelsX.push({ i: last, x: toX(last), label: historico[last].label })
 
   function handleMouseMove(e) {
-    const svg = svgRef.current
-    if (!svg) return
-    const pt = svg.createSVGPoint()
-    pt.x = e.clientX
-    pt.y = e.clientY
+    const svg = svgRef.current; if (!svg) return
+    const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY
     const svgP = pt.matrixTransform(svg.getScreenCTM().inverse())
-    const mouseXsvg = svgP.x
-    if (mouseXsvg < padLeft || mouseXsvg > W - padRight) { setTooltip(null); return }
+    if (svgP.x < padLeft || svgP.x > W - padRight) { setTooltip(null); return }
     let closest = pontos[0], minDist = Infinity
-    pontos.forEach(p => {
-      const dist = Math.abs(p.x - mouseXsvg)
-      if (dist < minDist) { minDist = dist; closest = p }
-    })
+    pontos.forEach(p => { const d = Math.abs(p.x - svgP.x); if (d < minDist) { minDist = d; closest = p } })
     setTooltip({ svgX: closest.x, svgY: closest.y, ponto: closest })
   }
 
   function handleTouchMove(e) {
     e.preventDefault()
-    const touch = e.touches[0]
-    if (!touch) return
-    const svg = svgRef.current
-    if (!svg) return
-    const pt = svg.createSVGPoint()
-    pt.x = touch.clientX
-    pt.y = touch.clientY
+    const touch = e.touches[0]; if (!touch) return
+    const svg = svgRef.current; if (!svg) return
+    const pt = svg.createSVGPoint(); pt.x = touch.clientX; pt.y = touch.clientY
     const svgP = pt.matrixTransform(svg.getScreenCTM().inverse())
-    const touchXsvg = svgP.x
-    if (touchXsvg < padLeft || touchXsvg > W - padRight) return
+    if (svgP.x < padLeft || svgP.x > W - padRight) return
     let closest = pontos[0], minDist = Infinity
-    pontos.forEach(p => {
-      const dist = Math.abs(p.x - touchXsvg)
-      if (dist < minDist) { minDist = dist; closest = p }
-    })
+    pontos.forEach(p => { const d = Math.abs(p.x - svgP.x); if (d < minDist) { minDist = d; closest = p } })
     setTooltip({ svgX: closest.x, svgY: closest.y, ponto: closest })
   }
 
-  function handleTouchEnd() {
-    setTimeout(() => setTooltip(null), 2000)
-  }
-
-  // Box do tooltip: renderizado dentro do próprio SVG com <foreignObject>
   const TOOLTIP_W = 110
   const tooltipX = tooltip
     ? (tooltip.svgX + TOOLTIP_W > W - padRight ? tooltip.svgX - TOOLTIP_W - 6 : tooltip.svgX + 6)
     : 0
-  const tooltipY = padTop + 2
 
   return (
     <div className="w-full h-full">
-      <svg
-        ref={svgRef}
-        viewBox={`0 0 ${W} ${H}`}
-        className="w-full block"
+      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full block"
         style={{ height: '100%', minHeight: 150, touchAction: 'none' }}
-        onMouseMove={handleMouseMove}
-        onMouseLeave={() => setTooltip(null)}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-      >
+        onMouseMove={handleMouseMove} onMouseLeave={() => setTooltip(null)}
+        onTouchMove={handleTouchMove} onTouchEnd={() => setTimeout(() => setTooltip(null), 2000)}>
         <defs>
           <linearGradient id="grad-cot" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={cor} stopOpacity="0.18" />
@@ -274,57 +243,31 @@ function GraficoCotacao({ historico, cor = '#16a34a' }) {
             <rect x={padLeft} y={padTop} width={chartW} height={chartH} />
           </clipPath>
         </defs>
-
-        {/* Grade horizontal */}
         {labelsY.map(({ y }, i) => (
           <line key={i} x1={padLeft} y1={y} x2={W - padRight} y2={y} stroke="#f3f4f6" strokeWidth="1" />
         ))}
-
-        {/* Área + linha */}
         <g clipPath="url(#clip-chart)">
           <path d={areaPath} fill="url(#grad-cot)" />
           <polyline points={polyline} fill="none" stroke={cor} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
         </g>
-
-        {/* Rótulos eixo Y */}
         {labelsY.map(({ v, y }, i) => (
           <text key={i} x={padLeft - 5} y={y + 3.5} textAnchor="end" fontSize="9" fill="#9ca3af" fontFamily="sans-serif">
             {v.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
           </text>
         ))}
-
-        {/* Rótulos eixo X */}
         {labelsX.map(({ x, label, i: idx }) => (
-          <text key={idx} x={x} y={H - 6} textAnchor="middle" fontSize="9" fill="#9ca3af" fontFamily="sans-serif">
-            {label}
-          </text>
+          <text key={idx} x={x} y={H - 6} textAnchor="middle" fontSize="9" fill="#9ca3af" fontFamily="sans-serif">{label}</text>
         ))}
-
-        {/* Linha vertical + ponto */}
         {tooltip && (
           <>
-            <line x1={tooltip.svgX} y1={padTop} x2={tooltip.svgX} y2={padTop + chartH}
-              stroke="#d1d5db" strokeWidth="1" strokeDasharray="3,3" />
+            <line x1={tooltip.svgX} y1={padTop} x2={tooltip.svgX} y2={padTop + chartH} stroke="#d1d5db" strokeWidth="1" strokeDasharray="3,3" />
             <circle cx={tooltip.svgX} cy={tooltip.svgY} r="4" fill={cor} stroke="white" strokeWidth="2" />
           </>
         )}
-
-        {/* Tooltip dentro do SVG via foreignObject */}
         {tooltip && (
-          <foreignObject x={tooltipX} y={tooltipY} width={TOOLTIP_W} height={44}>
-            <div
-              xmlns="http://www.w3.org/1999/xhtml"
-              style={{
-                background: '#1f2937',
-                color: 'white',
-                borderRadius: 8,
-                padding: '4px 8px',
-                fontSize: 11,
-                lineHeight: '1.4',
-                whiteSpace: 'nowrap',
-                pointerEvents: 'none',
-              }}
-            >
+          <foreignObject x={tooltipX} y={padTop + 2} width={TOOLTIP_W} height={44}>
+            <div xmlns="http://www.w3.org/1999/xhtml"
+              style={{ background: '#1f2937', color: 'white', borderRadius: 8, padding: '4px 8px', fontSize: 11, lineHeight: '1.4', whiteSpace: 'nowrap', pointerEvents: 'none' }}>
               <div style={{ fontWeight: 600 }}>
                 R$ {Number(tooltip.ponto.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
@@ -341,6 +284,7 @@ function GraficoCotacao({ historico, cor = '#16a34a' }) {
 function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
   const [culturaSel, setCulturaSel] = useState('')
   const [periodo, setPeriodo] = useState('1M')
+  const [moeda, setMoeda] = useState('BRL') // 'BRL' | 'orig'
   const [carregandoGrafico, setCarregandoGrafico] = useState(false)
 
   const culturasDisp = useMemo(() => {
@@ -386,14 +330,21 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
   const minPeriodo = valores.length ? Math.min(...valores) : null
   const abertura = valores.length ? valores[0] : null
 
+  // Toggle de moeda
+  const siglaOrig = (cot.unidadeOriginal || 'US\u00a2').split('/')[0]
+  const historicoExibido = moeda === 'BRL'
+    ? historico
+    : historico.map(h => ({ ...h, valor: h.valorOrig ?? (h.valor / (cot.cambio || 1)) }))
+  const precoExibido = moeda === 'BRL' ? Number(cot.valorBR || 0) : Number(cot.precoOriginal || 0)
+  const unidExibida = moeda === 'BRL' ? (cot.unidBR || 'R$/sc') : (cot.unidadeOriginal || 'US\u00a2/bu')
+  const prefixoExibido = moeda === 'BRL' ? 'R$' : siglaOrig
+
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-      {/* Layout web: 2 colunas — info à esquerda, gráfico à direita */}
       <div className="flex flex-col md:flex-row md:h-64">
 
-        {/* Coluna esquerda: preço + estatísticas + seletor cultura */}
+        {/* Coluna esquerda */}
         <div className="md:w-44 md:flex-shrink-0 px-4 pt-3 pb-3 md:border-r border-gray-100 flex flex-col gap-3">
-          {/* Cabeçalho */}
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-1.5">
               <BarChart2 size={13} className="text-gray-400" />
@@ -406,17 +357,14 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
             )}
           </div>
 
-          {/* Preço atual */}
           <div>
             <p className="text-[10px] text-gray-400 leading-tight">{culturaEfetiva} · {cot.bolsa}</p>
             <p className="text-2xl font-bold text-gray-800 leading-tight">
-              R$ {Number(cot.valorBR || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {prefixoExibido} {precoExibido.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
-            <p className="text-[10px] text-gray-400">{cot.unidBR || 'R$/sc'}</p>
+            <p className="text-[10px] text-gray-400">{unidExibida}</p>
             {variacaoPeriodo !== null && (
-              <span className={`inline-flex items-center gap-0.5 text-xs font-semibold mt-1 ${
-                variacaoPeriodo >= 0 ? 'text-green-600' : 'text-red-600'
-              }`}>
+              <span className={`inline-flex items-center gap-0.5 text-xs font-semibold mt-1 ${variacaoPeriodo >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                 {variacaoPeriodo >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
                 {variacaoPeriodo >= 0 ? '+' : ''}{variacaoPeriodo.toFixed(2)}%
                 <span className="text-[10px] font-normal text-gray-400 ml-0.5">{periodo}</span>
@@ -424,7 +372,6 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
             )}
           </div>
 
-          {/* Estatísticas do período */}
           <div className="grid grid-cols-3 md:grid-cols-1 gap-1.5">
             <div>
               <p className="text-[10px] text-gray-400">Abertura</p>
@@ -440,14 +387,12 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
             </div>
           </div>
 
-          {/* Seletor cultura no mobile (desktop usa o da coluna direita) */}
+          {/* Seletor cultura — mobile */}
           {culturasDisp.length > 1 && (
             <div className="flex md:hidden flex-wrap gap-1">
               {culturasDisp.map(c => (
                 <button key={c} onClick={() => setCulturaSel(c)}
-                  className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
-                    culturaEfetiva === c ? 'bg-green-700 text-white border-green-700' : 'border-gray-200 text-gray-500 hover:border-green-400'
-                  }`}>
+                  className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${culturaEfetiva === c ? 'bg-green-700 text-white border-green-700' : 'border-gray-200 text-gray-500 hover:border-green-400'}`}>
                   {c}
                 </button>
               ))}
@@ -455,21 +400,32 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
           )}
         </div>
 
-        {/* Coluna direita: gráfico + seletor período */}
+        {/* Coluna direita */}
         <div className="flex-1 flex flex-col min-w-0 min-h-[200px]">
-          {/* Seletor cultura no topo do gráfico (visível apenas quando há mais de 1 cultura) */}
-          {culturasDisp.length > 1 && (
-            <div className="hidden md:flex items-center gap-1 px-3 pt-2">
-              {culturasDisp.map(c => (
+
+          {/* Barra topo: seletor cultura (esq) + toggle moeda (dir) */}
+          <div className="flex items-center justify-between px-3 pt-2 gap-2 min-h-[32px]">
+            <div className="flex items-center gap-1">
+              {culturasDisp.length > 1 && culturasDisp.map(c => (
                 <button key={c} onClick={() => setCulturaSel(c)}
-                  className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
-                    culturaEfetiva === c ? 'bg-green-700 text-white border-green-700' : 'border-gray-200 text-gray-500 hover:border-green-400'
-                  }`}>
+                  className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${culturaEfetiva === c ? 'bg-green-700 text-white border-green-700' : 'border-gray-200 text-gray-500 hover:border-green-400'}`}>
                   {c}
                 </button>
               ))}
             </div>
-          )}
+            {/* Toggle BRL / moeda original */}
+            <div className="flex rounded-full border border-gray-200 overflow-hidden text-[11px] font-medium flex-shrink-0">
+              <button onClick={() => setMoeda('BRL')}
+                className={`px-2.5 py-0.5 transition-colors ${moeda === 'BRL' ? 'bg-green-700 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
+                BRL
+              </button>
+              <button onClick={() => setMoeda('orig')}
+                className={`px-2.5 py-0.5 transition-colors ${moeda === 'orig' ? 'bg-green-700 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
+                {siglaOrig}
+              </button>
+            </div>
+          </div>
+
           {/* Gráfico */}
           <div className="relative flex-1 overflow-hidden">
             {carregandoGrafico && (
@@ -477,18 +433,14 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
                 <span className="text-xs text-gray-400">Carregando...</span>
               </div>
             )}
-            <GraficoCotacao historico={historico} cor={cor} />
+            <GraficoCotacao historico={historicoExibido} cor={cor} />
           </div>
 
           {/* Seletor de período */}
           <div className="flex border-t border-gray-100">
             {PERIODOS.map(p => (
               <button key={p} onClick={() => setPeriodo(p)}
-                className={`flex-1 py-2 text-[11px] font-medium transition-colors ${
-                  periodo === p
-                    ? 'text-green-700 border-t-2 border-green-600 -mt-px bg-green-50'
-                    : 'text-gray-400 hover:text-gray-600'
-                }`}>
+                className={`flex-1 py-2 text-[11px] font-medium transition-colors ${periodo === p ? 'text-green-700 border-t-2 border-green-600 -mt-px bg-green-50' : 'text-gray-400 hover:text-gray-600'}`}>
                 {p}
               </button>
             ))}
@@ -646,7 +598,6 @@ function CardSafraColheita({ safra, colheitas, lotesEstoque, climaProp }) {
           </div>
         </div>
       )}
-
       <ClimaStrip previsao={previsao} modoColheita={true} localRef={localRef} />
     </div>
   )
@@ -663,7 +614,6 @@ export default function Dashboard() {
   const [financeiro, setFinanceiro] = useState([])
   const [produtos, setProdutos] = useState([])
   const [movInsumos, setMovInsumos] = useState([])
-
   const [modalAlerta, setModalAlerta] = useState(null)
   const [confirmacaoStatus, setConfirmacaoStatus] = useState(null)
   const [salvandoStatus, setSalvandoStatus] = useState(false)
@@ -677,13 +627,9 @@ export default function Dashboard() {
     const uid = usuario.uid
     const q = (col) => query(collection(db, col), where('uid', '==', uid))
     const [propsSnap, safrasSnap, colheitasSnap, lotesSnap, finSnap, prodSnap, movInsSnap] = await Promise.all([
-      getDocs(q('propriedades')),
-      getDocs(q('safras')),
-      getDocs(q('colheitas')),
-      getDocs(q('estoqueProducao')),
-      getDocs(q('financeiro')),
-      getDocs(q('insumos')),
-      getDocs(q('movimentacoesInsumos')),
+      getDocs(q('propriedades')), getDocs(q('safras')), getDocs(q('colheitas')),
+      getDocs(q('estoqueProducao')), getDocs(q('financeiro')),
+      getDocs(q('insumos')), getDocs(q('movimentacoesInsumos')),
     ])
     const props = propsSnap.docs.map(d => ({ id: d.id, ...d.data() }))
     setPropriedades(props)
@@ -705,9 +651,8 @@ export default function Dashboard() {
 
   useEffect(() => { carregar() }, [carregar])
 
-  // Busca cotações iniciais (preço atual + histórico 1M padrão)
   useEffect(() => {
-    const MAP = { soja: 'Soja', milho: 'Milho', cafe: 'Café', cafe_arabica: 'Café Arábica', cafe_conilon: 'Café Conilon', trigo: 'Trigo', algodao: 'Algodão' }
+    const MAP = { soja: 'Soja', milho: 'Milho', cafe: 'Café', cafe_arabica: 'Café Arábica', cafe_conilon: 'Café Conilon', trigo: 'Trigo', algodao: 'Algodão', boi_gordo: 'Boi Gordo' }
     async function buscar() {
       try {
         const res = await fetch('/api/cotacao?periodo=1M')
@@ -719,9 +664,12 @@ export default function Dashboard() {
           if (v.ok && MAP[k]) {
             novo[MAP[k]] = {
               valorBR: v.valorBR,
+              precoOriginal: v.precoOriginal,
               bolsa: v.bolsa,
               originalFormatado: v.precoOriginalFormatado,
               unidBR: v.unidadeBR,
+              unidadeOriginal: v.unidadeOriginal,
+              cambio: v.cambio,
               timestamp: v.timestamp,
               historico: v.historico || [],
             }
@@ -747,16 +695,14 @@ export default function Dashboard() {
 
   const alertasCriticos = useMemo(() => {
     const lista = []
-    const vencidos = financeiro.filter(f =>
-      f.status === 'pendente' && f.vencimento && f.vencimento < HOJE && f.tipo !== 'receita' && !f.cancelado
-    )
+    const vencidos = financeiro.filter(f => f.status === 'pendente' && f.vencimento && f.vencimento < HOJE && f.tipo !== 'receita' && !f.cancelado)
     if (vencidos.length > 0) {
       const total = vencidos.reduce((s, f) => s + (Number(f.valor) || 0), 0)
       lista.push({
         id: 'pagamentos-vencidos', tipo: 'critico',
         titulo: `${vencidos.length} pagamento${vencidos.length > 1 ? 's' : ''} vencido${vencidos.length > 1 ? 's' : ''}`,
         subtitulo: `Total: R$ ${formatarValor(total)}`, badge: 'pagar',
-        itens: vencidos.map(f => ({ id: f.id, descricao: f.descricao || f.categoria || '—', valor: f.valor, vencimento: f.vencimento, tipo: f.tipo })),
+        itens: vencidos.map(f => ({ id: f.id, descricao: f.descricao || f.categoria || '—', valor: f.valor, vencimento: f.vencimento })),
       })
     }
     produtosEnriquecidos.filter(i => i.abaixoMinimo).forEach(i => {
@@ -795,10 +741,7 @@ export default function Dashboard() {
     try {
       const { id, novoStatus, dataConfirmacao } = confirmacaoStatus
       await updateDoc(doc(db, 'financeiro', id), { status: novoStatus, dataPagamento: dataConfirmacao })
-      // Atualizar estado local — sem reler o Firestore
-      setFinanceiro(prev => prev.map(f =>
-        f.id === id ? { ...f, status: novoStatus, dataPagamento: dataConfirmacao } : f
-      ))
+      setFinanceiro(prev => prev.map(f => f.id === id ? { ...f, status: novoStatus, dataPagamento: dataConfirmacao } : f))
       if (modalAlerta) setModalAlerta(prev => prev ? { ...prev, itens: prev.itens?.filter(i => i.id !== id) || [] } : null)
     } finally {
       setSalvandoStatus(false)
@@ -837,7 +780,7 @@ export default function Dashboard() {
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${a.tipo === 'critico' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>{a.badge}</span>
                     {a.itens?.length > 0 && (
-                      <button type="button" onClick={() => setModalAlerta(a)} className="text-gray-300 hover:text-blue-500 p-0.5 transition-colors" title="Ver detalhes">
+                      <button type="button" onClick={() => setModalAlerta(a)} className="text-gray-300 hover:text-blue-500 p-0.5 transition-colors">
                         <Info size={14} />
                       </button>
                     )}
@@ -870,7 +813,7 @@ export default function Dashboard() {
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${isReceita ? 'bg-green-50 text-green-700' : diff <= 1 ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>
                       {isReceita ? 'a receber' : diff <= 0 ? 'hoje' : `em ${diff}d`}
                     </span>
-                    <button onClick={() => solicitarMarcarStatus(f, isReceita ? 'recebido' : 'pago')} disabled={salvandoStatus} title={isReceita ? 'Marcar como recebido' : 'Marcar como pago'} className="text-gray-300 hover:text-green-600 disabled:opacity-40 transition-colors p-0.5">
+                    <button onClick={() => solicitarMarcarStatus(f, isReceita ? 'recebido' : 'pago')} disabled={salvandoStatus} className="text-gray-300 hover:text-green-600 disabled:opacity-40 transition-colors p-0.5">
                       <CheckCircle size={15} />
                     </button>
                   </div>
@@ -960,7 +903,9 @@ export default function Dashboard() {
                     <p className="text-sm font-medium text-gray-800 truncate">{item.descricao}</p>
                     <p className="text-xs text-gray-400">Venc. {formatarData(item.vencimento)} · R$ {formatarValor(item.valor)}</p>
                   </div>
-                  <button onClick={() => solicitarMarcarStatus(item, 'pago')} disabled={salvandoStatus} className="flex items-center gap-1 text-xs text-white px-3 py-1.5 rounded-lg disabled:opacity-50 flex-shrink-0" style={{ background: 'var(--brand-gradient)' }}>
+                  <button onClick={() => solicitarMarcarStatus(item, 'pago')} disabled={salvandoStatus}
+                    className="flex items-center gap-1 text-xs text-white px-3 py-1.5 rounded-lg disabled:opacity-50 flex-shrink-0"
+                    style={{ background: 'var(--brand-gradient)' }}>
                     <CheckCircle size={11} />Pago
                   </button>
                 </div>
@@ -973,20 +918,28 @@ export default function Dashboard() {
       {confirmacaoStatus && (
         <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl p-6 space-y-4">
-            <h3 className="font-bold text-gray-800">{confirmacaoStatus.novoStatus === 'recebido' ? 'Confirmar recebimento' : 'Confirmar pagamento'}</h3>
+            <h3 className="font-bold text-gray-800">
+              {confirmacaoStatus.novoStatus === 'recebido' ? 'Confirmar recebimento' : 'Confirmar pagamento'}
+            </h3>
             <p className="text-sm text-gray-600">
               Confirma o {confirmacaoStatus.novoStatus === 'recebido' ? 'recebimento' : 'pagamento'} de{' '}
               <span className="font-semibold">R$ {Number(confirmacaoStatus.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>{' '}
               referente a <span className="font-semibold">{confirmacaoStatus.descricao}</span>?
             </p>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Data do {confirmacaoStatus.novoStatus === 'recebido' ? 'recebimento' : 'pagamento'}</label>
-              <input type="date" value={confirmacaoStatus.dataConfirmacao} onChange={e => setConfirmacaoStatus(c => ({ ...c, dataConfirmacao: e.target.value }))} className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Data do {confirmacaoStatus.novoStatus === 'recebido' ? 'recebimento' : 'pagamento'}
+              </label>
+              <input type="date" value={confirmacaoStatus.dataConfirmacao}
+                onChange={e => setConfirmacaoStatus(c => ({ ...c, dataConfirmacao: e.target.value }))}
+                className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
               <p className="text-xs text-gray-400 mt-1">A data será registrada no lançamento Financeiro.</p>
             </div>
             <div className="flex gap-3">
               <button onClick={() => setConfirmacaoStatus(null)} className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">Cancelar</button>
-              <button onClick={confirmarMarcarStatus} disabled={salvandoStatus} className="flex-1 text-white py-2 rounded-xl text-sm font-medium disabled:opacity-50 shadow-md" style={{ background: 'var(--brand-gradient)' }}>
+              <button onClick={confirmarMarcarStatus} disabled={salvandoStatus}
+                className="flex-1 text-white py-2 rounded-xl text-sm font-medium disabled:opacity-50 shadow-md"
+                style={{ background: 'var(--brand-gradient)' }}>
                 {salvandoStatus ? 'Salvando...' : 'Confirmar'}
               </button>
             </div>

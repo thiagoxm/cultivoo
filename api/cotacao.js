@@ -192,12 +192,12 @@ export default async function handler(req) {
       const valorBR = cfg.conv(preco, cambio)
       const historicoRaw = historicoPorTicker[cfg.ticker] || []
 
-      // Converter histórico inteiro para R$/unidade BR
+      // Converter histórico inteiro para R$/unidade BR + manter valor original da bolsa
       const historico = historicoRaw.map(h => ({
         ts: h.ts,
         label: h.label,
         valor: Math.round(cfg.conv(h.close, cambio) * 100) / 100,
-        // open/high/low também convertidos (úteis para futuras velas)
+        valorOrig: Math.round(h.close * 100) / 100, // valor bruto da bolsa (ex: US¢/bu)
         valorOpen: h.open != null ? Math.round(cfg.conv(h.open, cambio) * 100) / 100 : null,
         valorHigh: h.high != null ? Math.round(cfg.conv(h.high, cambio) * 100) / 100 : null,
         valorLow: h.low != null ? Math.round(cfg.conv(h.low, cambio) * 100) / 100 : null,
