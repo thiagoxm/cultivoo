@@ -283,7 +283,7 @@ function GraficoCotacao({ historico, cor = '#16a34a' }) {
 // ── Card cotação ───────────────────────────────────────────────────────────
 function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
   const [culturaSel, setCulturaSel] = useState('')
-  const [periodo, setPeriodo] = useState('1M')
+  const [periodo, setPeriodo] = useState('1D')
   const [moeda, setMoeda] = useState('BRL') // 'BRL' | 'orig'
   const [carregandoGrafico, setCarregandoGrafico] = useState(false)
 
@@ -375,15 +375,15 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
           <div className="grid grid-cols-3 md:grid-cols-1 gap-1.5">
             <div>
               <p className="text-[10px] text-gray-400">Abertura</p>
-              <p className="text-xs font-semibold text-gray-700">{abertura != null ? `R$ ${Number(abertura).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</p>
+              <p className="text-xs font-semibold text-gray-700">{abertura != null ? `${prefixoExibido} ${Number(moeda === 'BRL' ? abertura : abertura / (cot.cambio || 1)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</p>
             </div>
             <div>
               <p className="text-[10px] text-gray-400">Máx. {periodo}</p>
-              <p className="text-xs font-semibold text-green-700">{maxPeriodo != null ? `R$ ${Number(maxPeriodo).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</p>
+              <p className="text-xs font-semibold text-green-700">{maxPeriodo != null ? `${prefixoExibido} ${Number(moeda === 'BRL' ? maxPeriodo : maxPeriodo / (cot.cambio || 1)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</p>
             </div>
             <div>
               <p className="text-[10px] text-gray-400">Mín. {periodo}</p>
-              <p className="text-xs font-semibold text-red-600">{minPeriodo != null ? `R$ ${Number(minPeriodo).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</p>
+              <p className="text-xs font-semibold text-red-600">{minPeriodo != null ? `${prefixoExibido} ${Number(moeda === 'BRL' ? minPeriodo : minPeriodo / (cot.cambio || 1)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</p>
             </div>
           </div>
 
