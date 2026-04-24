@@ -51,7 +51,6 @@ function validadeMaisCritica(movs) {
   return null
 }
 
-// ── Ícones clima ───────────────────────────────────────────────────────────
 function IconeClima({ tipo, size = 16 }) {
   if (tipo === 'sun') return (
     <svg width={size} height={size} viewBox="0 0 18 18" fill="none">
@@ -89,16 +88,13 @@ function IconeClima({ tipo, size = 16 }) {
   )
 }
 
-// ── Strip clima 7 dias ─────────────────────────────────────────────────────
 function ClimaStrip({ previsao, modoColheita = false, localRef = '' }) {
   if (!previsao?.length) return (
     <div className="px-4 py-2 text-xs text-gray-400 bg-gray-50 border-t border-gray-100">Carregando previsão...</div>
   )
   return (
     <div className="bg-gray-50 border-t border-gray-100">
-      {localRef && (
-        <p className="px-3 pt-1.5 text-[10px] text-gray-400 truncate">📍 {localRef}</p>
-      )}
+      {localRef && <p className="px-3 pt-1.5 text-[10px] text-gray-400 truncate">📍 {localRef}</p>}
       <div className="flex divide-x divide-gray-100 px-1 py-2 overflow-x-auto">
         {previsao.slice(0, 7).map((d) => {
           const bom = d.precipitacao < 2
@@ -130,7 +126,6 @@ function ClimaStrip({ previsao, modoColheita = false, localRef = '' }) {
   )
 }
 
-// ── Tooltip simples ────────────────────────────────────────────────────────
 function Tooltip({ texto, children }) {
   const [vis, setVis] = useState(false)
   const timerRef = useRef(null)
@@ -153,7 +148,6 @@ function Tooltip({ texto, children }) {
   )
 }
 
-// ── Gráfico de cotação interativo ──────────────────────────────────────────
 const PERIODOS = ['1D', '5D', '1M', '6M', 'YTD', '1Y', '5Y', 'All']
 const CULTURA_KEY_MAP = {
   'Soja': 'soja', 'Milho': 'milho', 'Café': 'cafe',
@@ -161,7 +155,7 @@ const CULTURA_KEY_MAP = {
   'Trigo': 'trigo', 'Algodão': 'algodao', 'Boi Gordo': 'boi_gordo',
 }
 
-function GraficoCotacao({ historico, cor = '#16a34a' }) {
+function GraficoCotacao({ historico, cor = '#16a34a', prefixo = 'R$' }) {
   const svgRef = useRef(null)
   const [tooltip, setTooltip] = useState(null)
 
@@ -269,7 +263,7 @@ function GraficoCotacao({ historico, cor = '#16a34a' }) {
             <div xmlns="http://www.w3.org/1999/xhtml"
               style={{ background: '#1f2937', color: 'white', borderRadius: 8, padding: '4px 8px', fontSize: 11, lineHeight: '1.4', whiteSpace: 'nowrap', pointerEvents: 'none' }}>
               <div style={{ fontWeight: 600 }}>
-                R$ {Number(tooltip.ponto.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {prefixo} {Number(tooltip.ponto.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <div style={{ color: '#9ca3af', fontSize: 10 }}>{tooltip.ponto.label}</div>
             </div>
@@ -280,11 +274,10 @@ function GraficoCotacao({ historico, cor = '#16a34a' }) {
   )
 }
 
-// ── Card cotação ───────────────────────────────────────────────────────────
 function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
   const [culturaSel, setCulturaSel] = useState('')
   const [periodo, setPeriodo] = useState('1D')
-  const [moeda, setMoeda] = useState('BRL') // 'BRL' | 'orig'
+  const [moeda, setMoeda] = useState('BRL')
   const [carregandoGrafico, setCarregandoGrafico] = useState(false)
 
   const culturasDisp = useMemo(() => {
@@ -330,6 +323,12 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
   const minPeriodo = valores.length ? Math.min(...valores) : null
   const abertura = valores.length ? valores[0] : null
 
+  // Stats na moeda original: usar valorOrig direto (bruto da bolsa, ex: US¢/bu)
+  const valoresOrig = historico.map(h => h.valorOrig).filter(Boolean)
+  const maxPeriodoOrig = valoresOrig.length ? Math.max(...valoresOrig) : null
+  const minPeriodoOrig = valoresOrig.length ? Math.min(...valoresOrig) : null
+  const aberturaOrig = valoresOrig.length ? valoresOrig[0] : null
+
   // Toggle de moeda
   const siglaOrig = (cot.unidadeOriginal || 'US\u00a2').split('/')[0]
   const historicoExibido = moeda === 'BRL'
@@ -338,6 +337,12 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
   const precoExibido = moeda === 'BRL' ? Number(cot.valorBR || 0) : Number(cot.precoOriginal || 0)
   const unidExibida = moeda === 'BRL' ? (cot.unidBR || 'R$/sc') : (cot.unidadeOriginal || 'US\u00a2/bu')
   const prefixoExibido = moeda === 'BRL' ? 'R$' : siglaOrig
+
+  const fmtStat = (brl, orig) => {
+    const val = moeda === 'BRL' ? brl : orig
+    if (val == null) return '—'
+    return `${prefixoExibido} ${Number(val).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  }
 
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
@@ -375,15 +380,15 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
           <div className="grid grid-cols-3 md:grid-cols-1 gap-1.5">
             <div>
               <p className="text-[10px] text-gray-400">Abertura</p>
-              <p className="text-xs font-semibold text-gray-700">{abertura != null ? `${prefixoExibido} ${Number(moeda === 'BRL' ? abertura : abertura / (cot.cambio || 1)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</p>
+              <p className="text-xs font-semibold text-gray-700">{fmtStat(abertura, aberturaOrig)}</p>
             </div>
             <div>
               <p className="text-[10px] text-gray-400">Máx. {periodo}</p>
-              <p className="text-xs font-semibold text-green-700">{maxPeriodo != null ? `${prefixoExibido} ${Number(moeda === 'BRL' ? maxPeriodo : maxPeriodo / (cot.cambio || 1)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</p>
+              <p className="text-xs font-semibold text-green-700">{fmtStat(maxPeriodo, maxPeriodoOrig)}</p>
             </div>
             <div>
               <p className="text-[10px] text-gray-400">Mín. {periodo}</p>
-              <p className="text-xs font-semibold text-red-600">{minPeriodo != null ? `${prefixoExibido} ${Number(moeda === 'BRL' ? minPeriodo : minPeriodo / (cot.cambio || 1)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</p>
+              <p className="text-xs font-semibold text-red-600">{fmtStat(minPeriodo, minPeriodoOrig)}</p>
             </div>
           </div>
 
@@ -402,8 +407,6 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
 
         {/* Coluna direita */}
         <div className="flex-1 flex flex-col min-w-0 min-h-[200px]">
-
-          {/* Barra topo: seletor cultura (esq) + toggle moeda (dir) */}
           <div className="flex items-center justify-between px-3 pt-2 gap-2 min-h-[32px]">
             <div className="flex items-center gap-1">
               {culturasDisp.length > 1 && culturasDisp.map(c => (
@@ -413,7 +416,6 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
                 </button>
               ))}
             </div>
-            {/* Toggle BRL / moeda original */}
             <div className="flex rounded-full border border-gray-200 overflow-hidden text-[11px] font-medium flex-shrink-0">
               <button onClick={() => setMoeda('BRL')}
                 className={`px-2.5 py-0.5 transition-colors ${moeda === 'BRL' ? 'bg-green-700 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
@@ -426,17 +428,15 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
             </div>
           </div>
 
-          {/* Gráfico */}
           <div className="relative flex-1 overflow-hidden">
             {carregandoGrafico && (
               <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10">
                 <span className="text-xs text-gray-400">Carregando...</span>
               </div>
             )}
-            <GraficoCotacao historico={historicoExibido} cor={cor} />
+            <GraficoCotacao historico={historicoExibido} cor={cor} prefixo={prefixoExibido} />
           </div>
 
-          {/* Seletor de período */}
           <div className="flex border-t border-gray-100">
             {PERIODOS.map(p => (
               <button key={p} onClick={() => setPeriodo(p)}
@@ -451,13 +451,11 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
   )
 }
 
-// ── Card safra simples ─────────────────────────────────────────────────────
 function CardSafraSimples({ safra, climaProp }) {
   const previsao = climaProp?.previsao || []
   const alertasINMET = climaProp?.alertas || []
   const diasBons = diasBonsParaColheita(previsao)
   const localRef = [safra.cidadePropriedade, safra.estadoPropriedade].filter(Boolean).join(' - ')
-
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
       <div className="flex items-start justify-between gap-3 px-4 pt-3 pb-2">
@@ -479,9 +477,7 @@ function CardSafraSimples({ safra, climaProp }) {
           <AlertCircle size={13} className="text-amber-600 flex-shrink-0 mt-0.5" />
           <div className="min-w-0">
             <p className="text-xs text-amber-700 font-medium">{alertasINMET[0].evento} — {alertasINMET[0].severidade}</p>
-            {alertasINMET[0].statusLabel && (
-              <p className="text-[10px] text-amber-600 mt-0.5">{alertasINMET[0].statusLabel}</p>
-            )}
+            {alertasINMET[0].statusLabel && <p className="text-[10px] text-amber-600 mt-0.5">{alertasINMET[0].statusLabel}</p>}
           </div>
         </div>
       )}
@@ -490,7 +486,6 @@ function CardSafraSimples({ safra, climaProp }) {
   )
 }
 
-// ── Card safra com colheita ────────────────────────────────────────────────
 function CardSafraColheita({ safra, colheitas, lotesEstoque, climaProp }) {
   const previsao = climaProp?.previsao || []
   const alertasINMET = climaProp?.alertas || []
@@ -525,12 +520,9 @@ function CardSafraColheita({ safra, colheitas, lotesEstoque, climaProp }) {
     : null
   const temGargalo = saldoEstocar > 0 && diasSemEntrada !== null && diasSemEntrada > 4
   const progressoLavouras = totalLavouras > 0 ? (lavourasConcluidas / totalLavouras) * 100 : 0
-
   const tooltipEstocar = temGargalo
     ? `${saldoEstocar.toLocaleString('pt-BR')} ${unidade} aguardam entrada no estoque há ${diasSemEntrada} dias`
-    : saldoEstocar > 0
-    ? `${saldoEstocar.toLocaleString('pt-BR')} ${unidade} ainda não estocados`
-    : 'Tudo estocado'
+    : saldoEstocar > 0 ? `${saldoEstocar.toLocaleString('pt-BR')} ${unidade} ainda não estocados` : 'Tudo estocado'
 
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
@@ -544,7 +536,6 @@ function CardSafraColheita({ safra, colheitas, lotesEstoque, climaProp }) {
         </div>
         <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 flex-shrink-0 whitespace-nowrap font-medium">colheita ativa</span>
       </div>
-
       <div className="px-4 pb-2 space-y-1.5">
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-400 w-28 flex-shrink-0">Lavouras concluídas</span>
@@ -558,7 +549,6 @@ function CardSafraColheita({ safra, colheitas, lotesEstoque, climaProp }) {
           <span className="text-sm font-bold text-green-700">{totalColhido.toLocaleString('pt-BR')} {unidade}</span>
         </div>
       </div>
-
       <div className="grid grid-cols-3 gap-px bg-gray-100 border-t border-gray-100">
         <div className="bg-white px-3 py-2">
           <p className="text-sm font-semibold text-gray-800">{totalSemana.toLocaleString('pt-BR')} <span className="text-xs font-normal">{unidade}</span></p>
@@ -582,7 +572,6 @@ function CardSafraColheita({ safra, colheitas, lotesEstoque, climaProp }) {
           <p className="text-[10px] text-gray-400">sem chuva</p>
         </div>
       </div>
-
       {alertasINMET.length > 0 && (
         <div className={`mx-4 my-2 flex items-start gap-2 rounded-lg px-3 py-2 ${alertasINMET[0].grave ? 'bg-red-50' : 'bg-amber-50'}`}>
           <AlertCircle size={13} className={`flex-shrink-0 mt-0.5 ${alertasINMET[0].grave ? 'text-red-600' : 'text-amber-600'}`} />
@@ -603,7 +592,6 @@ function CardSafraColheita({ safra, colheitas, lotesEstoque, climaProp }) {
   )
 }
 
-// ── Componente principal ───────────────────────────────────────────────────
 export default function Dashboard() {
   const { usuario } = useAuth()
   const [loading, setLoading] = useState(true)
