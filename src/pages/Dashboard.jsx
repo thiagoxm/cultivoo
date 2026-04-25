@@ -323,13 +323,11 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
   const minPeriodo = valores.length ? Math.min(...valores) : null
   const abertura = valores.length ? valores[0] : null
 
-  // Stats na moeda original: usar valorOrig direto (bruto da bolsa, ex: US¢/bu)
   const valoresOrig = historico.map(h => h.valorOrig).filter(Boolean)
   const maxPeriodoOrig = valoresOrig.length ? Math.max(...valoresOrig) : null
   const minPeriodoOrig = valoresOrig.length ? Math.min(...valoresOrig) : null
   const aberturaOrig = valoresOrig.length ? valoresOrig[0] : null
 
-  // Toggle de moeda
   const siglaOrig = (cot.unidadeOriginal || 'US\u00a2').split('/')[0]
   const historicoExibido = moeda === 'BRL'
     ? historico
@@ -348,7 +346,6 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
       <div className="flex flex-col md:flex-row md:h-64">
 
-        {/* Coluna esquerda */}
         <div className="md:w-44 md:flex-shrink-0 px-4 pt-3 pb-3 md:border-r border-gray-100 flex flex-col gap-3">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-1.5">
@@ -392,7 +389,6 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
             </div>
           </div>
 
-          {/* Seletor cultura — mobile */}
           {culturasDisp.length > 1 && (
             <div className="flex md:hidden flex-wrap gap-1">
               {culturasDisp.map(c => (
@@ -405,7 +401,6 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
           )}
         </div>
 
-        {/* Coluna direita */}
         <div className="flex-1 flex flex-col min-w-0 min-h-[200px]">
           <div className="flex items-center justify-between px-3 pt-2 gap-2 min-h-[32px]">
             <div className="flex items-center gap-1">
@@ -467,9 +462,11 @@ function CardSafraSimples({ safra, climaProp }) {
           </div>
         </div>
         {diasBons > 0 && (
-          <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 flex-shrink-0 whitespace-nowrap font-medium">
-            {diasBons}d sem chuva
-          </span>
+          <Tooltip texto="Dias com precipitação < 2mm na previsão dos próximos 7 dias">
+            <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 flex-shrink-0 whitespace-nowrap font-medium cursor-help">
+              {diasBons}d secos (prev.)
+            </span>
+          </Tooltip>
         )}
       </div>
       {alertasINMET.length > 0 && (
@@ -510,18 +507,18 @@ function CardSafraColheita({ safra, colheitas, lotesEstoque, climaProp }) {
     .reduce((s, l) => s + (Number(l.quantidadeEntrada) || 0), 0)
   const saldoEstocar = Math.max(0, totalColhido - qtdEstocada)
 
-  const datasEntrada = lotesEstoque
-    .filter(l => !l.cancelado && colheitas.some(c => c.id === l.colheitaOrigemId))
-    .map(l => l.dataColheita || l.criadoEm?.toDate?.()?.toISOString()?.split('T')[0])
-    .filter(Boolean).sort()
-  const ultimaEntrada = datasEntrada[datasEntrada.length - 1]
-  const diasSemEntrada = ultimaEntrada
-    ? Math.ceil((HOJE_DATE - new Date(ultimaEntrada + 'T00:00:00')) / 86400000)
+  const datasColheita = colheitas
+    .filter(c => c.dataColheita)
+    .map(c => c.dataColheita)
+    .sort()
+  const ultimaColheita = datasColheita[datasColheita.length - 1]
+  const diasSemEntrada = ultimaColheita
+    ? Math.ceil((HOJE_DATE - new Date(ultimaColheita + 'T00:00:00')) / 86400000)
     : null
   const temGargalo = saldoEstocar > 0 && diasSemEntrada !== null && diasSemEntrada > 4
   const progressoLavouras = totalLavouras > 0 ? (lavourasConcluidas / totalLavouras) * 100 : 0
   const tooltipEstocar = temGargalo
-    ? `${saldoEstocar.toLocaleString('pt-BR')} ${unidade} aguardam entrada no estoque há ${diasSemEntrada} dias`
+    ? `${saldoEstocar.toLocaleString('pt-BR')} ${unidade} aguardam estocagem há ${diasSemEntrada} dias desde a última colheita`
     : saldoEstocar > 0 ? `${saldoEstocar.toLocaleString('pt-BR')} ${unidade} ainda não estocados` : 'Tudo estocado'
 
   return (
@@ -569,7 +566,7 @@ function CardSafraColheita({ safra, colheitas, lotesEstoque, climaProp }) {
         </div>
         <div className="bg-white px-3 py-2">
           <p className="text-sm font-semibold text-gray-800">{diasBonsParaColheita(previsao)} <span className="text-xs font-normal">dias</span></p>
-          <p className="text-[10px] text-gray-400">sem chuva</p>
+          <p className="text-[10px] text-gray-400">secos (prev.)</p>
         </div>
       </div>
       {alertasINMET.length > 0 && (
@@ -606,6 +603,9 @@ export default function Dashboard() {
   const [confirmacaoStatus, setConfirmacaoStatus] = useState(null)
   const [salvandoStatus, setSalvandoStatus] = useState(false)
   const [cotacoes, setCotacoes] = useState({})
+  const [expandidoAlertas, setExpandidoAlertas] = useState(false)
+  const [expandidoVencimentos, setExpandidoVencimentos] = useState(false)
+  const [modalDetalheVenc, setModalDetalheVenc] = useState(null)
 
   const clima = useClima(
     propriedades.map(p => ({ id: p.id, nome: p.nome, lat: p.lat, lng: p.lng, cidade: p.cidade, estado: p.estado }))
@@ -706,7 +706,7 @@ export default function Dashboard() {
 
   const vencimentos7Dias = useMemo(() =>
     financeiro.filter(f => f.status === 'pendente' && f.vencimento && f.vencimento >= HOJE && f.vencimento <= EM7DIAS_STR && !f.cancelado)
-      .sort((a, b) => a.vencimento.localeCompare(b.vencimento)).slice(0, 6)
+      .sort((a, b) => a.vencimento.localeCompare(b.vencimento))
   , [financeiro])
 
   const resumoMes = useMemo(() => {
@@ -748,15 +748,16 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         {alertasCriticos.length > 0 && (
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100">
-              <AlertCircle size={15} className="text-gray-400" />
-              <span className="text-sm font-semibold text-gray-800">Alertas</span>
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2 mb-2">
+              <AlertCircle size={13} className={criticos.length > 0 ? 'text-red-500' : atencao.length > 0 ? 'text-amber-500' : 'text-gray-400'} />
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Alertas</span>
               {criticos.length > 0 && <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-50 text-red-700">{criticos.length} urgente{criticos.length > 1 ? 's' : ''}</span>}
               {atencao.length > 0 && <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">{atencao.length} atenção</span>}
+              <div className="flex-1 h-px bg-gray-200" />
             </div>
-            <div>
-              {alertasCriticos.map(a => (
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden flex-1">
+              {(expandidoAlertas ? alertasCriticos : alertasCriticos.slice(0, 4)).map(a => (
                 <div key={a.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
                   <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${a.tipo === 'critico' ? 'bg-red-50' : 'bg-amber-50'}`}>
                     <AlertCircle size={14} className={a.tipo === 'critico' ? 'text-red-600' : 'text-amber-600'} />
@@ -775,42 +776,52 @@ export default function Dashboard() {
                   </div>
                 </div>
               ))}
+              {alertasCriticos.length > 4 && (
+                <button onClick={() => setExpandidoAlertas(e => !e)} className="w-full text-xs text-gray-400 py-2 hover:text-gray-600 transition-colors border-t border-gray-50">
+                  {expandidoAlertas ? 'ver menos ↑' : `ver mais (${alertasCriticos.length - 4}) ↓`}
+                </button>
+              )}
             </div>
           </div>
         )}
 
         {vencimentos7Dias.length > 0 && (
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100">
-              <CalendarClock size={15} className="text-gray-400" />
-              <span className="text-sm font-semibold text-gray-800">Vencimentos — próximos 7 dias</span>
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2 mb-2">
+              <CalendarClock size={13} className="text-blue-500" />
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Vencimentos — próximos 7 dias</span>
+              <div className="flex-1 h-px bg-gray-200" />
             </div>
-            {vencimentos7Dias.map(f => {
-              const diff = diffDias(f.vencimento)
-              const isReceita = f.tipo === 'receita'
-              return (
-                <div key={f.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
-                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${isReceita ? 'bg-green-50' : 'bg-red-50'}`}>
-                    <CalendarClock size={13} className={isReceita ? 'text-green-600' : 'text-red-600'} />
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden flex-1">
+              {(expandidoVencimentos ? vencimentos7Dias : vencimentos7Dias.slice(0, 4)).map(f => {
+                const diff = diffDias(f.vencimento)
+                const isReceita = f.tipo === 'receita'
+                return (
+                  <div key={f.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${isReceita ? 'bg-green-50' : 'bg-red-50'}`}>
+                      <CalendarClock size={13} className={isReceita ? 'text-green-600' : 'text-red-600'} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-800 truncate">{f.descricao || f.categoria || '—'}</p>
+                      <p className="text-xs text-gray-400">{formatarData(f.vencimento)} · R$ {formatarValor(f.valor)}</p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${isReceita ? (diff <= 0 ? 'bg-green-100 text-green-800' : 'bg-green-50 text-green-700') : (diff <= 1 ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700')}`}>
+                        {diff <= 0 ? 'hoje' : `em ${diff}d`}
+                      </span>
+                      <button onClick={() => setModalDetalheVenc(f)} className="text-gray-300 hover:text-blue-500 transition-colors p-0.5">
+                        <Info size={15} />
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800 truncate">{f.descricao || f.categoria || '—'}</p>
-                    <p className="text-xs text-gray-400">{formatarData(f.vencimento)} · R$ {formatarValor(f.valor)}</p>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${isReceita ? 'bg-green-50 text-green-700' : diff <= 1 ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>
-                      {isReceita ? 'a receber' : diff <= 0 ? 'hoje' : `em ${diff}d`}
-                    </span>
-                    <button onClick={() => solicitarMarcarStatus(f, isReceita ? 'recebido' : 'pago')} disabled={salvandoStatus} className="text-gray-300 hover:text-green-600 disabled:opacity-40 transition-colors p-0.5">
-                      <CheckCircle size={15} />
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
-            <Link to="/financeiro" className="block text-xs text-gray-400 text-center py-2 border-t border-gray-50 hover:text-gray-600 transition-colors">
-              ver todos no Financeiro →
-            </Link>
+                )
+              })}
+              {vencimentos7Dias.length > 4 && (
+                <button onClick={() => setExpandidoVencimentos(e => !e)} className="w-full text-xs text-gray-400 py-2 hover:text-gray-600 transition-colors border-t border-gray-50">
+                  {expandidoVencimentos ? 'ver menos ↑' : `ver mais (${vencimentos7Dias.length - 4}) ↓`}
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -820,6 +831,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-2">
             <Wheat size={14} className="text-green-700" />
             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Safras em andamento</span>
+            <div className="flex-1 h-px bg-gray-200" />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {safrasAtivas.map(safra => {
@@ -839,24 +851,31 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="grid grid-cols-3 gap-px bg-gray-100">
-          <div className="bg-white px-4 py-3">
-            <div className="flex items-center gap-1.5 mb-1"><TrendingUp size={13} className="text-green-600" /><p className="text-xs text-gray-400">Receitas</p></div>
-            <p className="text-base font-bold text-green-700">{formatarMoeda(resumoMes.receitas)}</p>
-            <p className="text-[10px] text-gray-400 mt-0.5">este mês</p>
-          </div>
-          <div className="bg-white px-4 py-3">
-            <div className="flex items-center gap-1.5 mb-1"><TrendingDown size={13} className="text-red-500" /><p className="text-xs text-gray-400">Despesas</p></div>
-            <p className="text-base font-bold text-red-600">{formatarMoeda(resumoMes.despesas)}</p>
-            <p className="text-[10px] text-gray-400 mt-0.5">este mês</p>
-          </div>
-          <div className="bg-white px-4 py-3">
-            <p className="text-xs text-gray-400 mb-1">Saldo</p>
-            <p className={`text-base font-bold ${resumoMes.saldo >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-              {resumoMes.saldo < 0 ? '−' : ''}{formatarMoeda(Math.abs(resumoMes.saldo))}
-            </p>
-            <Link to="/indicadores" className="text-[10px] text-gray-400 hover:text-green-700 transition-colors mt-0.5 block">ver Indicadores →</Link>
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <TrendingUp size={13} className="text-green-600" />
+          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Resumo do mês</span>
+          <div className="flex-1 h-px bg-gray-200" />
+        </div>
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="grid grid-cols-3 gap-px bg-gray-100">
+            <div className="bg-white px-4 py-3">
+              <div className="flex items-center gap-1.5 mb-1"><TrendingUp size={13} className="text-green-600" /><p className="text-xs text-gray-400">Receitas</p></div>
+              <p className="text-base font-bold text-green-700">{formatarMoeda(resumoMes.receitas)}</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">este mês</p>
+            </div>
+            <div className="bg-white px-4 py-3">
+              <div className="flex items-center gap-1.5 mb-1"><TrendingDown size={13} className="text-red-500" /><p className="text-xs text-gray-400">Despesas</p></div>
+              <p className="text-base font-bold text-red-600">{formatarMoeda(resumoMes.despesas)}</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">este mês</p>
+            </div>
+            <div className="bg-white px-4 py-3">
+              <p className="text-xs text-gray-400 mb-1">Saldo</p>
+              <p className={`text-base font-bold ${resumoMes.saldo >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                {resumoMes.saldo < 0 ? '−' : ''}{formatarMoeda(Math.abs(resumoMes.saldo))}
+              </p>
+              <Link to="/indicadores" className="text-[10px] text-gray-400 hover:text-green-700 transition-colors mt-0.5 block">ver Indicadores →</Link>
+            </div>
           </div>
         </div>
       </div>
@@ -893,7 +912,7 @@ export default function Dashboard() {
                   </div>
                   <button onClick={() => solicitarMarcarStatus(item, 'pago')} disabled={salvandoStatus}
                     className="flex items-center gap-1 text-xs text-white px-3 py-1.5 rounded-lg disabled:opacity-50 flex-shrink-0"
-                    style={{ background: 'var(--brand-gradient)' }}>
+                    style={{ background: 'linear-gradient(to right, #ef6464, #e31f1f)' }}>
                     <CheckCircle size={11} />Pago
                   </button>
                 </div>
@@ -902,6 +921,50 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {modalDetalheVenc && (() => {
+        const f = modalDetalheVenc
+        const isReceita = f.tipo === 'receita'
+        const campos = [
+          { label: 'Descrição', valor: f.descricao },
+          { label: 'Tipo', valor: isReceita ? 'Receita' : 'Despesa' },
+          { label: 'Categoria', valor: f.categoria },
+          { label: 'Tipo detalhe', valor: f.tipoDespesa },
+          { label: 'Valor', valor: `R$ ${formatarValor(f.valor)}` },
+          { label: 'Vencimento', valor: formatarData(f.vencimento) },
+          { label: 'Situação', valor: f.status === 'pendente' ? 'Pendente' : f.status === 'pago' ? 'Pago' : f.status === 'recebido' ? 'Recebido' : f.status },
+          { label: 'Nº Doc.', valor: f.notaRef },
+        ].filter(r => r.valor && r.valor !== '—' && r.valor !== '')
+        return (
+          <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-gray-800">Detalhes do vencimento</h3>
+                <button onClick={() => setModalDetalheVenc(null)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+                {campos.map(row => (
+                  <div key={row.label} className="flex justify-between gap-2">
+                    <span className="text-xs text-gray-500">{row.label}</span>
+                    <span className="text-xs font-medium text-gray-800 text-right">{row.valor}</span>
+                  </div>
+                ))}
+              </div>
+              {f.status === 'pendente' && (
+                <button
+                  onClick={() => { setModalDetalheVenc(null); solicitarMarcarStatus(f, isReceita ? 'recebido' : 'pago') }}
+                  disabled={salvandoStatus}
+                  className="w-full flex items-center justify-center gap-2 text-sm text-white py-2.5 rounded-xl font-medium disabled:opacity-50 shadow-md"
+                  style={{ background: isReceita ? 'var(--brand-gradient)' : 'linear-gradient(to right, #ef6464, #e31f1f)' }}>
+                  <CheckCircle size={14} />
+                  {isReceita ? 'Marcar como recebido' : 'Marcar como pago'}
+                </button>
+              )}
+              <button onClick={() => setModalDetalheVenc(null)} className="w-full border border-gray-300 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">Fechar</button>
+            </div>
+          </div>
+        )
+      })()}
 
       {confirmacaoStatus && (
         <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
