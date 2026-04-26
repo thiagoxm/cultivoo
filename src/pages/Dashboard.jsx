@@ -225,7 +225,7 @@ function GraficoCotacao({ historico, cor = '#16a34a', prefixo = 'R$' }) {
   return (
     <div className="w-full h-full">
       <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full block"
-        style={{ height: '100%', minHeight: 150, touchAction: 'none' }}
+        style={{ height: '100%', minHeight: 200, touchAction: 'none' }}
         onMouseMove={handleMouseMove} onMouseLeave={() => setTooltip(null)}
         onTouchMove={handleTouchMove} onTouchEnd={() => setTimeout(() => setTooltip(null), 2000)}>
         <defs>
@@ -276,7 +276,7 @@ function GraficoCotacao({ historico, cor = '#16a34a', prefixo = 'R$' }) {
 
 function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
   const [culturaSel, setCulturaSel] = useState('')
-  const [periodo, setPeriodo] = useState('1D')
+  const [periodo, setPeriodo] = useState('5D')
   const [moeda, setMoeda] = useState('BRL')
   const [carregandoGrafico, setCarregandoGrafico] = useState(false)
 
@@ -343,8 +343,8 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="flex flex-col md:flex-row md:h-64">
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden h-full">
+      <div className="flex flex-col md:flex-row h-full">
 
         <div className="md:w-44 md:flex-shrink-0 px-4 pt-3 pb-3 md:border-r border-gray-100 flex flex-col gap-3">
           <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -388,20 +388,9 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
               <p className="text-xs font-semibold text-red-600">{fmtStat(minPeriodo, minPeriodoOrig)}</p>
             </div>
           </div>
-
-          {culturasDisp.length > 1 && (
-            <div className="flex md:hidden flex-wrap gap-1">
-              {culturasDisp.map(c => (
-                <button key={c} onClick={() => setCulturaSel(c)}
-                  className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${culturaEfetiva === c ? 'bg-green-700 text-white border-green-700' : 'border-gray-200 text-gray-500 hover:border-green-400'}`}>
-                  {c}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
 
-        <div className="flex-1 flex flex-col min-w-0 min-h-[200px]">
+        <div className="flex-1 flex flex-col min-w-0 min-h-[260px]">
           <div className="flex items-center justify-between px-3 pt-2 gap-2 min-h-[32px]">
             <div className="flex items-center gap-1">
               {culturasDisp.length > 1 && culturasDisp.map(c => (
@@ -843,23 +832,11 @@ export default function Dashboard() {
               <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Safras em andamento</span>
               <div className="flex-1 h-px bg-gray-200" />
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {n === 1 ? (
-                <>
-                  <div>{cardsSafra[0]}</div>
-                  <div>{cardCot}</div>
-                </>
-              ) : n === 2 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:items-stretch">
+              {n % 2 === 1 ? (
                 <>
                   {cardsSafra}
-                  <div className="md:col-span-2">{cardCot}</div>
-                </>
-              ) : n === 3 ? (
-                <>
-                  {cardsSafra[0]}
-                  {cardsSafra[1]}
-                  {cardsSafra[2]}
-                  <div>{cardCot}</div>
+                  <div className="flex flex-col">{cardCot}</div>
                 </>
               ) : (
                 <>
