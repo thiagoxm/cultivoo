@@ -826,30 +826,51 @@ export default function Dashboard() {
         )}
       </div>
 
-      {safrasAtivas.length > 0 && (
-        <div className="space-y-3 mb-4">
-          <div className="flex items-center gap-2">
-            <Wheat size={14} className="text-green-700" />
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Safras em andamento</span>
-            <div className="flex-1 h-px bg-gray-200" />
+      {safrasAtivas.length > 0 && (() => {
+        const n = safrasAtivas.length
+        const cardsSafra = safrasAtivas.map(safra => {
+          const colheitasDaSafra = colheitas.filter(c => c.safraId === safra.id)
+          const climaProp = clima[safra.propriedadeId] || null
+          const temColheita = safrasComColheita.has(safra.id)
+          if (temColheita) return <CardSafraColheita key={safra.id} safra={safra} colheitas={colheitasDaSafra} lotesEstoque={lotesEstoque} climaProp={climaProp} />
+          return <CardSafraSimples key={safra.id} safra={safra} climaProp={climaProp} />
+        })
+        const cardCot = <CardCotacao key="cotacao" safrasAtivas={safrasAtivas} cotacoes={cotacoes} setCotacoes={setCotacoes} />
+        return (
+          <div className="space-y-3 mb-4">
+            <div className="flex items-center gap-2">
+              <Wheat size={14} className="text-green-700" />
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Safras em andamento</span>
+              <div className="flex-1 h-px bg-gray-200" />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {n === 1 ? (
+                <>
+                  <div>{cardsSafra[0]}</div>
+                  <div>{cardCot}</div>
+                </>
+              ) : n === 2 ? (
+                <>
+                  {cardsSafra}
+                  <div className="md:col-span-2">{cardCot}</div>
+                </>
+              ) : n === 3 ? (
+                <>
+                  {cardsSafra[0]}
+                  {cardsSafra[1]}
+                  {cardsSafra[2]}
+                  <div>{cardCot}</div>
+                </>
+              ) : (
+                <>
+                  {cardsSafra}
+                  <div className="md:col-span-2">{cardCot}</div>
+                </>
+              )}
+            </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {safrasAtivas.map(safra => {
-              const colheitasDaSafra = colheitas.filter(c => c.safraId === safra.id)
-              const climaProp = clima[safra.propriedadeId] || null
-              const temColheita = safrasComColheita.has(safra.id)
-              if (temColheita) return <CardSafraColheita key={safra.id} safra={safra} colheitas={colheitasDaSafra} lotesEstoque={lotesEstoque} climaProp={climaProp} />
-              return <CardSafraSimples key={safra.id} safra={safra} climaProp={climaProp} />
-            })}
-          </div>
-        </div>
-      )}
-
-      {safrasAtivas.length > 0 && (
-        <div className="mb-4">
-          <CardCotacao safrasAtivas={safrasAtivas} cotacoes={cotacoes} setCotacoes={setCotacoes} />
-        </div>
-      )}
+        )
+      })()}
 
       <div>
         <div className="flex items-center gap-2 mb-2">
