@@ -156,19 +156,31 @@ const CULTURA_KEY_MAP = {
 }
 
 function GraficoCotacao({ historico, cor = '#16a34a', prefixo = 'R$' }) {
+  const containerRef = useRef(null)
   const svgRef = useRef(null)
   const [tooltip, setTooltip] = useState(null)
+  const [dims, setDims] = useState({ W: 600, H: 220 })
+
+  useEffect(() => {
+    if (!containerRef.current) return
+    const obs = new ResizeObserver(entries => {
+      const { width, height } = entries[0].contentRect
+      if (width > 10 && height > 10) setDims({ W: Math.round(width), H: Math.round(height) })
+    })
+    obs.observe(containerRef.current)
+    return () => obs.disconnect()
+  }, [])
 
   if (!historico || historico.length < 2) return (
     <div className="flex items-center justify-center h-28 text-xs text-gray-400">Sem dados para o período</div>
   )
 
+  const { W, H } = dims
   const valores = historico.map(h => h.valor)
   const minV = Math.min(...valores)
   const maxV = Math.max(...valores)
   const amp = maxV - minV || 1
 
-  const W = 600, H = 150
   const padLeft = 52, padRight = 28, padTop = 10, padBottom = 28
   const chartW = W - padLeft - padRight
   const chartH = H - padTop - padBottom
@@ -192,8 +204,7 @@ function GraficoCotacao({ historico, cor = '#16a34a', prefixo = 'R$' }) {
   const stepX = Math.max(1, Math.floor((historico.length - 1) / (maxLabelsX - 1)))
   const labelsX = []
   for (let i = 0; i < historico.length; i += stepX) labelsX.push({ i, x: toX(i), label: historico[i].label })
-  const last = historico.length - 1
-  if (labelsX[labelsX.length - 1]?.i !== last) labelsX.push({ i: last, x: toX(last), label: historico[last].label })
+  // Não forçar último ponto — evita sobreposição de labels
 
   function handleMouseMove(e) {
     const svg = svgRef.current; if (!svg) return
@@ -223,9 +234,9 @@ function GraficoCotacao({ historico, cor = '#16a34a', prefixo = 'R$' }) {
     : 0
 
   return (
-    <div className="w-full h-full">
-      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full block"
-        style={{ height: '100%', minHeight: 200, touchAction: 'none' }}
+    <div ref={containerRef} className="w-full h-full" style={{ minHeight: 200 }}>
+      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} width={W} height={H} className="block"
+        style={{ touchAction: 'none' }}
         onMouseMove={handleMouseMove} onMouseLeave={() => setTooltip(null)}
         onTouchMove={handleTouchMove} onTouchEnd={() => setTimeout(() => setTooltip(null), 2000)}>
         <defs>
@@ -354,7 +365,7 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
             </div>
             {cot.timestamp && (
               <span className="text-[10px] text-gray-400">
-                {new Date(cot.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                {new Date(cot.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })}
               </span>
             )}
           </div>
