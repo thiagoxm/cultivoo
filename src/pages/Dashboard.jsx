@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import {
   AlertCircle, CalendarClock, Wheat,
   TrendingUp, TrendingDown, CheckCircle, X,
-  AlertTriangle, BarChart2, Info
+  AlertTriangle, BarChart2, Info, Package, Cloud
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useClima, diasBonsParaColheita, nomeDiaSemana } from '../hooks/useClima'
@@ -180,31 +180,19 @@ function GraficoCotacao({ historico, cor = '#16a34a', prefixo = 'R$' }) {
   const minV = Math.min(...valores)
   const maxV = Math.max(...valores)
   const amp = maxV - minV || 1
-
   const padLeft = 52, padRight = 28, padTop = 10, padBottom = 28
   const chartW = W - padLeft - padRight
   const chartH = H - padTop - padBottom
-
   const toX = i => padLeft + (i / (historico.length - 1)) * chartW
   const toY = v => padTop + chartH - ((v - minV) / amp) * chartH
-
   const pontos = historico.map((h, i) => ({ x: toX(i), y: toY(h.valor), ...h }))
   const polyline = pontos.map(p => `${p.x},${p.y}`).join(' ')
-  const areaPath =
-    `M ${pontos[0].x},${padTop + chartH} ` +
-    pontos.map(p => `L ${p.x},${p.y}`).join(' ') +
-    ` L ${pontos[pontos.length - 1].x},${padTop + chartH} Z`
-
-  const labelsY = Array.from({ length: 5 }, (_, i) => ({
-    v: minV + (amp * i) / 4,
-    y: toY(minV + (amp * i) / 4),
-  }))
-
+  const areaPath = `M ${pontos[0].x},${padTop + chartH} ` + pontos.map(p => `L ${p.x},${p.y}`).join(' ') + ` L ${pontos[pontos.length - 1].x},${padTop + chartH} Z`
+  const labelsY = Array.from({ length: 5 }, (_, i) => ({ v: minV + (amp * i) / 4, y: toY(minV + (amp * i) / 4) }))
   const maxLabelsX = Math.min(6, historico.length)
   const stepX = Math.max(1, Math.floor((historico.length - 1) / (maxLabelsX - 1)))
   const labelsX = []
   for (let i = 0; i < historico.length; i += stepX) labelsX.push({ i, x: toX(i), label: historico[i].label })
-  // Não forçar último ponto — evita sobreposição de labels
 
   function handleMouseMove(e) {
     const svg = svgRef.current; if (!svg) return
@@ -215,7 +203,6 @@ function GraficoCotacao({ historico, cor = '#16a34a', prefixo = 'R$' }) {
     pontos.forEach(p => { const d = Math.abs(p.x - svgP.x); if (d < minDist) { minDist = d; closest = p } })
     setTooltip({ svgX: closest.x, svgY: closest.y, ponto: closest })
   }
-
   function handleTouchMove(e) {
     e.preventDefault()
     const touch = e.touches[0]; if (!touch) return
@@ -227,16 +214,12 @@ function GraficoCotacao({ historico, cor = '#16a34a', prefixo = 'R$' }) {
     pontos.forEach(p => { const d = Math.abs(p.x - svgP.x); if (d < minDist) { minDist = d; closest = p } })
     setTooltip({ svgX: closest.x, svgY: closest.y, ponto: closest })
   }
-
   const TOOLTIP_W = 110
-  const tooltipX = tooltip
-    ? (tooltip.svgX + TOOLTIP_W > W - padRight ? tooltip.svgX - TOOLTIP_W - 6 : tooltip.svgX + 6)
-    : 0
+  const tooltipX = tooltip ? (tooltip.svgX + TOOLTIP_W > W - padRight ? tooltip.svgX - TOOLTIP_W - 6 : tooltip.svgX + 6) : 0
 
   return (
     <div ref={containerRef} className="w-full h-full" style={{ minHeight: 200 }}>
-      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} width={W} height={H} className="block"
-        style={{ touchAction: 'none' }}
+      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} width={W} height={H} className="block" style={{ touchAction: 'none' }}
         onMouseMove={handleMouseMove} onMouseLeave={() => setTooltip(null)}
         onTouchMove={handleTouchMove} onTouchEnd={() => setTimeout(() => setTooltip(null), 2000)}>
         <defs>
@@ -244,13 +227,9 @@ function GraficoCotacao({ historico, cor = '#16a34a', prefixo = 'R$' }) {
             <stop offset="0%" stopColor={cor} stopOpacity="0.18" />
             <stop offset="100%" stopColor={cor} stopOpacity="0" />
           </linearGradient>
-          <clipPath id="clip-chart">
-            <rect x={padLeft} y={padTop} width={chartW} height={chartH} />
-          </clipPath>
+          <clipPath id="clip-chart"><rect x={padLeft} y={padTop} width={chartW} height={chartH} /></clipPath>
         </defs>
-        {labelsY.map(({ y }, i) => (
-          <line key={i} x1={padLeft} y1={y} x2={W - padRight} y2={y} stroke="#f3f4f6" strokeWidth="1" />
-        ))}
+        {labelsY.map(({ y }, i) => <line key={i} x1={padLeft} y1={y} x2={W - padRight} y2={y} stroke="#f3f4f6" strokeWidth="1" />)}
         <g clipPath="url(#clip-chart)">
           <path d={areaPath} fill="url(#grad-cot)" />
           <polyline points={polyline} fill="none" stroke={cor} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
@@ -263,19 +242,14 @@ function GraficoCotacao({ historico, cor = '#16a34a', prefixo = 'R$' }) {
         {labelsX.map(({ x, label, i: idx }) => (
           <text key={idx} x={x} y={H - 6} textAnchor="middle" fontSize="9" fill="#9ca3af" fontFamily="sans-serif">{label}</text>
         ))}
-        {tooltip && (
-          <>
-            <line x1={tooltip.svgX} y1={padTop} x2={tooltip.svgX} y2={padTop + chartH} stroke="#d1d5db" strokeWidth="1" strokeDasharray="3,3" />
-            <circle cx={tooltip.svgX} cy={tooltip.svgY} r="4" fill={cor} stroke="white" strokeWidth="2" />
-          </>
-        )}
+        {tooltip && <>
+          <line x1={tooltip.svgX} y1={padTop} x2={tooltip.svgX} y2={padTop + chartH} stroke="#d1d5db" strokeWidth="1" strokeDasharray="3,3" />
+          <circle cx={tooltip.svgX} cy={tooltip.svgY} r="4" fill={cor} stroke="white" strokeWidth="2" />
+        </>}
         {tooltip && (
           <foreignObject x={tooltipX} y={padTop + 2} width={TOOLTIP_W} height={44}>
-            <div xmlns="http://www.w3.org/1999/xhtml"
-              style={{ background: '#1f2937', color: 'white', borderRadius: 8, padding: '4px 8px', fontSize: 11, lineHeight: '1.4', whiteSpace: 'nowrap', pointerEvents: 'none' }}>
-              <div style={{ fontWeight: 600 }}>
-                {prefixo} {Number(tooltip.ponto.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </div>
+            <div xmlns="http://www.w3.org/1999/xhtml" style={{ background: '#1f2937', color: 'white', borderRadius: 8, padding: '4px 8px', fontSize: 11, lineHeight: '1.4', whiteSpace: 'nowrap', pointerEvents: 'none' }}>
+              <div style={{ fontWeight: 600 }}>{prefixo} {Number(tooltip.ponto.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
               <div style={{ color: '#9ca3af', fontSize: 10 }}>{tooltip.ponto.label}</div>
             </div>
           </foreignObject>
@@ -290,41 +264,26 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
   const [periodo, setPeriodo] = useState('5D')
   const [moeda, setMoeda] = useState('BRL')
   const [carregandoGrafico, setCarregandoGrafico] = useState(false)
-
   const culturasDisp = useMemo(() => {
     const culturas = [...new Set(safrasAtivas.map(s => s.cultura).filter(Boolean))]
     return culturas.filter(c => cotacoes[c])
   }, [safrasAtivas, cotacoes])
-
   const culturaEfetiva = culturaSel && cotacoes[culturaSel] ? culturaSel : culturasDisp[0] || ''
   const cot = cotacoes[culturaEfetiva]
-
   useEffect(() => {
     if (!culturaEfetiva) return
     const chaveAPI = CULTURA_KEY_MAP[culturaEfetiva]
     if (!chaveAPI) return
     setCarregandoGrafico(true)
     fetch(`/api/cotacao?cultura=${chaveAPI}&periodo=${periodo}`)
-      .then(r => r.json())
-      .then(data => {
+      .then(r => r.json()).then(data => {
         if (!data.ok) return
         const novoCot = data.culturas?.[chaveAPI]
-        if (novoCot?.ok) {
-          setCotacoes(prev => ({
-            ...prev,
-            [culturaEfetiva]: { ...prev[culturaEfetiva], historico: novoCot.historico, periodo },
-          }))
-        }
-      })
-      .catch(() => {})
-      .finally(() => setCarregandoGrafico(false))
+        if (novoCot?.ok) setCotacoes(prev => ({ ...prev, [culturaEfetiva]: { ...prev[culturaEfetiva], historico: novoCot.historico, periodo } }))
+      }).catch(() => {}).finally(() => setCarregandoGrafico(false))
   }, [culturaEfetiva, periodo])
-
-  if (!cot && culturasDisp.length === 0) return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3 text-xs text-gray-400">Cotação indisponível</div>
-  )
+  if (!cot && culturasDisp.length === 0) return <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3 text-xs text-gray-400">Cotação indisponível</div>
   if (!cot) return null
-
   const historico = cot.historico || []
   const valores = historico.map(h => h.valor).filter(Boolean)
   const subiu = valores.length >= 2 ? valores[valores.length - 1] >= valores[0] : true
@@ -333,48 +292,27 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
   const maxPeriodo = valores.length ? Math.max(...valores) : null
   const minPeriodo = valores.length ? Math.min(...valores) : null
   const abertura = valores.length ? valores[0] : null
-
   const valoresOrig = historico.map(h => h.valorOrig).filter(Boolean)
   const maxPeriodoOrig = valoresOrig.length ? Math.max(...valoresOrig) : null
   const minPeriodoOrig = valoresOrig.length ? Math.min(...valoresOrig) : null
   const aberturaOrig = valoresOrig.length ? valoresOrig[0] : null
-
   const siglaOrig = (cot.unidadeOriginal || 'US\u00a2').split('/')[0]
-  const historicoExibido = moeda === 'BRL'
-    ? historico
-    : historico.map(h => ({ ...h, valor: h.valorOrig ?? (h.valor / (cot.cambio || 1)) }))
+  const historicoExibido = moeda === 'BRL' ? historico : historico.map(h => ({ ...h, valor: h.valorOrig ?? (h.valor / (cot.cambio || 1)) }))
   const precoExibido = moeda === 'BRL' ? Number(cot.valorBR || 0) : Number(cot.precoOriginal || 0)
   const unidExibida = moeda === 'BRL' ? (cot.unidBR || 'R$/sc') : (cot.unidadeOriginal || 'US\u00a2/bu')
   const prefixoExibido = moeda === 'BRL' ? 'R$' : siglaOrig
-
-  const fmtStat = (brl, orig) => {
-    const val = moeda === 'BRL' ? brl : orig
-    if (val == null) return '—'
-    return `${prefixoExibido} ${Number(val).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-  }
-
+  const fmtStat = (brl, orig) => { const val = moeda === 'BRL' ? brl : orig; if (val == null) return '—'; return `${prefixoExibido} ${Number(val).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden h-full">
       <div className="flex flex-col md:flex-row h-full">
-
         <div className="md:w-44 md:flex-shrink-0 px-4 pt-3 pb-3 md:border-r border-gray-100 flex flex-col gap-3">
           <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-1.5">
-              <BarChart2 size={13} className="text-gray-400" />
-              <span className="text-sm font-semibold text-gray-800">Cotação</span>
-            </div>
-            {cot.timestamp && (
-              <span className="text-[10px] text-gray-400">
-                {new Date(cot.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })}
-              </span>
-            )}
+            <div className="flex items-center gap-1.5"><BarChart2 size={13} className="text-gray-400" /><span className="text-sm font-semibold text-gray-800">Cotação</span></div>
+            {cot.timestamp && <span className="text-[10px] text-gray-400">{new Date(cot.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })}</span>}
           </div>
-
           <div>
             <p className="text-[10px] text-gray-400 leading-tight">{culturaEfetiva} · {cot.bolsa}</p>
-            <p className="text-2xl font-bold text-gray-800 leading-tight">
-              {prefixoExibido} {precoExibido.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </p>
+            <p className="text-2xl font-bold text-gray-800 leading-tight">{prefixoExibido} {precoExibido.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
             <p className="text-[10px] text-gray-400">{unidExibida}</p>
             {variacaoPeriodo !== null && (
               <span className={`inline-flex items-center gap-0.5 text-xs font-semibold mt-1 ${variacaoPeriodo >= 0 ? 'text-green-600' : 'text-red-600'}`}>
@@ -384,60 +322,31 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
               </span>
             )}
           </div>
-
           <div className="grid grid-cols-3 md:grid-cols-1 gap-1.5">
-            <div>
-              <p className="text-[10px] text-gray-400">Abertura</p>
-              <p className="text-xs font-semibold text-gray-700">{fmtStat(abertura, aberturaOrig)}</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-gray-400">Máx. {periodo}</p>
-              <p className="text-xs font-semibold text-green-700">{fmtStat(maxPeriodo, maxPeriodoOrig)}</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-gray-400">Mín. {periodo}</p>
-              <p className="text-xs font-semibold text-red-600">{fmtStat(minPeriodo, minPeriodoOrig)}</p>
-            </div>
+            <div><p className="text-[10px] text-gray-400">Abertura</p><p className="text-xs font-semibold text-gray-700">{fmtStat(abertura, aberturaOrig)}</p></div>
+            <div><p className="text-[10px] text-gray-400">Máx. {periodo}</p><p className="text-xs font-semibold text-green-700">{fmtStat(maxPeriodo, maxPeriodoOrig)}</p></div>
+            <div><p className="text-[10px] text-gray-400">Mín. {periodo}</p><p className="text-xs font-semibold text-red-600">{fmtStat(minPeriodo, minPeriodoOrig)}</p></div>
           </div>
         </div>
-
         <div className="flex-1 flex flex-col min-w-0 min-h-[260px]">
           <div className="flex items-center justify-between px-3 pt-2 gap-2 min-h-[32px]">
             <div className="flex items-center gap-1">
               {culturasDisp.length > 1 && culturasDisp.map(c => (
-                <button key={c} onClick={() => setCulturaSel(c)}
-                  className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${culturaEfetiva === c ? 'bg-green-700 text-white border-green-700' : 'border-gray-200 text-gray-500 hover:border-green-400'}`}>
-                  {c}
-                </button>
+                <button key={c} onClick={() => setCulturaSel(c)} className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${culturaEfetiva === c ? 'bg-green-700 text-white border-green-700' : 'border-gray-200 text-gray-500 hover:border-green-400'}`}>{c}</button>
               ))}
             </div>
             <div className="flex rounded-full border border-gray-200 overflow-hidden text-[11px] font-medium flex-shrink-0">
-              <button onClick={() => setMoeda('BRL')}
-                className={`px-2.5 py-0.5 transition-colors ${moeda === 'BRL' ? 'bg-green-700 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
-                BRL
-              </button>
-              <button onClick={() => setMoeda('orig')}
-                className={`px-2.5 py-0.5 transition-colors ${moeda === 'orig' ? 'bg-green-700 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
-                {siglaOrig}
-              </button>
+              <button onClick={() => setMoeda('BRL')} className={`px-2.5 py-0.5 transition-colors ${moeda === 'BRL' ? 'bg-green-700 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>BRL</button>
+              <button onClick={() => setMoeda('orig')} className={`px-2.5 py-0.5 transition-colors ${moeda === 'orig' ? 'bg-green-700 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>{siglaOrig}</button>
             </div>
           </div>
-
           <div className="relative flex-1 overflow-hidden">
-            {carregandoGrafico && (
-              <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10">
-                <span className="text-xs text-gray-400">Carregando...</span>
-              </div>
-            )}
+            {carregandoGrafico && <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10"><span className="text-xs text-gray-400">Carregando...</span></div>}
             <GraficoCotacao historico={historicoExibido} cor={cor} prefixo={prefixoExibido} />
           </div>
-
           <div className="flex border-t border-gray-100">
             {PERIODOS.map(p => (
-              <button key={p} onClick={() => setPeriodo(p)}
-                className={`flex-1 py-2 text-[11px] font-medium transition-colors ${periodo === p ? 'text-green-700 border-t-2 border-green-600 -mt-px bg-green-50' : 'text-gray-400 hover:text-gray-600'}`}>
-                {p}
-              </button>
+              <button key={p} onClick={() => setPeriodo(p)} className={`flex-1 py-2 text-[11px] font-medium transition-colors ${periodo === p ? 'text-green-700 border-t-2 border-green-600 -mt-px bg-green-50' : 'text-gray-400 hover:text-gray-600'}`}>{p}</button>
             ))}
           </div>
         </div>
@@ -446,145 +355,241 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
   )
 }
 
-function CardSafraSimples({ safra, climaProp }) {
-  const previsao = climaProp?.previsao || []
-  const alertasINMET = climaProp?.alertas || []
-  const diasBons = diasBonsParaColheita(previsao)
-  const localRef = [safra.cidadePropriedade, safra.estadoPropriedade].filter(Boolean).join(' - ')
+function CardSafrasLista({ safrasAtivas, colheitas, lotesEstoque, lavouras, safrasComColheita }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="flex items-start justify-between gap-3 px-4 pt-3 pb-2">
-        <div className="flex items-start gap-2 min-w-0">
-          <div className="w-2 h-2 rounded-full bg-green-600 flex-shrink-0 mt-1.5" />
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-gray-800 truncate">{safra.nome}</p>
-            <p className="text-xs text-gray-400 mt-0.5">{safra.cultura} · Em andamento · sem colheita</p>
-          </div>
-        </div>
-        {diasBons > 0 && (
-          <Tooltip texto="Dias com precipitação < 2mm na previsão dos próximos 7 dias">
-            <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 flex-shrink-0 whitespace-nowrap font-medium cursor-help">
-              {diasBons}d secos (prev.)
-            </span>
-          </Tooltip>
-        )}
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden h-full flex flex-col">
+      <div className="divide-y divide-gray-50 flex-1">
+        {safrasAtivas.map(safra => {
+          const temColheita = safrasComColheita.has(safra.id)
+          const colheitasDaSafra = colheitas.filter(c => c.safraId === safra.id)
+          const lavourasVinculadas = lavouras.filter(l => safra.lavouraIds?.includes(l.id))
+          const areaTotal = lavourasVinculadas.reduce((a, l) => a + (Number(l.areaHa) || 0), 0)
+          const diasDesdeInicio = safra.dataInicio ? Math.ceil((HOJE_DATE - new Date(safra.dataInicio + 'T00:00:00')) / 86400000) : null
+          const propNome = safra.cidadePropriedade || safra.estadoPropriedade ? [safra.cidadePropriedade, safra.estadoPropriedade].filter(Boolean).join(' - ') : null
+          if (!temColheita) {
+            return (
+              <div key={safra.id} className="px-4 py-3 flex items-center gap-3">
+                <div className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-800 truncate">{safra.nome}</p>
+                  <p className="text-xs text-gray-400 truncate">
+                    {safra.cultura}{propNome ? ` · ${propNome}` : ''}
+                    {areaTotal > 0 ? ` · ${areaTotal.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} ha` : ''}
+                    {diasDesdeInicio ? ` · ${diasDesdeInicio}d` : ''}
+                  </p>
+                </div>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 flex-shrink-0">em andamento</span>
+              </div>
+            )
+          }
+          const unidade = safra.unidade || colheitasDaSafra[0]?.unidade || 'sc'
+          const totalColhido = colheitasDaSafra.reduce((s, c) => s + (Number(c.quantidade) || 0), 0)
+          const totalLavouras = lavourasVinculadas.length || safra.lavouraIds?.length || 0
+          const lavourasConcluidas = new Set(colheitasDaSafra.filter(c => c.colheitaConcluida).map(c => c.lavouraId).filter(Boolean)).size
+          const progressoLavouras = totalLavouras > 0 ? (lavourasConcluidas / totalLavouras) * 100 : 0
+          const qtdEstocada = lotesEstoque.filter(l => !l.cancelado && colheitasDaSafra.some(c => c.id === l.colheitaOrigemId)).reduce((s, l) => s + (Number(l.quantidadeEntrada) || 0), 0)
+          const saldoEstocar = Math.max(0, totalColhido - qtdEstocada)
+          const datasColheita = colheitasDaSafra.filter(c => c.dataColheita).map(c => c.dataColheita).sort()
+          const ultimaColheita = datasColheita[datasColheita.length - 1]
+          const diasSemEntrada = ultimaColheita ? Math.ceil((HOJE_DATE - new Date(ultimaColheita + 'T00:00:00')) / 86400000) : null
+          const temGargalo = saldoEstocar > 0 && diasSemEntrada !== null && diasSemEntrada > 4
+          const tooltipEstocar = temGargalo ? `${saldoEstocar.toLocaleString('pt-BR')} ${unidade} aguardam estocagem há ${diasSemEntrada} dias desde a última colheita` : `${saldoEstocar.toLocaleString('pt-BR')} ${unidade} ainda não estocados`
+          return (
+            <div key={safra.id} className="px-4 py-3">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
+                  <p className="text-sm font-semibold text-gray-800 truncate">{safra.nome}</p>
+                  {propNome && <p className="text-xs text-gray-400 truncate hidden sm:block">· {propNome}</p>}
+                </div>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 flex-shrink-0 font-medium">colheita ativa</span>
+              </div>
+              <div className="flex items-center gap-2 mb-1.5">
+                <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${progressoLavouras}%` }} />
+                </div>
+                <span className="text-[10px] text-gray-400 flex-shrink-0">{lavourasConcluidas}/{totalLavouras} lavouras</span>
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-xs text-gray-700"><span className="font-semibold">{totalColhido.toLocaleString('pt-BR')}</span> <span className="text-gray-400">{unidade} colhidos</span></span>
+                {saldoEstocar > 0 && (
+                  <Tooltip texto={tooltipEstocar}>
+                    <span className={`text-xs cursor-help flex items-center gap-0.5 ${temGargalo ? 'text-red-600' : 'text-amber-600'}`}>
+                      <AlertTriangle size={11} />
+                      <span className="font-semibold">{saldoEstocar.toLocaleString('pt-BR')}</span>
+                      <span className="text-gray-400"> a estocar</span>
+                    </span>
+                  </Tooltip>
+                )}
+                {areaTotal > 0 && <span className="text-xs text-gray-400">{areaTotal.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} ha</span>}
+              </div>
+            </div>
+          )
+        })}
       </div>
-      {alertasINMET.length > 0 && (
-        <div className="mx-4 mb-2 flex items-start gap-2 bg-amber-50 rounded-lg px-3 py-2">
-          <AlertCircle size={13} className="text-amber-600 flex-shrink-0 mt-0.5" />
-          <div className="min-w-0">
-            <p className="text-xs text-amber-700 font-medium">{alertasINMET[0].evento} — {alertasINMET[0].severidade}</p>
-            {alertasINMET[0].statusLabel && <p className="text-[10px] text-amber-600 mt-0.5">{alertasINMET[0].statusLabel}</p>}
-          </div>
-        </div>
-      )}
-      <ClimaStrip previsao={previsao} modoColheita={false} localRef={localRef} />
     </div>
   )
 }
 
-function CardSafraColheita({ safra, colheitas, lotesEstoque, climaProp }) {
+function CardClima({ safrasAtivas, clima }) {
+  const [cidadeSel, setCidadeSel] = useState('')
+  const cidadesDisp = useMemo(() => {
+    const vistas = new Set()
+    const lista = []
+    safrasAtivas.forEach(s => {
+      const key = s.propriedadeId
+      if (key && !vistas.has(key)) {
+        vistas.add(key)
+        lista.push({ propId: key, nome: s.cidadePropriedade || s.estadoPropriedade || s.nome, cidade: s.cidadePropriedade, estado: s.estadoPropriedade })
+      }
+    })
+    return lista
+  }, [safrasAtivas])
+  const propEfetiva = cidadeSel && cidadesDisp.find(c => c.propId === cidadeSel) ? cidadeSel : cidadesDisp[0]?.propId || ''
+  const climaProp = clima[propEfetiva] || null
   const previsao = climaProp?.previsao || []
-  const alertasINMET = climaProp?.alertas || []
-  const totalColhido = colheitas.reduce((s, c) => s + (Number(c.quantidade) || 0), 0)
-  const unidade = safra.unidade || colheitas[0]?.unidade || 'sc'
-  const totalLavouras = safra.lavouraIds?.length || 0
-  const localRef = [safra.cidadePropriedade, safra.estadoPropriedade].filter(Boolean).join(' - ')
+  const hoje = previsao[0] || null
+  const cidade = cidadesDisp.find(c => c.propId === propEfetiva)
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden h-full">
+      <div className="flex flex-col h-full">
+        {cidade && <p className="px-4 pt-3 text-[10px] text-gray-400 truncate">📍 {cidade.cidade}{cidade.estado ? ` · ${cidade.estado}` : ''}</p>}
+        {hoje ? (
+          <div className="px-4 pt-2 pb-3">
+            <div className="flex items-center gap-3 mb-1">
+              <IconeClima tipo={hoje.condicao?.icon || 'cloud'} size={32} />
+              <div>
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-2xl font-semibold text-orange-500">{hoje.tempMax}°</span>
+                  <span className="text-sm text-gray-400">/</span>
+                  <span className="text-2xl font-semibold text-blue-400">{hoje.tempMin}°</span>
+                </div>
+                <p className="text-[10px] text-gray-400">máx / mín · {hoje.precipitacao === 0 ? 'sem chuva' : `${hoje.precipitacao}mm`}</p>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 capitalize">{hoje.condicao?.label || ''}</p>
+          </div>
+        ) : (
+          <div className="px-4 pt-2 pb-3 text-xs text-gray-400">Carregando...</div>
+        )}
+        {cidadesDisp.length > 1 && (
+          <div className="px-4 pb-2 flex gap-1 flex-wrap">
+            {cidadesDisp.map(c => (
+              <button key={c.propId} onClick={() => setCidadeSel(c.propId)}
+                className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${propEfetiva === c.propId ? 'bg-green-700 text-white border-green-700' : 'border-gray-200 text-gray-500 hover:border-green-400'}`}>
+                {c.nome}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="flex-1"><ClimaStrip previsao={previsao} modoColheita={false} localRef="" /></div>
+      </div>
+    </div>
+  )
+}
 
-  const lavourasConcluidas = useMemo(() => {
-    const ids = new Set(colheitas.filter(c => c.colheitaConcluida).map(c => c.lavouraId).filter(Boolean))
-    return ids.size
-  }, [colheitas])
+function CardEstoque({ lotesEstoque, todasSafras, cotacoes, movsProducao }) {
+  const itens = useMemo(() => {
+    const mapa = {}
+    lotesEstoque
+      .filter(l => !l.cancelado && (l.saldoAtual || 0) > 0 && !l.origemEstoqueProducao)
+      .forEach(l => {
+        const safra = todasSafras.find(s => s.id === l.safraId) || null
+        const cultura = l.cultura || safra?.cultura || '—'
+        if (!mapa[cultura]) mapa[cultura] = { cultura, saldo: 0, unidade: l.unidade || 'sc', custoSc: null, custoIncompleto: false, armazens: {} }
+        mapa[cultura].saldo += Number(l.saldoAtual) || 0
+        const local = l.localArmazenagem || l.propriedadeNome || 'Sem local'
+        mapa[cultura].armazens[local] = (mapa[cultura].armazens[local] || 0) + (Number(l.saldoAtual) || 0)
+        if (safra && mapa[cultura].custoSc === null) {
+          const ce = safra.custoEstimado
+          if (ce?.total != null) {
+            mapa[cultura].custoSc = Number(ce.total)
+            mapa[cultura].custoIncompleto = !!ce.emAndamento || (ce.coberturaPercent ?? 100) < 100
+          }
+        }
+      })
+    const vendasPorCultura = {}
+    ;(movsProducao || []).filter(m => !m.cancelado).forEach(m => {
+      const cultura = m.cultura || '—'
+      const data = m.dataVenda || m.dataMov || ''
+      if (!vendasPorCultura[cultura] || data > vendasPorCultura[cultura].data) {
+        vendasPorCultura[cultura] = { data, quantidade: Number(m.quantidade) || 0, unidade: m.unidade || 'sc' }
+      }
+    })
+    return Object.values(mapa)
+      .map(item => ({ ...item, ultimaVenda: vendasPorCultura[item.cultura] || null }))
+      .sort((a, b) => b.saldo - a.saldo)
+  }, [lotesEstoque, todasSafras, movsProducao])
 
-  const inicioSemana = new Date(HOJE_DATE)
-  inicioSemana.setDate(HOJE_DATE.getDate() - 7)
-  const totalSemana = colheitas
-    .filter(c => c.dataColheita >= inicioSemana.toISOString().split('T')[0])
-    .reduce((s, c) => s + (Number(c.quantidade) || 0), 0)
-
-  const qtdEstocada = lotesEstoque
-    .filter(l => !l.cancelado && colheitas.some(c => c.id === l.colheitaOrigemId))
-    .reduce((s, l) => s + (Number(l.quantidadeEntrada) || 0), 0)
-  const saldoEstocar = Math.max(0, totalColhido - qtdEstocada)
-
-  const datasColheita = colheitas
-    .filter(c => c.dataColheita)
-    .map(c => c.dataColheita)
-    .sort()
-  const ultimaColheita = datasColheita[datasColheita.length - 1]
-  const diasSemEntrada = ultimaColheita
-    ? Math.ceil((HOJE_DATE - new Date(ultimaColheita + 'T00:00:00')) / 86400000)
-    : null
-  const temGargalo = saldoEstocar > 0 && diasSemEntrada !== null && diasSemEntrada > 4
-  const progressoLavouras = totalLavouras > 0 ? (lavourasConcluidas / totalLavouras) * 100 : 0
-  const tooltipEstocar = temGargalo
-    ? `${saldoEstocar.toLocaleString('pt-BR')} ${unidade} aguardam estocagem há ${diasSemEntrada} dias desde a última colheita`
-    : saldoEstocar > 0 ? `${saldoEstocar.toLocaleString('pt-BR')} ${unidade} ainda não estocados` : 'Tudo estocado'
+  if (itens.length === 0) return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-6 text-center text-xs text-gray-400">
+      Nenhum estoque de produção disponível
+    </div>
+  )
 
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="flex items-start justify-between gap-3 px-4 pt-3 pb-2">
-        <div className="flex items-start gap-2 min-w-0">
-          <div className="w-2 h-2 rounded-full bg-green-600 flex-shrink-0 mt-1.5" />
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-gray-800 truncate">{safra.nome}</p>
-            <p className="text-xs text-gray-400 mt-0.5">{safra.cultura} · {totalLavouras} lavouras</p>
-          </div>
-        </div>
-        <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 flex-shrink-0 whitespace-nowrap font-medium">colheita ativa</span>
+      <div className="divide-y divide-gray-50">
+        {itens.map(item => {
+          const cot = cotacoes[item.cultura]
+          const cotBR = cot ? Number(cot.valorBR || 0) : null
+          const valorEstimado = cotBR && item.saldo > 0 ? cotBR * item.saldo : null
+          const margem = cotBR && item.custoSc ? ((cotBR - item.custoSc) / cotBR) * 100 : null
+          const margemPositiva = margem !== null && margem >= 0
+          const armazensEntries = Object.entries(item.armazens)
+          return (
+            <div key={item.cultura} className="px-4 py-3">
+              {/* Linha 1: cultura + quantidade */}
+              <div className="flex items-baseline justify-between mb-0.5">
+                <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">{item.cultura}</span>
+                <span className="text-sm font-bold text-gray-800">{item.saldo.toLocaleString('pt-BR')} <span className="text-xs font-normal text-gray-400">{item.unidade}</span></span>
+              </div>
+              {/* Linha 2: valor + custo + margem */}
+              <div className="flex items-center gap-2 flex-wrap mb-1">
+                {valorEstimado !== null
+                  ? <span className="text-xs font-semibold text-green-700">{formatarMoeda(valorEstimado)} est.</span>
+                  : <span className="text-xs text-gray-400">sem cotação</span>
+                }
+                {item.custoSc !== null ? (
+                  <>
+                    <span className="text-gray-300 text-xs">·</span>
+                    <span className="text-xs text-gray-400 flex items-center gap-0.5">
+                      custo R${item.custoSc.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}/{item.unidade}
+                      {item.custoIncompleto && (
+                        <Tooltip texto="Custo parcial — colheita em andamento">
+                          <AlertTriangle size={10} className="text-amber-500 cursor-help" />
+                        </Tooltip>
+                      )}
+                    </span>
+                    {margem !== null && (
+                      <>
+                        <span className="text-gray-300 text-xs">·</span>
+                        <span className={`text-xs font-semibold ${margemPositiva ? 'text-green-600' : 'text-red-500'}`}>
+                          {margemPositiva ? '+' : ''}{margem.toFixed(1)}%
+                        </span>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-xs text-gray-400 flex items-center gap-0.5"><Info size={10} className="text-gray-400" /> sem custo calculado</span>
+                )}
+              </div>
+              {/* Linha 3: armazéns horizontal */}
+              {armazensEntries.length > 0 && (
+                <p className="text-[10px] text-gray-400 mb-0.5">
+                  {armazensEntries.map(([local, qty]) => `${local} ${qty.toLocaleString('pt-BR')} ${item.unidade}`).join(' · ')}
+                </p>
+              )}
+              {/* Linha 4: última venda */}
+              {item.ultimaVenda && (
+                <p className="text-[10px] text-gray-400">
+                  Última venda: {formatarData(item.ultimaVenda.data)} · {item.ultimaVenda.quantidade.toLocaleString('pt-BR')} {item.ultimaVenda.unidade}
+                </p>
+              )}
+            </div>
+          )
+        })}
       </div>
-      <div className="px-4 pb-2 space-y-1.5">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-400 w-28 flex-shrink-0">Lavouras concluídas</span>
-          <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-            <div className="h-full bg-green-600 rounded-full transition-all" style={{ width: `${progressoLavouras}%` }} />
-          </div>
-          <span className="text-xs font-medium text-gray-700 w-10 text-right">{lavourasConcluidas}/{totalLavouras}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-400 w-28 flex-shrink-0">Volume colhido</span>
-          <span className="text-sm font-bold text-green-700">{totalColhido.toLocaleString('pt-BR')} {unidade}</span>
-        </div>
-      </div>
-      <div className="grid grid-cols-3 gap-px bg-gray-100 border-t border-gray-100">
-        <div className="bg-white px-3 py-2">
-          <p className="text-sm font-semibold text-gray-800">{totalSemana.toLocaleString('pt-BR')} <span className="text-xs font-normal">{unidade}</span></p>
-          <p className="text-[10px] text-gray-400">esta semana</p>
-        </div>
-        <div className="bg-white px-3 py-2">
-          <div className="flex items-center gap-1">
-            <p className={`text-sm font-semibold ${saldoEstocar > 0 ? 'text-amber-600' : 'text-green-700'}`}>
-              {saldoEstocar.toLocaleString('pt-BR')} <span className="text-xs font-normal">{unidade}</span>
-            </p>
-            {saldoEstocar > 0 && (
-              <Tooltip texto={tooltipEstocar}>
-                <AlertTriangle size={12} className={temGargalo ? 'text-red-500 cursor-help' : 'text-amber-500 cursor-help'} />
-              </Tooltip>
-            )}
-          </div>
-          <p className="text-[10px] text-gray-400">a estocar</p>
-        </div>
-        <div className="bg-white px-3 py-2">
-          <p className="text-sm font-semibold text-gray-800">{diasBonsParaColheita(previsao)} <span className="text-xs font-normal">dias</span></p>
-          <p className="text-[10px] text-gray-400">secos (prev.)</p>
-        </div>
-      </div>
-      {alertasINMET.length > 0 && (
-        <div className={`mx-4 my-2 flex items-start gap-2 rounded-lg px-3 py-2 ${alertasINMET[0].grave ? 'bg-red-50' : 'bg-amber-50'}`}>
-          <AlertCircle size={13} className={`flex-shrink-0 mt-0.5 ${alertasINMET[0].grave ? 'text-red-600' : 'text-amber-600'}`} />
-          <div className="min-w-0">
-            <p className={`text-xs font-medium ${alertasINMET[0].grave ? 'text-red-700' : 'text-amber-700'}`}>
-              {alertasINMET[0].evento} — {alertasINMET[0].severidade}
-            </p>
-            {alertasINMET[0].statusLabel && (
-              <p className={`text-[10px] mt-0.5 ${alertasINMET[0].grave ? 'text-red-600' : 'text-amber-600'}`}>
-                {alertasINMET[0].statusLabel}
-              </p>
-            )}
-          </div>
-        </div>
-      )}
-      <ClimaStrip previsao={previsao} modoColheita={true} localRef={localRef} />
     </div>
   )
 }
@@ -599,6 +604,9 @@ export default function Dashboard() {
   const [financeiro, setFinanceiro] = useState([])
   const [produtos, setProdutos] = useState([])
   const [movInsumos, setMovInsumos] = useState([])
+  const [lavouras, setLavouras] = useState([])
+  const [todasSafras, setTodasSafras] = useState([])
+  const [movsProducao, setMovsProducao] = useState([])
   const [modalAlerta, setModalAlerta] = useState(null)
   const [confirmacaoStatus, setConfirmacaoStatus] = useState(null)
   const [salvandoStatus, setSalvandoStatus] = useState(false)
@@ -614,17 +622,19 @@ export default function Dashboard() {
   const carregar = useCallback(async () => {
     const uid = usuario.uid
     const q = (col) => query(collection(db, col), where('uid', '==', uid))
-    const [propsSnap, safrasSnap, colheitasSnap, lotesSnap, finSnap, prodSnap, movInsSnap] = await Promise.all([
+    const [propsSnap, safrasSnap, colheitasSnap, lotesSnap, finSnap, prodSnap, movInsSnap, lavourasSnap, movsProducaoSnap] = await Promise.all([
       getDocs(q('propriedades')), getDocs(q('safras')), getDocs(q('colheitas')),
       getDocs(q('estoqueProducao')), getDocs(q('financeiro')),
-      getDocs(q('insumos')), getDocs(q('movimentacoesInsumos')),
+      getDocs(q('insumos')), getDocs(q('movimentacoesInsumos')), getDocs(q('lavouras')),
+      getDocs(query(collection(db, 'movimentacoesProducao'), where('uid', '==', uid))),
     ])
     const props = propsSnap.docs.map(d => ({ id: d.id, ...d.data() }))
     setPropriedades(props)
     const propMap = Object.fromEntries(props.map(p => [p.id, p]))
+    const todasSafrasData = safrasSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    setTodasSafras(todasSafrasData)
     setSafrasAtivas(
-      safrasSnap.docs.map(d => {
-        const s = { id: d.id, ...d.data() }
+      todasSafrasData.map(s => {
         const prop = propMap[s.propriedadeId] || {}
         return { ...s, cidadePropriedade: prop.cidade || '', estadoPropriedade: prop.estado || '' }
       }).filter(s => s.status !== 'Colhida' && s.status !== 'Cancelada')
@@ -634,6 +644,8 @@ export default function Dashboard() {
     setFinanceiro(finSnap.docs.map(d => ({ id: d.id, ...d.data() })))
     setProdutos(prodSnap.docs.map(d => ({ id: d.id, ...d.data() })))
     setMovInsumos(movInsSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+    setLavouras(lavourasSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+    setMovsProducao(movsProducaoSnap.docs.map(d => ({ id: d.id, ...d.data() })))
     setLoading(false)
   }, [usuario])
 
@@ -650,17 +662,7 @@ export default function Dashboard() {
         const novo = {}
         Object.entries(data.culturas || {}).forEach(([k, v]) => {
           if (v.ok && MAP[k]) {
-            novo[MAP[k]] = {
-              valorBR: v.valorBR,
-              precoOriginal: v.precoOriginal,
-              bolsa: v.bolsa,
-              originalFormatado: v.precoOriginalFormatado,
-              unidBR: v.unidadeBR,
-              unidadeOriginal: v.unidadeOriginal,
-              cambio: v.cambio,
-              timestamp: v.timestamp,
-              historico: v.historico || [],
-            }
+            novo[MAP[k]] = { valorBR: v.valorBR, precoOriginal: v.precoOriginal, bolsa: v.bolsa, originalFormatado: v.precoOriginalFormatado, unidBR: v.unidadeBR, unidadeOriginal: v.unidadeOriginal, cambio: v.cambio, timestamp: v.timestamp, historico: v.historico || [] }
           }
         })
         setCotacoes(novo)
@@ -686,12 +688,7 @@ export default function Dashboard() {
     const vencidos = financeiro.filter(f => f.status === 'pendente' && f.vencimento && f.vencimento < HOJE && f.tipo !== 'receita' && !f.cancelado)
     if (vencidos.length > 0) {
       const total = vencidos.reduce((s, f) => s + (Number(f.valor) || 0), 0)
-      lista.push({
-        id: 'pagamentos-vencidos', tipo: 'critico',
-        titulo: `${vencidos.length} pagamento${vencidos.length > 1 ? 's' : ''} vencido${vencidos.length > 1 ? 's' : ''}`,
-        subtitulo: `Total: R$ ${formatarValor(total)}`, badge: 'pagar',
-        itens: vencidos.map(f => ({ id: f.id, descricao: f.descricao || f.categoria || '—', valor: f.valor, vencimento: f.vencimento })),
-      })
+      lista.push({ id: 'pagamentos-vencidos', tipo: 'critico', titulo: `${vencidos.length} pagamento${vencidos.length > 1 ? 's' : ''} vencido${vencidos.length > 1 ? 's' : ''}`, subtitulo: `Total: R$ ${formatarValor(total)}`, badge: 'pagar', itens: vencidos.map(f => ({ id: f.id, descricao: f.descricao || f.categoria || '—', valor: f.valor, vencimento: f.vencimento })) })
     }
     produtosEnriquecidos.filter(i => i.abaixoMinimo).forEach(i => {
       lista.push({ id: `min-${i.id}`, tipo: 'atencao', titulo: `${i.produto || i.nome || 'Insumo'} — estoque mínimo`, subtitulo: `Saldo: ${i.saldo.toFixed(1)} ${i.unidade || ''} · Mínimo: ${i.estoqueMinimo}`, badge: 'estoque' })
@@ -734,6 +731,7 @@ export default function Dashboard() {
     } finally {
       setSalvandoStatus(false)
       setConfirmacaoStatus(null)
+      setModalDetalheVenc(null)
     }
   }
 
@@ -745,6 +743,35 @@ export default function Dashboard() {
   return (
     <div className="pb-8">
       <h1 className="text-2xl font-bold text-gray-800 mb-4">Início</h1>
+
+      <div className="mb-4">
+        <div className="flex items-center gap-2 mb-2">
+          <TrendingUp size={13} className="text-green-600" />
+          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Resumo do mês</span>
+          <div className="flex-1 h-px bg-gray-200" />
+        </div>
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="grid grid-cols-3 gap-px bg-gray-100">
+            <div className="bg-white px-4 py-3">
+              <div className="flex items-center gap-1.5 mb-1"><TrendingUp size={13} className="text-green-600" /><p className="text-xs text-gray-400">Receitas</p></div>
+              <p className="text-base font-bold text-green-700">{formatarMoeda(resumoMes.receitas)}</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">este mês</p>
+            </div>
+            <div className="bg-white px-4 py-3">
+              <div className="flex items-center gap-1.5 mb-1"><TrendingDown size={13} className="text-red-500" /><p className="text-xs text-gray-400">Despesas</p></div>
+              <p className="text-base font-bold text-red-600">{formatarMoeda(resumoMes.despesas)}</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">este mês</p>
+            </div>
+            <div className="bg-white px-4 py-3">
+              <p className="text-xs text-gray-400 mb-1">Saldo</p>
+              <p className={`text-base font-bold ${resumoMes.saldo >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                {resumoMes.saldo < 0 ? '−' : ''}{formatarMoeda(Math.abs(resumoMes.saldo))}
+              </p>
+              <Link to="/indicadores" className="text-[10px] text-gray-400 hover:text-green-700 transition-colors mt-0.5 block">ver Indicadores →</Link>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         {alertasCriticos.length > 0 && (
@@ -785,109 +812,103 @@ export default function Dashboard() {
           </div>
         )}
 
-        {vencimentos7Dias.length > 0 && (
-          <div className="flex flex-col">
-            <div className="flex items-center gap-2 mb-2">
-              <CalendarClock size={13} className="text-blue-500" />
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Vencimentos — próximos 7 dias</span>
-              <div className="flex-1 h-px bg-gray-200" />
-            </div>
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden flex-1">
-              {(expandidoVencimentos ? vencimentos7Dias : vencimentos7Dias.slice(0, 4)).map(f => {
-                const diff = diffDias(f.vencimento)
-                const isReceita = f.tipo === 'receita'
-                return (
-                  <div key={f.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
-                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${isReceita ? 'bg-green-50' : 'bg-red-50'}`}>
-                      <CalendarClock size={13} className={isReceita ? 'text-green-600' : 'text-red-600'} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-800 truncate">{f.descricao || f.categoria || '—'}</p>
-                      <p className="text-xs text-gray-400">{formatarData(f.vencimento)} · R$ {formatarValor(f.valor)}</p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${isReceita ? (diff <= 0 ? 'bg-green-100 text-green-800' : 'bg-green-50 text-green-700') : (diff <= 1 ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700')}`}>
-                        {diff <= 0 ? 'hoje' : `em ${diff}d`}
-                      </span>
-                      <button onClick={() => setModalDetalheVenc(f)} className="text-gray-300 hover:text-blue-500 transition-colors p-0.5">
-                        <Info size={15} />
-                      </button>
-                    </div>
+        <div className="flex flex-col">
+          <div className="flex items-center gap-2 mb-2">
+            <CalendarClock size={13} className="text-blue-500" />
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Vencimentos — próximos 7 dias</span>
+            <div className="flex-1 h-px bg-gray-200" />
+          </div>
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden flex-1">
+            {(expandidoVencimentos ? vencimentos7Dias : vencimentos7Dias.slice(0, 4)).map(f => {
+              const diff = diffDias(f.vencimento)
+              const isReceita = f.tipo === 'receita'
+              return (
+                <div key={f.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${isReceita ? 'bg-green-50' : 'bg-red-50'}`}>
+                    <CalendarClock size={13} className={isReceita ? 'text-green-600' : 'text-red-600'} />
                   </div>
-                )
-              })}
-              {vencimentos7Dias.length > 4 && (
-                <button onClick={() => setExpandidoVencimentos(e => !e)} className="w-full text-xs text-gray-400 py-2 hover:text-gray-600 transition-colors border-t border-gray-50">
-                  {expandidoVencimentos ? 'ver menos ↑' : `ver mais (${vencimentos7Dias.length - 4}) ↓`}
-                </button>
-              )}
-            </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate">{f.descricao || f.categoria || '—'}</p>
+                    <p className="text-xs text-gray-400">{formatarData(f.vencimento)} · R$ {formatarValor(f.valor)}</p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${isReceita ? (diff <= 0 ? 'bg-green-100 text-green-800' : 'bg-green-50 text-green-700') : (diff <= 1 ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700')}`}>
+                      {diff <= 0 ? 'hoje' : `em ${diff}d`}
+                    </span>
+                    <button onClick={() => setModalDetalheVenc(f)} className="text-gray-300 hover:text-blue-500 transition-colors p-0.5">
+                      <Info size={15} />
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+            {vencimentos7Dias.length > 4 && (
+              <button onClick={() => setExpandidoVencimentos(e => !e)} className="w-full text-xs text-gray-400 py-2 hover:text-gray-600 transition-colors border-t border-gray-50">
+                {expandidoVencimentos ? 'ver menos ↑' : `ver mais (${vencimentos7Dias.length - 4}) ↓`}
+              </button>
+            )}
+            {vencimentos7Dias.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-6 gap-2">
+                <CheckCircle size={20} className="text-green-400" />
+                <p className="text-xs text-gray-400">Nenhum vencimento nos próximos 7 dias</p>
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
 
-      {safrasAtivas.length > 0 && (() => {
-        const n = safrasAtivas.length
-        const cardsSafra = safrasAtivas.map(safra => {
-          const colheitasDaSafra = colheitas.filter(c => c.safraId === safra.id)
-          const climaProp = clima[safra.propriedadeId] || null
-          const temColheita = safrasComColheita.has(safra.id)
-          if (temColheita) return <CardSafraColheita key={safra.id} safra={safra} colheitas={colheitasDaSafra} lotesEstoque={lotesEstoque} climaProp={climaProp} />
-          return <CardSafraSimples key={safra.id} safra={safra} climaProp={climaProp} />
-        })
-        const cardCot = <CardCotacao key="cotacao" safrasAtivas={safrasAtivas} cotacoes={cotacoes} setCotacoes={setCotacoes} />
-        return (
-          <div className="space-y-3 mb-4">
-            <div className="flex items-center gap-2">
-              <Wheat size={14} className="text-green-700" />
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Safras em andamento</span>
-              <div className="flex-1 h-px bg-gray-200" />
-            </div>
+      {safrasAtivas.length > 0 && (
+        <>
+          <div className="mb-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:items-stretch">
-              {n % 2 === 1 ? (
-                <>
-                  {cardsSafra}
-                  <div className="flex flex-col">{cardCot}</div>
-                </>
-              ) : (
-                <>
-                  {cardsSafra}
-                  <div className="md:col-span-2">{cardCot}</div>
-                </>
-              )}
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <Wheat size={14} className="text-green-700" />
+                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Safras em andamento</span>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
+                <div className="flex-1">
+                  <CardSafrasLista safrasAtivas={safrasAtivas} colheitas={colheitas} lotesEstoque={lotesEstoque} lavouras={lavouras} safrasComColheita={safrasComColheita} />
+                </div>
+              </div>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <Cloud size={14} className="text-sky-500" />
+                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Clima</span>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
+                <div className="flex-1">
+                  <CardClima safrasAtivas={safrasAtivas} clima={clima} />
+                </div>
+              </div>
             </div>
           </div>
-        )
-      })()}
-
-      <div>
-        <div className="flex items-center gap-2 mb-2">
-          <TrendingUp size={13} className="text-green-600" />
-          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Resumo do mês</span>
-          <div className="flex-1 h-px bg-gray-200" />
-        </div>
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="grid grid-cols-3 gap-px bg-gray-100">
-            <div className="bg-white px-4 py-3">
-              <div className="flex items-center gap-1.5 mb-1"><TrendingUp size={13} className="text-green-600" /><p className="text-xs text-gray-400">Receitas</p></div>
-              <p className="text-base font-bold text-green-700">{formatarMoeda(resumoMes.receitas)}</p>
-              <p className="text-[10px] text-gray-400 mt-0.5">este mês</p>
-            </div>
-            <div className="bg-white px-4 py-3">
-              <div className="flex items-center gap-1.5 mb-1"><TrendingDown size={13} className="text-red-500" /><p className="text-xs text-gray-400">Despesas</p></div>
-              <p className="text-base font-bold text-red-600">{formatarMoeda(resumoMes.despesas)}</p>
-              <p className="text-[10px] text-gray-400 mt-0.5">este mês</p>
-            </div>
-            <div className="bg-white px-4 py-3">
-              <p className="text-xs text-gray-400 mb-1">Saldo</p>
-              <p className={`text-base font-bold ${resumoMes.saldo >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                {resumoMes.saldo < 0 ? '−' : ''}{formatarMoeda(Math.abs(resumoMes.saldo))}
-              </p>
-              <Link to="/indicadores" className="text-[10px] text-gray-400 hover:text-green-700 transition-colors mt-0.5 block">ver Indicadores →</Link>
+          <div className="mb-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:items-stretch">
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <Package size={14} className="text-amber-500" />
+                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Estoque de produção</span>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
+                <div className="flex-1">
+                  <CardEstoque lotesEstoque={lotesEstoque} todasSafras={todasSafras} cotacoes={cotacoes} movsProducao={movsProducao} />
+                </div>
+              </div>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <BarChart2 size={13} className="text-green-600" />
+                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Mercado</span>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
+                <div className="flex-1">
+                  <CardCotacao safrasAtivas={safrasAtivas} cotacoes={cotacoes} setCotacoes={setCotacoes} />
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      </div>
+        </>
+      )}
 
       {alertasCriticos.length === 0 && vencimentos7Dias.length === 0 && safrasAtivas.length === 0 && (
         <div className="bg-white rounded-xl p-10 text-center text-gray-400 shadow-sm border border-gray-100 mt-4">
@@ -960,9 +981,7 @@ export default function Dashboard() {
                 ))}
               </div>
               {f.status === 'pendente' && (
-                <button
-                  onClick={() => { setModalDetalheVenc(null); solicitarMarcarStatus(f, isReceita ? 'recebido' : 'pago') }}
-                  disabled={salvandoStatus}
+                <button onClick={() => { solicitarMarcarStatus(f, isReceita ? 'recebido' : 'pago') }} disabled={salvandoStatus}
                   className="w-full flex items-center justify-center gap-2 text-sm text-white py-2.5 rounded-xl font-medium disabled:opacity-50 shadow-md"
                   style={{ background: isReceita ? 'var(--brand-gradient)' : 'linear-gradient(to right, #ef6464, #e31f1f)' }}>
                   <CheckCircle size={14} />
