@@ -139,9 +139,8 @@ function Tooltip({ texto, children }) {
     <div className="relative inline-flex items-center" onMouseEnter={() => setVis(true)} onMouseLeave={() => setVis(false)} onTouchStart={handleTouch}>
       {children}
       {vis && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 bg-gray-800 text-white text-xs rounded-lg px-2.5 py-1.5 z-50 pointer-events-none shadow-lg" style={{ whiteSpace: 'normal', width: 'max-content', maxWidth: '220px', textAlign: 'center' }}>
+        <div className="fixed bg-gray-800 text-white text-xs rounded-lg px-2.5 py-1.5 z-[9999] pointer-events-none shadow-lg" style={{ whiteSpace: 'normal', maxWidth: '220px', textAlign: 'center', transform: 'translateX(-50%) translateY(-110%)', left: '50%', top: 0 }}>
           {texto}
-          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-800" />
         </div>
       )}
     </div>
@@ -368,17 +367,19 @@ function CardSafrasLista({ safrasAtivas, colheitas, lotesEstoque, lavouras, safr
           const propNome = safra.cidadePropriedade || safra.estadoPropriedade ? [safra.cidadePropriedade, safra.estadoPropriedade].filter(Boolean).join(' - ') : null
           if (!temColheita) {
             return (
-              <div key={safra.id} className="px-4 py-3 flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-800 truncate">{safra.nome}</p>
-                  <p className="text-xs text-gray-400 truncate">
-                    {safra.cultura}{propNome ? ` · ${propNome}` : ''}
-                    {areaTotal > 0 ? ` · ${areaTotal.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} ha` : ''}
-                    {diasDesdeInicio ? ` · ${diasDesdeInicio}d` : ''}
-                  </p>
+              <div key={safra.id} className="px-4 py-3">
+                <div className="flex items-center gap-3 border border-gray-100 rounded-xl px-3 py-2.5 bg-white shadow-sm">
+                  <div className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-800 truncate">{safra.nome}</p>
+                    <p className="text-xs text-gray-400 truncate">
+                      {safra.cultura}{propNome ? ` · ${propNome}` : ''}
+                      {areaTotal > 0 ? ` · ${areaTotal.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} ha` : ''}
+                      {diasDesdeInicio ? ` · ${diasDesdeInicio}d` : ''}
+                    </p>
+                  </div>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 flex-shrink-0">em andamento</span>
                 </div>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 flex-shrink-0">em andamento</span>
               </div>
             )
           }
@@ -393,35 +394,37 @@ function CardSafrasLista({ safrasAtivas, colheitas, lotesEstoque, lavouras, safr
           const ultimaColheita = datasColheita[datasColheita.length - 1]
           const diasSemEntrada = ultimaColheita ? Math.ceil((HOJE_DATE - new Date(ultimaColheita + 'T00:00:00')) / 86400000) : null
           const temGargalo = saldoEstocar > 0 && diasSemEntrada !== null && diasSemEntrada > 4
-          const tooltipEstocar = temGargalo ? `${saldoEstocar.toLocaleString('pt-BR')} ${unidade} aguardam estocagem há ${diasSemEntrada} dias desde a última colheita` : `${saldoEstocar.toLocaleString('pt-BR')} ${unidade} ainda não estocados`
+          const tooltipEstocar = temGargalo ? `${saldoEstocar.toLocaleString('pt-BR')} ${unidade} aguardam estocagem há ${diasSemEntrada} dias` : `${saldoEstocar.toLocaleString('pt-BR')} ${unidade} ainda não estocados`
           return (
             <div key={safra.id} className="px-4 py-3">
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
-                  <p className="text-sm font-semibold text-gray-800 truncate">{safra.nome}</p>
-                  {propNome && <p className="text-xs text-gray-400 truncate hidden sm:block">· {propNome}</p>}
+              <div className="border border-gray-100 rounded-xl px-3 py-2.5 bg-white shadow-sm">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
+                    <p className="text-sm font-semibold text-gray-800 truncate">{safra.nome}</p>
+                    {propNome && <p className="text-xs text-gray-400 truncate hidden sm:block">· {propNome}</p>}
+                  </div>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 flex-shrink-0 font-medium">colheita ativa</span>
                 </div>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 flex-shrink-0 font-medium">colheita ativa</span>
-              </div>
-              <div className="flex items-center gap-2 mb-1.5">
-                <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                  <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${progressoLavouras}%` }} />
+                <div className="flex items-center gap-2 mb-1.5">
+                  <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${progressoLavouras}%` }} />
+                  </div>
+                  <span className="text-[10px] text-gray-400 flex-shrink-0">{lavourasConcluidas}/{totalLavouras} lavouras</span>
                 </div>
-                <span className="text-[10px] text-gray-400 flex-shrink-0">{lavourasConcluidas}/{totalLavouras} lavouras</span>
-              </div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className="text-xs text-gray-700"><span className="font-semibold">{totalColhido.toLocaleString('pt-BR')}</span> <span className="text-gray-400">{unidade} colhidos</span></span>
-                {saldoEstocar > 0 && (
-                  <Tooltip texto={tooltipEstocar}>
-                    <span className={`text-xs cursor-help flex items-center gap-0.5 ${temGargalo ? 'text-red-600' : 'text-amber-600'}`}>
-                      <AlertTriangle size={11} />
-                      <span className="font-semibold">{saldoEstocar.toLocaleString('pt-BR')}</span>
-                      <span className="text-gray-400"> a estocar</span>
-                    </span>
-                  </Tooltip>
-                )}
-                {areaTotal > 0 && <span className="text-xs text-gray-400">{areaTotal.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} ha</span>}
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className="text-xs text-gray-700"><span className="font-semibold">{totalColhido.toLocaleString('pt-BR')}</span> <span className="text-gray-400">{unidade} colhidos</span></span>
+                  {saldoEstocar > 0 && (
+                    <Tooltip texto={tooltipEstocar}>
+                      <span className={`text-xs cursor-help flex items-center gap-0.5 ${temGargalo ? 'text-red-600' : 'text-amber-600'}`}>
+                        <AlertTriangle size={11} />
+                        <span className="font-semibold">{saldoEstocar.toLocaleString('pt-BR')}</span>
+                        <span className="text-gray-400"> a estocar</span>
+                      </span>
+                    </Tooltip>
+                  )}
+                  {areaTotal > 0 && <span className="text-xs text-gray-400">{areaTotal.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} ha</span>}
+                </div>
               </div>
             </div>
           )
@@ -434,13 +437,16 @@ function CardSafrasLista({ safrasAtivas, colheitas, lotesEstoque, lavouras, safr
 function CardClima({ safrasAtivas, clima }) {
   const [cidadeSel, setCidadeSel] = useState('')
   const cidadesDisp = useMemo(() => {
-    const vistas = new Set()
+    const cidadesVistas = new Set()
+    const propVistas = new Set()
     const lista = []
     safrasAtivas.forEach(s => {
+      const nomeCidade = s.cidadePropriedade || s.estadoPropriedade || s.nome || ''
       const key = s.propriedadeId
-      if (key && !vistas.has(key)) {
-        vistas.add(key)
-        lista.push({ propId: key, nome: s.cidadePropriedade || s.estadoPropriedade || s.nome, cidade: s.cidadePropriedade, estado: s.estadoPropriedade })
+      if (key && !propVistas.has(key) && !cidadesVistas.has(nomeCidade)) {
+        propVistas.add(key)
+        cidadesVistas.add(nomeCidade)
+        lista.push({ propId: key, nome: nomeCidade, cidade: s.cidadePropriedade, estado: s.estadoPropriedade })
       }
     })
     return lista
@@ -482,7 +488,7 @@ function CardClima({ safrasAtivas, clima }) {
             ))}
           </div>
         )}
-        <div className="flex-1"><ClimaStrip previsao={previsao} modoColheita={false} localRef="" /></div>
+        <div className="flex-1 bg-gray-50"><ClimaStrip previsao={previsao} modoColheita={false} localRef="" /></div>
       </div>
     </div>
   )
@@ -512,8 +518,9 @@ function CardEstoque({ lotesEstoque, todasSafras, cotacoes, movsProducao }) {
     ;(movsProducao || []).filter(m => !m.cancelado).forEach(m => {
       const cultura = m.cultura || '—'
       const data = m.dataVenda || m.dataMov || ''
+      const preco = m.quantidade > 0 ? (Number(m.valorBruto || m.valorTotal || 0) / Number(m.quantidade)) : null
       if (!vendasPorCultura[cultura] || data > vendasPorCultura[cultura].data) {
-        vendasPorCultura[cultura] = { data, quantidade: Number(m.quantidade) || 0, unidade: m.unidade || 'sc' }
+        vendasPorCultura[cultura] = { data, quantidade: Number(m.quantidade) || 0, unidade: m.unidade || 'sc', precoPorSc: preco }
       }
     })
     return Object.values(mapa)
@@ -522,73 +529,114 @@ function CardEstoque({ lotesEstoque, todasSafras, cotacoes, movsProducao }) {
   }, [lotesEstoque, todasSafras, movsProducao])
 
   if (itens.length === 0) return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-6 text-center text-xs text-gray-400">
-      Nenhum estoque de produção disponível
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden h-full flex flex-col">
+      <div className="flex-1 flex flex-col items-center justify-center py-8 gap-2">
+        <Package size={24} className="text-gray-200" />
+        <p className="text-xs text-gray-400">Nenhum estoque disponível</p>
+      </div>
+      <div className="border-t border-gray-50 px-4 py-2.5">
+        <Link to="/estoque-producao" className="block text-xs text-center text-green-700 hover:text-green-800 font-medium transition-colors">
+          Registrar venda ou movimentação →
+        </Link>
+      </div>
     </div>
   )
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="divide-y divide-gray-50">
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden h-full flex flex-col">
+      <div className="divide-y divide-gray-100 flex-1">
         {itens.map(item => {
           const cot = cotacoes[item.cultura]
           const cotBR = cot ? Number(cot.valorBR || 0) : null
-          const valorEstimado = cotBR && item.saldo > 0 ? cotBR * item.saldo : null
-          const margem = cotBR && item.custoSc ? ((cotBR - item.custoSc) / cotBR) * 100 : null
-          const margemPositiva = margem !== null && margem >= 0
+          const margemRs = cotBR && item.custoSc ? cotBR - item.custoSc : null
+          const margemPct = cotBR && item.custoSc ? ((cotBR - item.custoSc) / cotBR) * 100 : null
+          const margemPos = margemRs !== null && margemRs >= 0
           const armazensEntries = Object.entries(item.armazens)
           return (
             <div key={item.cultura} className="px-4 py-3">
-              {/* Linha 1: cultura + quantidade */}
-              <div className="flex items-baseline justify-between mb-0.5">
-                <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">{item.cultura}</span>
-                <span className="text-sm font-bold text-gray-800">{item.saldo.toLocaleString('pt-BR')} <span className="text-xs font-normal text-gray-400">{item.unidade}</span></span>
-              </div>
-              {/* Linha 2: valor + custo + margem */}
-              <div className="flex items-center gap-2 flex-wrap mb-1">
-                {valorEstimado !== null
-                  ? <span className="text-xs font-semibold text-green-700">{formatarMoeda(valorEstimado)} est.</span>
-                  : <span className="text-xs text-gray-400">sem cotação</span>
-                }
-                {item.custoSc !== null ? (
-                  <>
-                    <span className="text-gray-300 text-xs">·</span>
-                    <span className="text-xs text-gray-400 flex items-center gap-0.5">
-                      custo R${item.custoSc.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}/{item.unidade}
-                      {item.custoIncompleto && (
-                        <Tooltip texto="Custo parcial — colheita em andamento">
-                          <AlertTriangle size={10} className="text-amber-500 cursor-help" />
-                        </Tooltip>
-                      )}
-                    </span>
-                    {margem !== null && (
-                      <>
-                        <span className="text-gray-300 text-xs">·</span>
-                        <span className={`text-xs font-semibold ${margemPositiva ? 'text-green-600' : 'text-red-500'}`}>
-                          {margemPositiva ? '+' : ''}{margem.toFixed(1)}%
+              <div className="flex items-start gap-3">
+                {/* Esquerda: cultura + armazéns */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5">{item.cultura}</p>
+                  {armazensEntries.length > 0 ? (
+                    <div className="space-y-1">
+                      {armazensEntries.map(([local, qty]) => (
+                        <div key={local} className="flex items-center justify-between bg-gray-50 rounded-lg px-2.5 py-1.5">
+                          <span className="text-xs text-gray-500 truncate">{local}</span>
+                          <span className="text-xs font-semibold text-gray-700 flex-shrink-0 ml-2">
+                            {qty.toLocaleString('pt-BR')} <span className="text-gray-400 font-normal">{item.unidade}</span>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-400">{item.saldo.toLocaleString('pt-BR')} {item.unidade}</p>
+                  )}
+                </div>
+                {/* Direita: comparativo por saca */}
+                <div className="flex-shrink-0 min-w-[130px] space-y-1">
+                  {cotBR !== null ? (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] text-gray-400">Cotação</span>
+                      <span className="text-xs font-semibold text-gray-800">R${cotBR.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}/sc</span>
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-gray-400 text-right">sem cotação</p>
+                  )}
+                  {item.custoSc !== null ? (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] text-gray-400 flex items-center gap-0.5">
+                        Custo
+                        {item.custoIncompleto && (
+                          <Tooltip texto="Custo parcial — colheita em andamento">
+                            <AlertTriangle size={10} className="text-amber-500 cursor-help" />
+                          </Tooltip>
+                        )}
+                      </span>
+                      <span className="text-xs font-semibold text-gray-700">R${item.custoSc.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}/sc</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-end gap-0.5">
+                      <Info size={9} className="text-gray-400" />
+                      <span className="text-[10px] text-gray-400">sem custo</span>
+                    </div>
+                  )}
+                  {margemRs !== null && (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] text-gray-400">Margem</span>
+                      <div className="flex items-center gap-1">
+                        <span className={`text-xs font-semibold ${margemPos ? 'text-green-700' : 'text-red-600'}`}>
+                          R${Math.abs(margemRs).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
                         </span>
-                      </>
-                    )}
-                  </>
-                ) : (
-                  <span className="text-xs text-gray-400 flex items-center gap-0.5"><Info size={10} className="text-gray-400" /> sem custo calculado</span>
-                )}
+                        <span className={`text-[10px] px-1 py-0.5 rounded-full font-semibold ${margemPos ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-500'}`}>
+                          {margemPos ? '+' : '-'}{Math.abs(margemPct).toFixed(1)}%
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  {item.ultimaVenda && (
+                    <div className="flex items-center justify-between gap-2">
+                      <Tooltip texto="Preço bruto médio da última venda (valor bruto ÷ quantidade)">
+                        <span className="text-[10px] text-gray-400 cursor-help border-b border-dashed border-gray-300">Últ. venda*</span>
+                      </Tooltip>
+                      <span className="text-xs font-semibold text-gray-600">
+                        {item.ultimaVenda.precoPorSc
+                          ? `R$${item.ultimaVenda.precoPorSc.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}/sc`
+                          : formatarData(item.ultimaVenda.data)
+                        }
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
-              {/* Linha 3: armazéns horizontal */}
-              {armazensEntries.length > 0 && (
-                <p className="text-[10px] text-gray-400 mb-0.5">
-                  {armazensEntries.map(([local, qty]) => `${local} ${qty.toLocaleString('pt-BR')} ${item.unidade}`).join(' · ')}
-                </p>
-              )}
-              {/* Linha 4: última venda */}
-              {item.ultimaVenda && (
-                <p className="text-[10px] text-gray-400">
-                  Última venda: {formatarData(item.ultimaVenda.data)} · {item.ultimaVenda.quantidade.toLocaleString('pt-BR')} {item.ultimaVenda.unidade}
-                </p>
-              )}
             </div>
           )
         })}
+      </div>
+      <div className="border-t border-gray-100 px-4 py-2.5">
+        <Link to="/estoque-producao" className="block text-xs text-center text-green-700 hover:text-green-800 font-medium transition-colors">
+          Registrar venda ou movimentação →
+        </Link>
       </div>
     </div>
   )
@@ -661,9 +709,7 @@ export default function Dashboard() {
         if (!data.ok) return
         const novo = {}
         Object.entries(data.culturas || {}).forEach(([k, v]) => {
-          if (v.ok && MAP[k]) {
-            novo[MAP[k]] = { valorBR: v.valorBR, precoOriginal: v.precoOriginal, bolsa: v.bolsa, originalFormatado: v.precoOriginalFormatado, unidBR: v.unidadeBR, unidadeOriginal: v.unidadeOriginal, cambio: v.cambio, timestamp: v.timestamp, historico: v.historico || [] }
-          }
+          if (v.ok && MAP[k]) novo[MAP[k]] = { valorBR: v.valorBR, precoOriginal: v.precoOriginal, bolsa: v.bolsa, unidBR: v.unidadeBR, unidadeOriginal: v.unidadeOriginal, cambio: v.cambio, timestamp: v.timestamp, historico: v.historico || [] }
         })
         setCotacoes(novo)
       } catch { /* silencioso */ }
