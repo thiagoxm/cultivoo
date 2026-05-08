@@ -127,23 +127,37 @@ function ClimaStrip({ previsao, modoColheita = false, localRef = '' }) {
 }
 
 function Tooltip({ texto, children }) {
-  const [vis, setVis] = useState(false)
+  const [pos, setPos] = useState(null)
   const timerRef = useRef(null)
+  const wrapRef = useRef(null)
+
+  function mostrar() {
+    if (!wrapRef.current) return
+    const r = wrapRef.current.getBoundingClientRect()
+    setPos({ x: r.left + r.width / 2, y: r.top })
+  }
+  function esconder() { setPos(null) }
   function handleTouch() {
-    setVis(true)
+    mostrar()
     clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => setVis(false), 3000)
+    timerRef.current = setTimeout(() => setPos(null), 3000)
   }
   useEffect(() => () => clearTimeout(timerRef.current), [])
   return (
-    <div className="relative inline-flex items-center" onMouseEnter={() => setVis(true)} onMouseLeave={() => setVis(false)} onTouchStart={handleTouch}>
-      {children}
-      {vis && (
-        <div className="fixed bg-gray-800 text-white text-xs rounded-lg px-2.5 py-1.5 z-[9999] pointer-events-none shadow-lg" style={{ whiteSpace: 'normal', maxWidth: '220px', textAlign: 'center', transform: 'translateX(-50%) translateY(-110%)', left: '50%', top: 0 }}>
-          {texto}
+    <>
+      <div ref={wrapRef} className="inline-flex items-center cursor-help"
+        onMouseEnter={mostrar} onMouseLeave={esconder} onTouchStart={handleTouch}>
+        {children}
+      </div>
+      {pos && (
+        <div className="pointer-events-none" style={{ position: 'fixed', left: pos.x, top: pos.y - 8, transform: 'translate(-50%, -100%)', zIndex: 9999 }}>
+          <div className="bg-gray-800 text-white text-xs rounded-lg px-2.5 py-1.5 shadow-lg" style={{ whiteSpace: 'normal', maxWidth: '220px', textAlign: 'center' }}>
+            {texto}
+            <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-800" />
+          </div>
         </div>
       )}
-    </div>
+    </>
   )
 }
 
@@ -191,7 +205,13 @@ function GraficoCotacao({ historico, cor = '#16a34a', prefixo = 'R$' }) {
   const maxLabelsX = Math.min(6, historico.length)
   const stepX = Math.max(1, Math.floor((historico.length - 1) / (maxLabelsX - 1)))
   const labelsX = []
-  for (let i = 0; i < historico.length; i += stepX) labelsX.push({ i, x: toX(i), label: historico[i].label })
+  for (let i = 0; i < historico.length; i += stepX) {
+    const h = historico[i]
+    const labelExibido = h.label && /^\d{2}:\d{2}$/.test(h.label) && h.ts
+      ? new Date(h.ts).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' })
+      : h.label
+    labelsX.push({ i, x: toX(i), label: labelExibido, labelCompleto: h.label })
+  }
 
   function handleMouseMove(e) {
     const svg = svgRef.current; if (!svg) return
@@ -217,7 +237,7 @@ function GraficoCotacao({ historico, cor = '#16a34a', prefixo = 'R$' }) {
   const tooltipX = tooltip ? (tooltip.svgX + TOOLTIP_W > W - padRight ? tooltip.svgX - TOOLTIP_W - 6 : tooltip.svgX + 6) : 0
 
   return (
-    <div ref={containerRef} className="w-full h-full" style={{ minHeight: 200 }}>
+    <div ref={containerRef} className="w-full h-full" style={{ minHeight: 160 }}>
       <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} width={W} height={H} className="block" style={{ touchAction: 'none' }}
         onMouseMove={handleMouseMove} onMouseLeave={() => setTooltip(null)}
         onTouchMove={handleTouchMove} onTouchEnd={() => setTimeout(() => setTooltip(null), 2000)}>
@@ -249,7 +269,7 @@ function GraficoCotacao({ historico, cor = '#16a34a', prefixo = 'R$' }) {
           <foreignObject x={tooltipX} y={padTop + 2} width={TOOLTIP_W} height={44}>
             <div xmlns="http://www.w3.org/1999/xhtml" style={{ background: '#1f2937', color: 'white', borderRadius: 8, padding: '4px 8px', fontSize: 11, lineHeight: '1.4', whiteSpace: 'nowrap', pointerEvents: 'none' }}>
               <div style={{ fontWeight: 600 }}>{prefixo} {Number(tooltip.ponto.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-              <div style={{ color: '#9ca3af', fontSize: 10 }}>{tooltip.ponto.label}</div>
+              <div style={{ color: '#9ca3af', fontSize: 10 }}>{tooltip.ponto.labelCompleto || tooltip.ponto.label}</div>
             </div>
           </foreignObject>
         )}
@@ -327,7 +347,7 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
             <div><p className="text-[10px] text-gray-400">Mín. {periodo}</p><p className="text-xs font-semibold text-red-600">{fmtStat(minPeriodo, minPeriodoOrig)}</p></div>
           </div>
         </div>
-        <div className="flex-1 flex flex-col min-w-0 min-h-[260px]">
+        <div className="flex-1 flex flex-col min-w-0">
           <div className="flex items-center justify-between px-3 pt-2 gap-2 min-h-[32px]">
             <div className="flex items-center gap-1">
               {culturasDisp.length > 1 && culturasDisp.map(c => (
@@ -416,7 +436,7 @@ function CardSafrasLista({ safrasAtivas, colheitas, lotesEstoque, lavouras, safr
                   <span className="text-xs text-gray-700"><span className="font-semibold">{totalColhido.toLocaleString('pt-BR')}</span> <span className="text-gray-400">{unidade} colhidos</span></span>
                   {saldoEstocar > 0 && (
                     <Tooltip texto={tooltipEstocar}>
-                      <span className={`text-xs cursor-help flex items-center gap-0.5 ${temGargalo ? 'text-red-600' : 'text-amber-600'}`}>
+                      <span className={`text-xs flex items-center gap-0.5 ${temGargalo ? 'text-red-600' : 'text-amber-600'}`}>
                         <AlertTriangle size={11} />
                         <span className="font-semibold">{saldoEstocar.toLocaleString('pt-BR')}</span>
                         <span className="text-gray-400"> a estocar</span>
@@ -555,9 +575,12 @@ function CardEstoque({ lotesEstoque, todasSafras, cotacoes, movsProducao }) {
           return (
             <div key={item.cultura} className="px-4 py-3">
               <div className="flex items-start gap-3">
-                {/* Esquerda: cultura + armazéns */}
+                {/* Esquerda: cultura + total + armazéns */}
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5">{item.cultura}</p>
+                  <div className="flex items-baseline justify-between mb-1.5">
+                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">{item.cultura}</p>
+                    <p className="text-sm font-bold text-gray-800">{item.saldo.toLocaleString('pt-BR')} <span className="text-[10px] font-normal text-gray-400">{item.unidade}</span></p>
+                  </div>
                   {armazensEntries.length > 0 ? (
                     <div className="space-y-1">
                       {armazensEntries.map(([local, qty]) => (
@@ -589,7 +612,7 @@ function CardEstoque({ lotesEstoque, todasSafras, cotacoes, movsProducao }) {
                         Custo
                         {item.custoIncompleto && (
                           <Tooltip texto="Custo parcial — colheita em andamento">
-                            <AlertTriangle size={10} className="text-amber-500 cursor-help" />
+                            <AlertTriangle size={10} className="text-amber-500" />
                           </Tooltip>
                         )}
                       </span>
@@ -605,11 +628,11 @@ function CardEstoque({ lotesEstoque, todasSafras, cotacoes, movsProducao }) {
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[10px] text-gray-400">Margem</span>
                       <div className="flex items-center gap-1">
-                        <span className={`text-xs font-semibold ${margemPos ? 'text-green-700' : 'text-red-600'}`}>
-                          R${Math.abs(margemRs).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
-                        </span>
                         <span className={`text-[10px] px-1 py-0.5 rounded-full font-semibold ${margemPos ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-500'}`}>
                           {margemPos ? '+' : '-'}{Math.abs(margemPct).toFixed(1)}%
+                        </span>
+                        <span className={`text-xs font-semibold ${margemPos ? 'text-green-700' : 'text-red-600'}`}>
+                          R${Math.abs(margemRs).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}/sc
                         </span>
                       </div>
                     </div>
@@ -617,7 +640,7 @@ function CardEstoque({ lotesEstoque, todasSafras, cotacoes, movsProducao }) {
                   {item.ultimaVenda && (
                     <div className="flex items-center justify-between gap-2">
                       <Tooltip texto="Preço bruto médio da última venda (valor bruto ÷ quantidade)">
-                        <span className="text-[10px] text-gray-400 cursor-help border-b border-dashed border-gray-300">Últ. venda*</span>
+                        <span className="text-[10px] text-gray-400 border-b border-dashed border-gray-300">Últ. venda*</span>
                       </Tooltip>
                       <span className="text-xs font-semibold text-gray-600">
                         {item.ultimaVenda.precoPorSc
