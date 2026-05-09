@@ -130,7 +130,6 @@ function Tooltip({ texto, children }) {
   const [pos, setPos] = useState(null)
   const timerRef = useRef(null)
   const wrapRef = useRef(null)
-
   function mostrar() {
     if (!wrapRef.current) return
     const r = wrapRef.current.getBoundingClientRect()
@@ -207,10 +206,15 @@ function GraficoCotacao({ historico, cor = '#16a34a', prefixo = 'R$' }) {
   const labelsX = []
   for (let i = 0; i < historico.length; i += stepX) {
     const h = historico[i]
-    const labelExibido = h.label && /^\d{2}:\d{2}$/.test(h.label) && h.ts
-      ? new Date(h.ts).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' })
+    const tsMs = h.ts ? h.ts * 1000 : null
+    const ehIntraday = h.label && /^\d{2}:\d{2}$/.test(h.label)
+    const labelEixo = ehIntraday && tsMs
+      ? new Date(tsMs).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' })
       : h.label
-    labelsX.push({ i, x: toX(i), label: labelExibido, labelCompleto: h.label })
+    const labelTooltip = ehIntraday && tsMs
+      ? new Date(tsMs).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' }) + ' ' + h.label
+      : h.label
+    labelsX.push({ i, x: toX(i), label: labelEixo, labelCompleto: labelTooltip })
   }
 
   function handleMouseMove(e) {
@@ -322,8 +326,8 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
   const prefixoExibido = moeda === 'BRL' ? 'R$' : siglaOrig
   const fmtStat = (brl, orig) => { const val = moeda === 'BRL' ? brl : orig; if (val == null) return '—'; return `${prefixoExibido} ${Number(val).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden h-full">
-      <div className="flex flex-col md:flex-row h-full">
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="flex flex-col md:flex-row">
         <div className="md:w-44 md:flex-shrink-0 px-4 pt-3 pb-3 md:border-r border-gray-100 flex flex-col gap-3">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-1.5"><BarChart2 size={13} className="text-gray-400" /><span className="text-sm font-semibold text-gray-800">Cotação</span></div>
@@ -359,7 +363,7 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
               <button onClick={() => setMoeda('orig')} className={`px-2.5 py-0.5 transition-colors ${moeda === 'orig' ? 'bg-green-700 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>{siglaOrig}</button>
             </div>
           </div>
-          <div className="relative flex-1 overflow-hidden">
+          <div className="relative flex-1 overflow-hidden" style={{ minHeight: 160 }}>
             {carregandoGrafico && <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10"><span className="text-xs text-gray-400">Carregando...</span></div>}
             <GraficoCotacao historico={historicoExibido} cor={cor} prefixo={prefixoExibido} />
           </div>
@@ -575,7 +579,6 @@ function CardEstoque({ lotesEstoque, todasSafras, cotacoes, movsProducao }) {
           return (
             <div key={item.cultura} className="px-4 py-3">
               <div className="flex items-start gap-3">
-                {/* Esquerda: cultura + total + armazéns */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-baseline justify-between mb-1.5">
                     <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">{item.cultura}</p>
@@ -596,7 +599,6 @@ function CardEstoque({ lotesEstoque, todasSafras, cotacoes, movsProducao }) {
                     <p className="text-xs text-gray-400">{item.saldo.toLocaleString('pt-BR')} {item.unidade}</p>
                   )}
                 </div>
-                {/* Direita: comparativo por saca */}
                 <div className="flex-shrink-0 min-w-[130px] space-y-1">
                   {cotBR !== null ? (
                     <div className="flex items-center justify-between gap-2">
@@ -970,7 +972,7 @@ export default function Dashboard() {
                   <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Mercado</span>
                   <div className="flex-1 h-px bg-gray-200" />
                 </div>
-                <div className="flex-1">
+                <div>
                   <CardCotacao safrasAtivas={safrasAtivas} cotacoes={cotacoes} setCotacoes={setCotacoes} />
                 </div>
               </div>
