@@ -167,7 +167,7 @@ const CULTURA_KEY_MAP = {
   'Trigo': 'trigo', 'Algodão': 'algodao', 'Boi Gordo': 'boi_gordo',
 }
 
-function GraficoCotacao({ historico, cor = '#16a34a', prefixo = 'R$' }) {
+function GraficoCotacao({ historico, cor = '#16a34a', prefixo = 'R$', ehIntraday = false }) {
   const containerRef = useRef(null)
   const svgRef = useRef(null)
   const [tooltip, setTooltip] = useState(null)
@@ -207,14 +207,16 @@ function GraficoCotacao({ historico, cor = '#16a34a', prefixo = 'R$' }) {
   for (let i = 0; i < historico.length; i += stepX) {
     const h = historico[i]
     const tsMs = h.ts ? h.ts * 1000 : null
-    const ehIntraday = h.label && /^\d{2}:\d{2}$/.test(h.label)
-    const labelEixo = ehIntraday && tsMs
+    const ehHora = h.label && /^\d{2}:\d{2}$/.test(h.label)
+    // 1D: manter hora no eixo; 5D (ehIntraday=true mas não 1D): mostrar dia/mês no eixo
+    const labelEixo = ehHora && ehIntraday && tsMs
       ? new Date(tsMs).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' })
       : h.label
-    const labelTooltip = ehIntraday && tsMs
+    // Tooltip: sempre mostrar data + hora quando disponível
+    const labelTip = ehHora && tsMs
       ? new Date(tsMs).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' }) + ' ' + h.label
       : h.label
-    labelsX.push({ i, x: toX(i), label: labelEixo, labelCompleto: labelTooltip })
+    labelsX.push({ i, x: toX(i), label: labelEixo, labelCompleto: labelTip })
   }
 
   function handleMouseMove(e) {
@@ -241,7 +243,7 @@ function GraficoCotacao({ historico, cor = '#16a34a', prefixo = 'R$' }) {
   const tooltipX = tooltip ? (tooltip.svgX + TOOLTIP_W > W - padRight ? tooltip.svgX - TOOLTIP_W - 6 : tooltip.svgX + 6) : 0
 
   return (
-    <div ref={containerRef} className="w-full h-full" style={{ minHeight: 160 }}>
+    <div ref={containerRef} className="w-full h-full" style={{ minHeight: 100 }}>
       <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} width={W} height={H} className="block" style={{ touchAction: 'none' }}
         onMouseMove={handleMouseMove} onMouseLeave={() => setTooltip(null)}
         onTouchMove={handleTouchMove} onTouchEnd={() => setTimeout(() => setTooltip(null), 2000)}>
@@ -325,6 +327,7 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
   const unidExibida = moeda === 'BRL' ? (cot.unidBR || 'R$/sc') : (cot.unidadeOriginal || 'US\u00a2/bu')
   const prefixoExibido = moeda === 'BRL' ? 'R$' : siglaOrig
   const fmtStat = (brl, orig) => { const val = moeda === 'BRL' ? brl : orig; if (val == null) return '—'; return `${prefixoExibido} ${Number(val).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
+  const ehIntraday = periodo === '1D' || periodo === '5D'
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
       <div className="flex flex-col md:flex-row">
@@ -363,9 +366,9 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
               <button onClick={() => setMoeda('orig')} className={`px-2.5 py-0.5 transition-colors ${moeda === 'orig' ? 'bg-green-700 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>{siglaOrig}</button>
             </div>
           </div>
-          <div className="relative flex-1 overflow-hidden" style={{ minHeight: 160 }}>
+          <div className="relative flex-1 overflow-hidden" style={{ minHeight: 100 }}>
             {carregandoGrafico && <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10"><span className="text-xs text-gray-400">Carregando...</span></div>}
-            <GraficoCotacao historico={historicoExibido} cor={cor} prefixo={prefixoExibido} />
+            <GraficoCotacao historico={historicoExibido} cor={cor} prefixo={prefixoExibido} ehIntraday={ehIntraday} />
           </div>
           <div className="flex border-t border-gray-100">
             {PERIODOS.map(p => (
