@@ -68,7 +68,7 @@ async function fetchGeocodigo(cidade, estado) {
     if (estado && lista.length > 1) {
       const siglaUF = estado.length === 2
         ? estado.toUpperCase()
-        : null // se vier nome completo, ignora o filtro
+        : ESTADO_PARA_UF[estado] || null
       if (siglaUF) {
         const filtrado = lista.find(m =>
           m?.microrregiao?.mesorregiao?.UF?.sigla?.toUpperCase() === siglaUF
