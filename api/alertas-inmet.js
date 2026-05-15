@@ -90,6 +90,18 @@ function extrairDataInicio(descricao) {
   return m ? normalizarData(m[1]) : ''
 }
 
+// ── Extrai data de fim do HTML da descrição ──────────────────────────────
+// O HTML interno tem: <th>Fim</th><td>2026-05-14 23:59:00.0</td>
+function extrairDataFim(descricao) {
+  const m = descricao.match(/Fim<\/th>\s*<td>([\d\s\-:.]+)<\/td>/i)
+  if (!m) return ''
+  // Formato: "2026-05-14 23:59:00.0" → normalizar para ISO
+  const raw = m[1].trim().replace(/\.\d+$/, '') // remove milissegundos
+  const dt = raw.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}:\d{2})/)
+  if (dt) return `${dt[1]}-${dt[2]}-${dt[3]}T${dt[4]}:00-03:00`
+  return ''
+}
+
 export default async function handler(req) {
   const headers = {
     'Content-Type': 'application/json',
@@ -135,14 +147,14 @@ export default async function handler(req) {
       const evento      = extrairEvento(titulo, capEvent)
       const id          = extrairId(link)
 
-      // Datas: preferir CAP, senão extrair da descrição
+      // Datas: preferir CAP, senão extrair do HTML da descrição
       const dtInicio = capOnset
         ? normalizarData(capOnset)
         : extrairDataInicio(descricao)
 
       const dtFim = capExpires
         ? normalizarData(capExpires)
-        : ''
+        : extrairDataFim(descricao)
 
       // Mesorregões: preferir CAP areaDesc, senão extrair da descrição
       const mesoRegioes = capAreaDesc || extrairMesoRegioes(descricao)
@@ -162,8 +174,31 @@ export default async function handler(req) {
       }
     }).filter(a => a.DS_EVENTO && a.DS_SEVERIDADE)
 
+    // ── Descartar alertas expirados ───────────────────────────────────────
+    // Remove avisos cuja data de fim já passou. Sem data de fim → mantém.
+    const agora = new Date()
+    const alertasAtivos = alertas.filter(a => {
+      if (!a.DT_FIM_PREV) return true
+      try { return new Date(a.DT_FIM_PREV) >= agora } catch { return true }
+    })
+
+    // ── Deduplicar por evento+severidade ─────────────────────────────────
+    // O INMET pode emitir múltiplos avisos do mesmo tipo cobrindo regiões
+    // sobrepostas. Mantemos apenas o mais recente por combinação evento+severidade.
+    const vistos = new Map()
+    for (const a of alertasAtivos) {
+      const chave = `${a.DS_EVENTO}|${a.DS_SEVERIDADE}`
+      const anterior = vistos.get(chave)
+      if (!anterior || (a.DT_INI_PREV || '') > (anterior.DT_INI_PREV || '')) {
+        vistos.set(chave, a)
+      }
+    }
+    // Reconstruir lista preservando ordem original dos deduplicados
+    const idsRetidos = new Set([...vistos.values()].map(a => a.CD_AVISO))
+    const alertasDedup = alertasAtivos.filter(a => idsRetidos.has(a.CD_AVISO))
+
     return new Response(
-      JSON.stringify({ ok: true, alertas }),
+      JSON.stringify({ ok: true, alertas: alertasDedup }),
       { status: 200, headers }
     )
   } catch (err) {
