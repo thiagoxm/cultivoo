@@ -208,7 +208,7 @@ function GraficoCotacao({ historico, cor = '#16a34a', prefixo = 'R$', ehIntraday
     const h = historico[i]
     const tsMs = h.ts ? h.ts * 1000 : null
     const ehHora = h.label && /^\d{2}:\d{2}$/.test(h.label)
-    // 1D: manter hora no eixo; 5D (ehIntraday=true mas não 1D): mostrar dia/mês no eixo
+    // 1D: manter hora no eixo; 5D (ehIntraday=true): mostrar dia/mês no eixo
     const labelEixo = ehHora && ehIntraday && tsMs
       ? new Date(tsMs).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' })
       : h.label
@@ -483,6 +483,26 @@ function CardClima({ safrasAtivas, clima }) {
   const previsao = climaProp?.previsao || []
   const hoje = previsao[0] || null
   const cidade = cidadesDisp.find(c => c.propId === propEfetiva)
+  const alertasINMET = climaProp?.alertas || []
+
+  const COR_ALERTA = {
+    Perigo: 'bg-red-50 border border-red-200 text-red-700',
+    'Perigo Potencial': 'bg-orange-50 border border-orange-200 text-orange-700',
+    Atenção: 'bg-amber-50 border border-amber-200 text-amber-700',
+  }
+  function corAlerta(sev) {
+    if (!sev) return COR_ALERTA['Atenção']
+    if (sev.includes('Perigo Potencial')) return COR_ALERTA['Perigo Potencial']
+    if (sev.includes('Perigo')) return COR_ALERTA['Perigo']
+    return COR_ALERTA['Atenção']
+  }
+  function iconeAlerta(sev) {
+    if (!sev) return '🟡'
+    if (sev.includes('Perigo Potencial')) return '🟠'
+    if (sev.includes('Perigo')) return '🔴'
+    return '🟡'
+  }
+
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden h-full">
       <div className="flex flex-col h-full">
@@ -504,6 +524,22 @@ function CardClima({ safrasAtivas, clima }) {
           </div>
         ) : (
           <div className="px-4 pt-2 pb-3 text-xs text-gray-400">Carregando...</div>
+        )}
+        {alertasINMET.length > 0 && (
+          <div className="px-4 pb-2 space-y-1.5">
+            {alertasINMET.slice(0, 2).map((a, i) => (
+              <Tooltip key={i} texto={a.statusLabel || (a.inicio ? `Início: ${a.inicio}` : a.descricao?.slice(0, 120) || a.evento)}>
+                <div className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 w-full cursor-help ${corAlerta(a.severidade)}`}>
+                  <span className="text-[11px] flex-shrink-0">{iconeAlerta(a.severidade)}</span>
+                  <span className="text-[10px] font-medium truncate">{a.evento}</span>
+                  {a.status === 'vigor' && <span className="text-[9px] flex-shrink-0 opacity-70">em vigor</span>}
+                </div>
+              </Tooltip>
+            ))}
+            {alertasINMET.length > 2 && (
+              <p className="text-[10px] text-gray-400 text-center">+{alertasINMET.length - 2} alerta{alertasINMET.length - 2 > 1 ? 's' : ''}</p>
+            )}
+          </div>
         )}
         {cidadesDisp.length > 1 && (
           <div className="px-4 pb-2 flex gap-1 flex-wrap">
@@ -975,7 +1011,7 @@ export default function Dashboard() {
                   <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Mercado</span>
                   <div className="flex-1 h-px bg-gray-200" />
                 </div>
-                <div>
+                <div className="flex-1">
                   <CardCotacao safrasAtivas={safrasAtivas} cotacoes={cotacoes} setCotacoes={setCotacoes} />
                 </div>
               </div>

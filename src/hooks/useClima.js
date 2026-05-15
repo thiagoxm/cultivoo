@@ -68,8 +68,10 @@ async function fetchGeocodigo(cidade, estado) {
 
     // Geocódigo IBGE tem 7 dígitos — pegamos os 6 primeiros para comparação flexível
     const codigo = String(municipio.id)
-    geocodigoCache[chave] = codigo
-    return codigo
+    const mesorregiao = municipio?.microrregiao?.mesorregiao?.nome || null
+    const resultado = { codigo, mesorregiao }
+    geocodigoCache[chave] = resultado
+    return resultado
   } catch {
     geocodigoCache[chave] = null
     return null
@@ -77,48 +79,59 @@ async function fetchGeocodigo(cidade, estado) {
 }
 
 // ── Verifica se um alerta do INMET cobre um município ────────────────────
-// A estrutura do JSON do INMET não é pública — testamos defensivamente
-// os campos mais prováveis baseado em outros projetos que usam a API
-function alertaCobreMunicipio(alerta, geocodigo) {
-  if (!geocodigo) return true // sem geocódigo → exibe tudo (fallback seguro)
+// geocodigoObj: { codigo, mesorregiao } retornado por fetchGeocodigo
+// O RSS do INMET traz mesorregões em DS_MUNICIPIOS; a API antiga trazia geocódigos.
+// Testamos ambos defensivamente.
+function alertaCobreMunicipio(alerta, geocodigoObj) {
+  if (!geocodigoObj) return true // sem dados → exibe tudo (fallback seguro)
 
-  const codigo6 = geocodigo.substring(0, 6)
-  const codigo7 = geocodigo
+  const { codigo, mesorregiao } = geocodigoObj
+  const codigo6 = codigo ? codigo.substring(0, 6) : null
+  const codigo7 = codigo || null
 
-  // Campos possíveis onde o INMET guarda os geocódigos dos municípios
+  // Campos possíveis onde o INMET guarda os geocódigos dos municípios (API antiga)
   const camposMunicipio = [
     alerta.CD_GEOCODIGO,
     alerta.geocodigo,
     alerta.municipio_geocodigo,
   ]
 
-  // Campos de lista/texto com múltiplos municípios
+  // Campos de lista/texto com múltiplos municípios ou mesorregões
   const camposTexto = [
-    alerta.DS_MUNICIPIOS,
+    alerta.DS_MUNICIPIOS, // RSS: mesorregões
     alerta.municipios,
     alerta.DS_AREA,
     alerta.area,
   ]
 
   // Verificar campos diretos de geocódigo
-  for (const campo of camposMunicipio) {
-    if (!campo) continue
-    if (Array.isArray(campo)) {
-      if (campo.some(c => String(c).startsWith(codigo6))) return true
-    } else {
-      const str = String(campo)
-      if (str.startsWith(codigo6) || str.startsWith(codigo7)) return true
+  if (codigo6) {
+    for (const campo of camposMunicipio) {
+      if (!campo) continue
+      if (Array.isArray(campo)) {
+        if (campo.some(c => String(c).startsWith(codigo6))) return true
+      } else {
+        const str = String(campo)
+        if (str.startsWith(codigo6) || str.startsWith(codigo7)) return true
+      }
     }
   }
 
-  // Verificar campos de texto que podem conter o geocódigo ou nome
+  // Verificar campos de texto — geocódigo numérico OU nome de mesorregião
   for (const campo of camposTexto) {
     if (!campo) continue
     const str = String(campo)
-    if (str.includes(codigo6) || str.includes(codigo7)) return true
+    // Geocódigo numérico
+    if (codigo6 && (str.includes(codigo6) || str.includes(codigo7))) return true
+    // Nome de mesorregião (ex: "Sul Goiano", "Centro Norte de Mato Grosso do Sul")
+    if (mesorregiao) {
+      // Normaliza acentos para comparação mais tolerante
+      const norm = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+      if (str && norm(str).includes(norm(mesorregiao))) return true
+    }
   }
 
-  // Se nenhum campo de município foi encontrado no alerta,
+  // Se nenhum campo de município/mesorregião foi encontrado no alerta,
   // significa que a API não retorna esse dado → exibir tudo
   const temCampoMunicipio = [...camposMunicipio, ...camposTexto].some(c => c != null)
   if (!temCampoMunicipio) return true
@@ -172,10 +185,12 @@ async function fetchAlertasINMET() {
   }
 
   try {
-    const res = await fetch('https://apialerta.inmet.gov.br/v3/alertas')
+    // Usar proxy da Vercel para evitar CORS
+    const res = await fetch('/api/alertas-inmet')
     if (!res.ok) return alertasCache.dados || []
-    const alertas = await res.json()
-    if (!Array.isArray(alertas)) return alertasCache.dados || []
+    const json = await res.json()
+    if (!json.ok || !Array.isArray(json.alertas)) return alertasCache.dados || []
+    const alertas = json.alertas
 
     alertasCache = { dados: alertas, ts: agora }
     return alertas
@@ -270,12 +285,12 @@ export function useClima(propriedades = []) {
         }
         try {
           // Geocódigo e Open-Meteo em paralelo
-          const [{ previsao, historico, precipAcumulada15d }, geocodigo] = await Promise.all([
+          const [{ previsao, historico, precipAcumulada15d }, geocodigoObj] = await Promise.all([
             fetchOpenMeteo(prop.lat, prop.lng),
             fetchGeocodigo(prop.cidade, prop.estado),
           ])
 
-          const alertas = mapearAlertas(alertasRaw, geocodigo)
+          const alertas = mapearAlertas(alertasRaw, geocodigoObj)
 
           setClima(prev => ({
             ...prev,
