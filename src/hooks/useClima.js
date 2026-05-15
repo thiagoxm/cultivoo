@@ -131,9 +131,10 @@ function alertaCobreMunicipio(alerta, geocodigoObj) {
     }
   }
 
-  // Se nenhum campo de município/mesorregião foi encontrado no alerta,
-  // significa que a API não retorna esse dado → exibir tudo
-  const temCampoMunicipio = [...camposMunicipio, ...camposTexto].some(c => c != null)
+  // Se nenhum campo de município/mesorregião foi encontrado no alerta
+  // (API sem dados geográficos), exibir tudo como fallback seguro.
+  // Se havia campos mas nenhum bateu, não exibir.
+  const temCampoMunicipio = [...camposMunicipio, ...camposTexto].some(c => c != null && String(c).length > 2)
   if (!temCampoMunicipio) return true
 
   return false

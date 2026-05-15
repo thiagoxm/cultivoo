@@ -63,10 +63,18 @@ function extrairId(link) {
 }
 
 // ── Extrai lista de mesorregões do campo description ─────────────────────
-// A descrição contém as mesorregões antes ou depois do texto do aviso
-// Formato típico: "Aviso para as Áreas: Sul Goiano, Norte Goiano, ..."
+// O HTML interno tem: <th>Área</th><td>Aviso para as Áreas: Sul Goiano, ...</td>
+// Extraímos apenas o texto dentro do <td>, antes de qualquer tag HTML
 function extrairMesoRegioes(descricao) {
-  const m = descricao.match(/Aviso\s+para\s+as\s+[Áá]reas?:\s*([^.]+)/i)
+  // Tenta extrair direto do bloco HTML <th>Área</th><td>...</td>
+  const mHtml = descricao.match(/[Áá]rea<\/th>\s*<td>([\s\S]*?)<\/td>/i)
+  if (mHtml) {
+    const texto = mHtml[1].replace(/<[^>]+>/g, '').trim() // remove tags HTML residuais
+    const mAreas = texto.match(/Aviso\s+para\s+as\s+[Áá]reas?:\s*([\s\S]+)/i)
+    return mAreas ? mAreas[1].trim() : texto
+  }
+  // Fallback: busca no texto plano
+  const m = descricao.match(/Aviso\s+para\s+as\s+[Áá]reas?:\s*([^<]+)/i)
   if (!m) return ''
   return m[1].trim()
 }
