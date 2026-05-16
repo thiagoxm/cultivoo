@@ -208,13 +208,13 @@ function GraficoCotacao({ historico, cor = '#16a34a', prefixo = 'R$', ehIntraday
     const h = historico[i]
     const tsMs = h.ts ? h.ts * 1000 : null
     const ehHora = h.label && /^\d{2}:\d{2}$/.test(h.label)
-    // 1D: manter hora no eixo X; 5D: converter hora → dia/mês no eixo X
-    const eh5D = ehIntraday && !ehHora
-    const labelEixo = ehHora && eh5D && tsMs
+    // 1D: labels já vêm como hora (HH:MM) — manter direto no eixo
+    // 5D: labels vêm como hora mas queremos mostrar dia/mês no eixo
+    const labelEixo = ehHora && ehIntraday && tsMs
       ? new Date(tsMs).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' })
       : h.label
-    // Tooltip: para 5D mostrar data+hora; para 1D manter só hora
-    const labelTip = ehHora && tsMs && ehIntraday
+    // Tooltip: 5D mostra data+hora; 1D mostra só hora
+    const labelTip = ehHora && ehIntraday && tsMs
       ? new Date(tsMs).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' }) + ' ' + h.label
       : h.label
     labelsX.push({ i, x: toX(i), label: labelEixo, labelCompleto: labelTip })
@@ -330,7 +330,7 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
   const fmtStat = (brl, orig) => { const val = moeda === 'BRL' ? brl : orig; if (val == null) return '—'; return `${prefixoExibido} ${Number(val).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
   const ehIntraday = periodo === '5D'
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden" style={{ contain: 'layout' }}>
       <div className="flex flex-col md:flex-row">
         <div className="md:w-44 md:flex-shrink-0 px-4 pt-3 pb-3 md:border-r border-gray-100 flex flex-col gap-3">
           <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -367,7 +367,7 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
               <button onClick={() => setMoeda('orig')} className={`px-2.5 py-0.5 transition-colors ${moeda === 'orig' ? 'bg-green-700 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>{siglaOrig}</button>
             </div>
           </div>
-          <div className="relative overflow-hidden" style={{ minHeight: 100, maxHeight: 220 }}>
+          <div className="relative overflow-hidden" style={{ height: 180 }}>
             {carregandoGrafico && <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10"><span className="text-xs text-gray-400">Carregando...</span></div>}
             <GraficoCotacao historico={historicoExibido} cor={cor} prefixo={prefixoExibido} ehIntraday={ehIntraday} />
           </div>
