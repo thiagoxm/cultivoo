@@ -509,37 +509,50 @@ function CardClima({ safrasAtivas, clima }) {
         {cidade && <p className="px-4 pt-3 text-[10px] text-gray-400 truncate">📍 {cidade.cidade}{cidade.estado ? ` · ${cidade.estado}` : ''}</p>}
         {hoje ? (
           <div className="px-4 pt-2 pb-3">
-            <div className="flex items-center gap-3 mb-1">
-              <IconeClima tipo={hoje.condicao?.icon || 'cloud'} size={32} />
-              <div>
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-2xl font-semibold text-orange-500">{hoje.tempMax}°</span>
-                  <span className="text-sm text-gray-400">/</span>
-                  <span className="text-2xl font-semibold text-blue-400">{hoje.tempMin}°</span>
+            <div className="flex items-start gap-3">
+              {/* Lado esquerdo: ícone + temperatura */}
+              <div className="flex items-center gap-3 flex-shrink-0">
+                <IconeClima tipo={hoje.condicao?.icon || 'cloud'} size={32} />
+                <div>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-2xl font-semibold text-orange-500">{hoje.tempMax}°</span>
+                    <span className="text-sm text-gray-400">/</span>
+                    <span className="text-2xl font-semibold text-blue-400">{hoje.tempMin}°</span>
+                  </div>
+                  <p className="text-[10px] text-gray-400">máx / mín · {hoje.precipitacao === 0 ? 'sem chuva' : `${hoje.precipitacao}mm`}</p>
+                  <p className="text-xs text-gray-500 capitalize mt-0.5">{hoje.condicao?.label || ''}</p>
                 </div>
-                <p className="text-[10px] text-gray-400">máx / mín · {hoje.precipitacao === 0 ? 'sem chuva' : `${hoje.precipitacao}mm`}</p>
+              </div>
+              {/* Lado direito: card de alertas INMET */}
+              <div className="flex-1 min-w-0">
+                <div className="border border-gray-200 rounded-xl px-2.5 py-2 bg-gray-50 h-full">
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Alertas INMET</p>
+                  {alertasINMET.length === 0 ? (
+                    <p className="text-[10px] text-gray-400 flex items-center gap-1">
+                      <CheckCircle size={10} className="text-green-500 flex-shrink-0" />
+                      Sem alertas ativos
+                    </p>
+                  ) : (
+                    <div className="space-y-1">
+                      {alertasINMET.slice(0, 3).map((a, i) => (
+                        <Tooltip key={i} texto={a.statusLabel || (a.inicio ? `Início: ${a.inicio}` : a.descricao?.slice(0, 120) || a.evento)}>
+                          <div className={`flex items-center gap-1.5 rounded-lg px-2 py-1 w-full cursor-help ${corAlerta(a.severidade)}`}>
+                            <span className="text-[10px] flex-shrink-0">{iconeAlerta(a.severidade)}</span>
+                            <span className="text-[10px] font-medium truncate">{a.evento}</span>
+                          </div>
+                        </Tooltip>
+                      ))}
+                      {alertasINMET.length > 3 && (
+                        <p className="text-[9px] text-gray-400 text-center">+{alertasINMET.length - 3} mais</p>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-            <p className="text-xs text-gray-500 capitalize">{hoje.condicao?.label || ''}</p>
           </div>
         ) : (
           <div className="px-4 pt-2 pb-3 text-xs text-gray-400">Carregando...</div>
-        )}
-        {alertasINMET.length > 0 && (
-          <div className="px-4 pb-2 space-y-1.5">
-            {alertasINMET.slice(0, 2).map((a, i) => (
-              <Tooltip key={i} texto={a.statusLabel || (a.inicio ? `Início: ${a.inicio}` : a.descricao?.slice(0, 120) || a.evento)}>
-                <div className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 w-full cursor-help ${corAlerta(a.severidade)}`}>
-                  <span className="text-[11px] flex-shrink-0">{iconeAlerta(a.severidade)}</span>
-                  <span className="text-[10px] font-medium truncate">{a.evento}</span>
-                  {a.status === 'vigor' && <span className="text-[9px] flex-shrink-0 opacity-70">em vigor</span>}
-                </div>
-              </Tooltip>
-            ))}
-            {alertasINMET.length > 2 && (
-              <p className="text-[10px] text-gray-400 text-center">+{alertasINMET.length - 2} alerta{alertasINMET.length - 2 > 1 ? 's' : ''}</p>
-            )}
-          </div>
         )}
         {cidadesDisp.length > 1 && (
           <div className="px-4 pb-2 flex gap-1 flex-wrap">
