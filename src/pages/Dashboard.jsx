@@ -214,7 +214,7 @@ function GraficoCotacao({ historico, cor = '#16a34a', prefixo = 'R$', ehIntraday
       ? new Date(tsMs).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' })
       : h.label
     // Tooltip: para 5D mostrar data+hora; para 1D manter só hora
-    const labelTip = ehHora && tsMs && periodo === '5D'
+    const labelTip = ehHora && tsMs && ehIntraday
       ? new Date(tsMs).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' }) + ' ' + h.label
       : h.label
     labelsX.push({ i, x: toX(i), label: labelEixo, labelCompleto: labelTip })
@@ -524,7 +524,9 @@ function CardClima({ safrasAtivas, clima }) {
                   <p className="text-xs text-gray-500 capitalize mt-0.5">{hoje.condicao?.label || ''}</p>
                 </div>
               </div>
-              {/* Lado direito: card de alertas INMET — metade do espaço */}
+              {/* Espaço flex entre temperatura e alertas */}
+              <div className="flex-1" />
+              {/* Lado direito: card de alertas INMET */}
               <div className="w-1/2 flex-shrink-0">
                 <div className="border border-gray-200 rounded-xl px-2.5 py-2 bg-gray-50 h-full">
                   <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Alertas INMET</p>
