@@ -96,7 +96,7 @@ function ClimaStrip({ previsao, modoColheita = false, localRef = '' }) {
     <div className="bg-gray-50 border-t border-gray-100">
       {localRef && <p className="px-3 pt-1.5 text-[10px] text-gray-400 truncate">📍 {localRef}</p>}
       <div className="flex divide-x divide-gray-100 px-1 py-2 overflow-x-auto">
-        {previsao.slice(0, 7).map((d) => {
+        {previsao.slice(1, 8).map((d) => {
           const bom = d.precipitacao < 2
           const [, mes, dia] = d.data.split('-')
           return (
@@ -208,12 +208,13 @@ function GraficoCotacao({ historico, cor = '#16a34a', prefixo = 'R$', ehIntraday
     const h = historico[i]
     const tsMs = h.ts ? h.ts * 1000 : null
     const ehHora = h.label && /^\d{2}:\d{2}$/.test(h.label)
-    // 1D: manter hora no eixo; 5D (ehIntraday=true): mostrar dia/mês no eixo
-    const labelEixo = ehHora && ehIntraday && tsMs
+    // 1D: manter hora no eixo X; 5D: converter hora → dia/mês no eixo X
+    const eh5D = ehIntraday && !ehHora
+    const labelEixo = ehHora && eh5D && tsMs
       ? new Date(tsMs).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' })
       : h.label
-    // Tooltip: sempre mostrar data + hora quando disponível
-    const labelTip = ehHora && tsMs
+    // Tooltip: para 5D mostrar data+hora; para 1D manter só hora
+    const labelTip = ehHora && tsMs && periodo === '5D'
       ? new Date(tsMs).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' }) + ' ' + h.label
       : h.label
     labelsX.push({ i, x: toX(i), label: labelEixo, labelCompleto: labelTip })
@@ -327,7 +328,7 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
   const unidExibida = moeda === 'BRL' ? (cot.unidBR || 'R$/sc') : (cot.unidadeOriginal || 'US\u00a2/bu')
   const prefixoExibido = moeda === 'BRL' ? 'R$' : siglaOrig
   const fmtStat = (brl, orig) => { const val = moeda === 'BRL' ? brl : orig; if (val == null) return '—'; return `${prefixoExibido} ${Number(val).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
-  const ehIntraday = periodo === '1D' || periodo === '5D'
+  const ehIntraday = periodo === '5D'
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
       <div className="flex flex-col md:flex-row">
@@ -366,7 +367,7 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
               <button onClick={() => setMoeda('orig')} className={`px-2.5 py-0.5 transition-colors ${moeda === 'orig' ? 'bg-green-700 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>{siglaOrig}</button>
             </div>
           </div>
-          <div className="relative flex-1 overflow-hidden" style={{ minHeight: 100 }}>
+          <div className="relative overflow-hidden" style={{ minHeight: 100, maxHeight: 220 }}>
             {carregandoGrafico && <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10"><span className="text-xs text-gray-400">Carregando...</span></div>}
             <GraficoCotacao historico={historicoExibido} cor={cor} prefixo={prefixoExibido} ehIntraday={ehIntraday} />
           </div>
@@ -523,8 +524,8 @@ function CardClima({ safrasAtivas, clima }) {
                   <p className="text-xs text-gray-500 capitalize mt-0.5">{hoje.condicao?.label || ''}</p>
                 </div>
               </div>
-              {/* Lado direito: card de alertas INMET */}
-              <div className="flex-1 min-w-0">
+              {/* Lado direito: card de alertas INMET — metade do espaço */}
+              <div className="w-1/2 flex-shrink-0">
                 <div className="border border-gray-200 rounded-xl px-2.5 py-2 bg-gray-50 h-full">
                   <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Alertas INMET</p>
                   {alertasINMET.length === 0 ? (
@@ -1057,7 +1058,7 @@ export default function Dashboard() {
             </div>
             <div className="overflow-y-auto flex-1 divide-y divide-gray-50">
               {modalAlerta.itens?.length === 0 && <p className="text-sm text-gray-400 text-center py-8">Todos os itens foram resolvidos.</p>}
-              {modalAlerta.itens?.map(item => (
+              {[...(modalAlerta.itens || [])].sort((a, b) => (a.vencimento || '').localeCompare(b.vencimento || '')).map(item => (
                 <div key={item.id} className="flex items-center gap-3 px-5 py-3">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-800 truncate">{item.descricao}</p>
