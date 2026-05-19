@@ -315,4 +315,77 @@ export default function Indicadores() {
         <CardIndicador titulo="Insumos em estoque"
           badge={{ texto: `${insumosComSaldo.length} produtos`, bg: '#E6F1FB', cor: '#185FA5' }}
           kpis={[{ valor: fmtMoeda(valorTotalInsumos), label: 'valor estimado em estoque' }]}
-          grafico={insumosComSaldo.length > 0 ? (<><p className="text-[10px] text-gray-400 mb-2">Maiores valores em estoque</p>{insumosComSaldo.slice(0, 5).map(i => <Barra key={i.id} nome={i.produto || i.nome || 'sem nome'} largura={(i.valorEstoque / maxInsValor) * 100} cor
+          grafico={insumosComSaldo.length > 0 ? (
+            <>
+              <p className="text-[10px] text-gray-400 mb-2">Maiores valores em estoque</p>
+              {insumosComSaldo.slice(0, 5).map(i => (
+                <Barra
+                  key={i.id}
+                  nome={i.produto || i.nome || 'sem nome'}
+                  largura={(i.valorEstoque / maxInsValor) * 100}
+                  cor="#378ADD"
+                  valor={fmtMoeda(i.valorEstoque)}
+                />
+              ))}
+            </>
+          ) : <p className="text-xs text-gray-400">Nenhum insumo com saldo.</p>}
+          detalhe={insumosComSaldo.length > 0 ? (
+            <div>
+              <p className="text-xs font-semibold text-gray-600 mb-2">Todos os insumos com saldo</p>
+              {insumosComSaldo.map(i => (
+                <LinhaDetalhe
+                  key={i.id}
+                  label={i.produto || i.nome || 'sem nome'}
+                  valor={fmtMoeda(i.valorEstoque)}
+                  sub={`${fmtVal(i.saldoReal, 2)} ${i.unidade || ''} - R$ ${fmtVal(i.precoUlt, 2)}/un (ultima entrada)`}
+                />
+              ))}
+              <div className="mt-2 pt-2 border-t border-gray-200">
+                <LinhaDetalhe label="Valor total" valor={fmtMoeda(valorTotalInsumos)} destaque />
+              </div>
+            </div>
+          ) : null}
+        />
+
+        <CardIndicador titulo="Custo por equipamento"
+          badge={custoPorEquipamento.some(e => e.total > mediaEquip * 1.3) ? { texto: 'custo elevado', bg: '#FAEEDA', cor: '#854F0B' } : null}
+          kpis={[{ valor: fmtMoeda(totalEquip), label: `custo total ${ANO_ATUAL}` }]}
+          grafico={custoPorEquipamento.length > 0 ? (
+            <>
+              <p className="text-[10px] text-gray-400 mb-2">Custo anual - {ANO_ATUAL}</p>
+              {custoPorEquipamento.map(e => (
+                <Barra
+                  key={e.id}
+                  nome={e.nome}
+                  largura={(e.total / maxEquip) * 100}
+                  cor={e.total > mediaEquip * 1.3 ? '#EF9F27' : '#639922'}
+                  valor={fmtMoeda(e.total)}
+                />
+              ))}
+              {mediaEquip > 0 && <p className="text-[10px] text-gray-400 mt-2">Media: {fmtMoeda(mediaEquip)}/equipamento/ano</p>}
+            </>
+          ) : <p className="text-xs text-gray-400">Nenhum patrimonio com custos cadastrado.</p>}
+          detalhe={custoPorEquipamento.length > 0 ? (
+            <div>
+              <p className="text-xs font-semibold text-gray-600 mb-2">Gastos {ANO_ATUAL} + depreciacao anual</p>
+              {custoPorEquipamento.map(e => (
+                <LinhaDetalhe
+                  key={e.id}
+                  label={`${e.nome} (${e.categoria})`}
+                  valor={fmtMoeda(e.total)}
+                  sub={[`Gastos: ${fmtMoeda(e.gastos)}`, `Deprec./ano: ${fmtMoeda(e.deprecAnual)}`, e.vidaUtil ? `Vida util: ${e.vidaUtil}a` : null].filter(Boolean).join(' - ')}
+                  destaque={e.total > mediaEquip * 1.3}
+                />
+              ))}
+              <div className="mt-2 pt-2 border-t border-gray-200">
+                <LinhaDetalhe label={`Total ${ANO_ATUAL}`} valor={fmtMoeda(totalEquip)} destaque />
+                <LinhaDetalhe label="Media/equip" valor={fmtMoeda(mediaEquip)} />
+              </div>
+            </div>
+          ) : null}
+        />
+
+      </div>
+    </div>
+  )
+}
