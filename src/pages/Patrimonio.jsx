@@ -54,7 +54,6 @@ const FORM_PADRAO = {
   anoAquisicao: ANO_ATUAL, vidaUtil: '',
   numeroIdentificacao: '', descricao: '',
   isImplemento: false,
-  // Campos de lançamento financeiro de aquisição
   gerarLancamento: false,
   dataAquisicaoMask: '',
   statusAquisicao: 'pago',
@@ -62,16 +61,13 @@ const FORM_PADRAO = {
   numParcelasAquisicao: 1,
 }
 
-// Dropdown multiselect reutilizável
 function DropdownMulti({ valor, onChange, opcoes, placeholder, aberto, setAberto }) {
   const nomesSelecionados = opcoes.filter(o => valor.includes(o.id)).map(o => o.nome).join(', ')
   return (
     <div className="relative" data-dropdown>
       <button type="button" onClick={() => setAberto(!aberto)}
         className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs font-normal bg-gray-50 hover:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-500 min-w-[180px] w-full flex items-center justify-between gap-2">
-        <span className="text-gray-700 truncate">
-          {valor.length > 0 ? nomesSelecionados : placeholder}
-        </span>
+        <span className="text-gray-700 truncate">{valor.length > 0 ? nomesSelecionados : placeholder}</span>
         <svg className="w-3 h-3 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
@@ -100,7 +96,7 @@ function DropdownMulti({ valor, onChange, opcoes, placeholder, aberto, setAberto
 }
 
 export default function Patrimonio() {
-  const { usuario } = useAuth()
+  const { usuario, propriedadesCompartilhadas } = useAuth()
   const [lista, setLista] = useState([])
   const [propriedades, setPropriedades] = useState([])
   const [lavouras, setLavouras] = useState([])
@@ -115,19 +111,43 @@ export default function Patrimonio() {
 
   async function carregar() {
     const uid = usuario.uid
+
+    // Dados próprios
     const [patSnap, propSnap, lavSnap] = await Promise.all([
       getDocs(query(collection(db, 'patrimonios'), where('uid', '==', uid))),
       getDocs(query(collection(db, 'propriedades'), where('uid', '==', uid))),
       getDocs(query(collection(db, 'lavouras'), where('uid', '==', uid))),
     ])
-    setLista(patSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    setPropriedades(propSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    setLavouras(lavSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+    const meusPatrimonios = patSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const minhasProps = propSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const minhasLavs = lavSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+    // Dados compartilhados com permissão 'patrimonio'
+    const idsComPatrimonio = (propriedadesCompartilhadas || [])
+      .filter(c => c.permissoes.includes('patrimonio'))
+      .map(c => c.propriedadeId)
+
+    let patsCompartilhados = []
+    let propsCompartilhadas = []
+    let lavsCompartilhadas = []
+    for (const propId of idsComPatrimonio) {
+      const [ps, prs, ls] = await Promise.all([
+        getDocs(query(collection(db, 'patrimonios'), where('propriedadeId', '==', propId))),
+        getDocs(query(collection(db, 'propriedades'), where('__name__', '==', propId))),
+        getDocs(query(collection(db, 'lavouras'), where('propriedadeId', '==', propId))),
+      ])
+      patsCompartilhados.push(...ps.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      propsCompartilhadas.push(...prs.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      lavsCompartilhadas.push(...ls.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+    }
+
+    setLista([...meusPatrimonios, ...patsCompartilhados])
+    setPropriedades([...minhasProps, ...propsCompartilhadas])
+    setLavouras([...minhasLavs, ...lavsCompartilhadas])
   }
 
   useEffect(() => { carregar() }, [])
 
-  // Fecha dropdowns ao clicar fora
   useEffect(() => {
     function fechar(e) {
       if (!e.target.closest('[data-dropdown]')) {
@@ -139,26 +159,19 @@ export default function Patrimonio() {
     return () => document.removeEventListener('mousedown', fechar)
   }, [])
 
-  // Área total por propriedade
   const areasPropriedades = useMemo(() => {
     const areas = {}
     lavouras.forEach(l => {
-      if (l.propriedadeId) {
-        areas[l.propriedadeId] = (areas[l.propriedadeId] || 0) + (Number(l.areaHa) || 0)
-      }
+      if (l.propriedadeId) areas[l.propriedadeId] = (areas[l.propriedadeId] || 0) + (Number(l.areaHa) || 0)
     })
     return areas
   }, [lavouras])
 
-  // Lista filtrada
   const listaFiltrada = useMemo(() => {
     if (filtroPropriedadeIds.length === 0) return lista
-    return lista.filter(p =>
-      p.propriedadeIds?.some(id => filtroPropriedadeIds.includes(id))
-    )
+    return lista.filter(p => p.propriedadeIds?.some(id => filtroPropriedadeIds.includes(id)))
   }, [lista, filtroPropriedadeIds])
 
-  // Agrupamento por propriedade → categoria, com valores rateados
   const agrupado = useMemo(() => {
     const grupos = {}
     listaFiltrada.forEach(p => {
@@ -175,79 +188,46 @@ export default function Patrimonio() {
     return grupos
   }, [listaFiltrada, propriedades, filtroPropriedadeIds, areasPropriedades])
 
-  // Métricas dashboard — comparativo mesmo mês do ano anterior
   const metricas = useMemo(() => {
-  const porCategoria = {}
-  let totalAtual = 0, totalMesAnterior = 0, depreciacaoAnual = 0
+    const porCategoria = {}
+    let totalAtual = 0, totalMesAnterior = 0, depreciacaoAnual = 0
 
-  if (filtroPropriedadeIds.length > 0) {
-    // Com filtro: soma apenas a fatia rateada de cada patrimônio
-    // para cada propriedade selecionada
-    filtroPropriedadeIds.forEach(propId => {
-      listaFiltrada.forEach(p => {
-        // Verifica se este patrimônio pertence a esta propriedade
-        const ids = p.propriedadeIds || []
-        if (!ids.includes(propId)) return
-
-        const pct = calcularPercentualRateio(p, propId, areasPropriedades)
-        const valorAtual = calcularValorAtual(p, ANO_ATUAL, MES_ATUAL) * pct
-        const valorMesAnterior = calcularValorAtual(p, ANO_ATUAL - 1, MES_ATUAL) * pct
-        const deprecMensal = calcularDepreciacaoMensal(p) * pct
-
-        totalAtual += valorAtual
-        totalMesAnterior += valorMesAnterior
-        depreciacaoAnual += deprecMensal * 12
-
-        const cat = p.categoria || 'Outros'
-        porCategoria[cat] = (porCategoria[cat] || 0) + valorAtual
+    if (filtroPropriedadeIds.length > 0) {
+      filtroPropriedadeIds.forEach(propId => {
+        listaFiltrada.forEach(p => {
+          const ids = p.propriedadeIds || []
+          if (!ids.includes(propId)) return
+          const pct = calcularPercentualRateio(p, propId, areasPropriedades)
+          totalAtual += calcularValorAtual(p, ANO_ATUAL, MES_ATUAL) * pct
+          totalMesAnterior += calcularValorAtual(p, ANO_ATUAL - 1, MES_ATUAL) * pct
+          depreciacaoAnual += calcularDepreciacaoMensal(p) * pct * 12
+          const cat = p.categoria || 'Outros'
+          porCategoria[cat] = (porCategoria[cat] || 0) + calcularValorAtual(p, ANO_ATUAL, MES_ATUAL) * pct
+        })
       })
+    } else {
+      lista.forEach(p => {
+        totalAtual += calcularValorAtual(p, ANO_ATUAL, MES_ATUAL)
+        totalMesAnterior += calcularValorAtual(p, ANO_ATUAL - 1, MES_ATUAL)
+        depreciacaoAnual += calcularDepreciacaoMensal(p) * 12
+        const cat = p.categoria || 'Outros'
+        porCategoria[cat] = (porCategoria[cat] || 0) + calcularValorAtual(p, ANO_ATUAL, MES_ATUAL)
+      })
+    }
+
+    const variacaoAbsoluta = totalAtual - totalMesAnterior
+    const variacaoPercent = totalMesAnterior > 0 ? (variacaoAbsoluta / totalMesAnterior) * 100 : 0
+    const categoriaOrdenada = Object.entries(porCategoria).sort((a, b) => b[1] - a[1])
+    let acumulado = 0
+    const dadosGrafico = categoriaOrdenada.map(([name, value]) => {
+      const start = acumulado
+      acumulado += value
+      return { name, value, start, fill: CORES[name] || '#888' }
     })
-  } else {
-    // Sem filtro: soma os valores totais de todos os patrimônios
-    lista.forEach(p => {
-      const valorAtual = calcularValorAtual(p, ANO_ATUAL, MES_ATUAL)
-      const valorMesAnterior = calcularValorAtual(p, ANO_ATUAL - 1, MES_ATUAL)
-      const deprecMensal = calcularDepreciacaoMensal(p)
+    dadosGrafico.push({ name: 'Total', value: totalAtual, start: 0, fill: '#374151', isTotal: true })
+    return { totalAtual, totalMesAnterior, depreciacaoAnual, variacaoAbsoluta, variacaoPercent, dadosGrafico }
+  }, [lista, listaFiltrada, filtroPropriedadeIds, areasPropriedades])
 
-      totalAtual += valorAtual
-      totalMesAnterior += valorMesAnterior
-      depreciacaoAnual += deprecMensal * 12
-
-      const cat = p.categoria || 'Outros'
-      porCategoria[cat] = (porCategoria[cat] || 0) + valorAtual
-    })
-  }
-
-  const variacaoAbsoluta = totalAtual - totalMesAnterior
-  const variacaoPercent = totalMesAnterior > 0
-    ? (variacaoAbsoluta / totalMesAnterior) * 100 : 0
-
-  // Dados bridge ordenados do maior para o menor
-  const categoriaOrdenada = Object.entries(porCategoria)
-    .sort((a, b) => b[1] - a[1])
-
-  let acumulado = 0
-  const dadosGrafico = categoriaOrdenada.map(([name, value]) => {
-    const start = acumulado
-    acumulado += value
-    return { name, value, start, fill: CORES[name] || '#888' }
-  })
-  dadosGrafico.push({
-    name: 'Total',
-    value: totalAtual,
-    start: 0,
-    fill: '#374151',
-    isTotal: true,
-  })
-
-  return {
-    totalAtual, totalMesAnterior, depreciacaoAnual,
-    variacaoAbsoluta, variacaoPercent, dadosGrafico
-  }
-}, [lista, listaFiltrada, filtroPropriedadeIds, areasPropriedades])
-
-
-  // Percentual total dos rateios personalizados
   const totalPercentuais = useMemo(() => {
     if (form.tipoRateio !== 'personalizado') return 100
     return form.propriedadeIds.reduce((acc, id) => acc + (Number(form.percentuaisRateio[id]) || 0), 0)
@@ -268,10 +248,8 @@ export default function Patrimonio() {
       propriedadeIds: item.propriedadeIds || [],
       tipoRateio: item.tipoRateio || 'igualitario',
       percentuaisRateio: item.percentuaisRateio || {},
-      valorAquisicaoMask: item.valorAquisicao
-        ? mascaraMoeda(String(Math.round(Number(item.valorAquisicao) * 100))) : '',
-      valorResidualMask: item.valorResidual
-        ? mascaraMoeda(String(Math.round(Number(item.valorResidual) * 100))) : '',
+      valorAquisicaoMask: item.valorAquisicao ? mascaraMoeda(String(Math.round(Number(item.valorAquisicao) * 100))) : '',
+      valorResidualMask: item.valorResidual ? mascaraMoeda(String(Math.round(Number(item.valorResidual) * 100))) : '',
       anoAquisicao: item.anoAquisicao || ANO_ATUAL,
       vidaUtil: item.vidaUtil || '',
       numeroIdentificacao: item.numeroIdentificacao || '',
@@ -300,9 +278,7 @@ export default function Patrimonio() {
       }
     }
     setLoading(true)
-    const propNomes = propriedades
-      .filter(p => form.propriedadeIds.includes(p.id))
-      .map(p => p.nome)
+    const propNomes = propriedades.filter(p => form.propriedadeIds.includes(p.id)).map(p => p.nome)
     const payload = {
       nome: form.nome,
       categoria: form.categoria,
@@ -323,51 +299,38 @@ export default function Patrimonio() {
       await updateDoc(doc(db, 'patrimonios', editando), payload)
     } else {
       const patRef = await addDoc(collection(db, 'patrimonios'), { ...payload, criadoEm: new Date() })
-
-      // Gerar lançamento(s) financeiro(s) de aquisição se solicitado
       if (form.gerarLancamento && desmascarar(form.valorAquisicaoMask) > 0) {
-        const valorTotal  = desmascarar(form.valorAquisicaoMask)
-        const dataBase    = dataParaISO(form.dataAquisicaoMask) || `${form.anoAquisicao}-01-01`
+        const valorTotal = desmascarar(form.valorAquisicaoMask)
+        const dataBase = dataParaISO(form.dataAquisicaoMask) || `${form.anoAquisicao}-01-01`
         const numParcelas = form.parcelarAquisicao ? Math.max(1, Number(form.numParcelasAquisicao) || 1) : 1
         const valorParcela = valorTotal / numParcelas
         const parcelaGrupoId = numParcelas > 1 ? `pat_${patRef.id}` : undefined
-
         for (let i = 0; i < numParcelas; i++) {
           const vencimento = adicionarMeses(dataBase, i)
-
-          // Para patrimônios em múltiplas propriedades: gerar um lançamento por propriedade
           for (const propId of form.propriedadeIds) {
             const prop = propriedades.find(p => p.id === propId)
-            const pct  = form.propriedadeIds.length === 1 ? 1
-              : form.tipoRateio === 'personalizado'
-                ? (Number(form.percentuaisRateio[propId]) || 0) / 100
-                : form.tipoRateio === 'area'
-                  ? (() => {
-                      const totalArea = form.propriedadeIds.reduce((s, id) => s + (areasPropriedades[id] || 0), 0)
-                      return totalArea > 0 ? (areasPropriedades[propId] || 0) / totalArea : 0
-                    })()
-                  : 1 / form.propriedadeIds.length  // igualitário
-
+            const pct = form.propriedadeIds.length === 1 ? 1
+              : form.tipoRateio === 'personalizado' ? (Number(form.percentuaisRateio[propId]) || 0) / 100
+              : form.tipoRateio === 'area' ? (() => {
+                  const totalArea = form.propriedadeIds.reduce((s, id) => s + (areasPropriedades[id] || 0), 0)
+                  return totalArea > 0 ? (areasPropriedades[propId] || 0) / totalArea : 0
+                })()
+              : 1 / form.propriedadeIds.length
             await addDoc(collection(db, 'financeiro'), {
               descricao: `Aquisição: ${form.nome}`,
-              tipo: 'despesa',
-              categoria: 'Investimentos',
-              tipoDespesa: form.categoria, // ex: 'Equipamentos Móveis'
+              tipo: 'despesa', categoria: 'Investimentos',
+              tipoDespesa: form.categoria,
               valor: valorParcela * pct,
               vencimento,
               status: form.statusAquisicao || 'pago',
               notaRef: form.numeroIdentificacao || '',
               propriedadeId: propId,
               propriedadeNome: prop?.nome || '',
-              safraId: '',
-              safraNome: '',
-              patrimonioId: patRef.id,
-              patrimonioNome: form.nome,
+              safraId: '', safraNome: '',
+              patrimonioId: patRef.id, patrimonioNome: form.nome,
               origemPatrimonio: true,
               ...(numParcelas > 1 ? { parcelaNum: i + 1, parcelaTot: numParcelas, parcelaGrupoId } : {}),
-              cancelado: false,
-              uid: usuario.uid,
-              criadoEm: new Date(),
+              cancelado: false, uid: usuario.uid, criadoEm: new Date(),
             })
           }
         }
@@ -386,22 +349,14 @@ export default function Patrimonio() {
     setConfirmacao({
       mensagem: `Deseja excluir "${nome}"? Os lançamentos financeiros gerados por este patrimônio também serão excluídos.`,
       onConfirmar: async () => {
-        // Excluir lançamentos financeiros vinculados (origemPatrimonio)
-        const finSnap = await getDocs(query(
-          collection(db, 'financeiro'),
-          where('uid', '==', usuario.uid),
-          where('patrimonioId', '==', id),
-          where('origemPatrimonio', '==', true)
-        ))
+        const finSnap = await getDocs(query(collection(db, 'financeiro'), where('uid', '==', usuario.uid), where('patrimonioId', '==', id), where('origemPatrimonio', '==', true)))
         await Promise.all(finSnap.docs.map(d => deleteDoc(d.ref)))
-        // Excluir o patrimônio
         await deleteDoc(doc(db, 'patrimonios', id))
         await carregar()
       }
     })
   }
 
-  // Tooltip customizado para o gráfico bridge
   function TooltipBridge({ active, payload }) {
     if (!active || !payload?.length) return null
     const d = payload[0]?.payload
@@ -418,31 +373,24 @@ export default function Patrimonio() {
   }
 
   function ModalConfirmacao() {
-  if (!confirmacao) return null
-  return (
-    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl p-6 space-y-4">
-        <h3 className="font-bold text-gray-800">Confirmar exclusão</h3>
-        <p className="text-sm text-gray-600">{confirmacao.mensagem}</p>
-        <p className="text-xs text-red-500">Esta ação não poderá ser desfeita.</p>
-        <div className="flex gap-3">
-          <button onClick={() => setConfirmacao(null)}
-            className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-lg text-sm hover:bg-gray-50">
-            Cancelar
-          </button>
-          <button onClick={() => { confirmacao.onConfirmar(); setConfirmacao(null) }}
-            className="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm hover:bg-red-700">
-            Excluir
-          </button>
+    if (!confirmacao) return null
+    return (
+      <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl p-6 space-y-4">
+          <h3 className="font-bold text-gray-800">Confirmar exclusão</h3>
+          <p className="text-sm text-gray-600">{confirmacao.mensagem}</p>
+          <p className="text-xs text-red-500">Esta ação não poderá ser desfeita.</p>
+          <div className="flex gap-3">
+            <button onClick={() => setConfirmacao(null)} className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-lg text-sm hover:bg-gray-50">Cancelar</button>
+            <button onClick={() => { confirmacao.onConfirmar(); setConfirmacao(null) }} className="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm hover:bg-red-700">Excluir</button>
+          </div>
         </div>
       </div>
-    </div>
-  )
-}
+    )
+  }
 
   return (
     <div className="space-y-5 pb-24">
-
       <h1 className="text-2xl font-bold text-gray-800">Patrimônio</h1>
 
       {/* Filtro */}
@@ -458,81 +406,42 @@ export default function Patrimonio() {
             setAberto={setDropdownFiltroAberto}
           />
           {filtroPropriedadeIds.length > 0 && (
-            <button onClick={() => setFiltroPropriedadeIds([])}
-              className="text-xs text-gray-400 hover:text-red-400 transition-colors underline">
-              Limpar
-            </button>
+            <button onClick={() => setFiltroPropriedadeIds([])} className="text-xs text-gray-400 hover:text-red-400 transition-colors underline">Limpar</button>
           )}
         </div>
       </div>
 
       {/* Dashboard */}
       <div className="grid grid-cols-2 gap-3">
-
-        {/* Card patrimônio atual */}
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
           <p className="text-xs text-gray-500 mb-1">Patrimônio atual estimado</p>
           <p className="text-base font-bold text-gray-800">R$ {formatarMoeda(metricas.totalAtual)}</p>
           <p className={`text-xs mt-1 font-medium ${metricas.variacaoAbsoluta >= 0 ? 'text-green-600' : 'text-red-500'}`}>
             {metricas.variacaoAbsoluta >= 0 ? '▲' : '▼'} R$ {formatarMoeda(Math.abs(metricas.variacaoAbsoluta))}
           </p>
-          <p className="text-xs text-gray-400">
-            vs {ANO_ATUAL - 1} ({metricas.variacaoPercent.toFixed(1)}%)
-          </p>
+          <p className="text-xs text-gray-400">vs {ANO_ATUAL - 1} ({metricas.variacaoPercent.toFixed(1)}%)</p>
         </div>
-
-        {/* Card depreciação — col-span-2 no mobile */}
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 col-span-1 sm:col-span-1">
           <p className="text-xs text-gray-500 mb-1">Depreciação estimada {ANO_ATUAL}</p>
           <p className="text-base font-bold text-red-500">R$ {formatarMoeda(metricas.depreciacaoAnual)}</p>
           <p className="text-xs text-gray-400 mt-1">R$ {formatarMoeda(metricas.depreciacaoAnual / 12)}/mês</p>
         </div>
-
-        {/* Gráfico bridge — largura total */}
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 col-span-2">
           <p className="text-xs text-gray-500 mb-3">Distribuição por categoria</p>
           {metricas.dadosGrafico.length > 1 ? (
             <ResponsiveContainer width="100%" height={180}>
-              <ComposedChart
-                data={metricas.dadosGrafico}
-                margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
-                layout="vertical"
-              >
+              <ComposedChart data={metricas.dadosGrafico} margin={{ top: 10, right: 20, left: 0, bottom: 0 }} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f0f0f0" />
-                <XAxis
-                  type="number"
-                  tick={{ fontSize: 10 }}
-                  tickFormatter={v => `R$${(v / 1000).toFixed(0)}k`}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  tick={{ fontSize: 10 }}
-                  width={110}
-                />
+                <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => `R$${(v / 1000).toFixed(0)}k`} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={110} />
                 <Tooltip content={<TooltipBridge />} />
-                {/* Barra invisível de offset */}
-<Bar dataKey="start" stackId="a" isAnimationActive={false}>
-  {metricas.dadosGrafico.map((_, i) => (
-    <Cell key={i} fill="transparent" stroke="none" />
-  ))}
-</Bar>
-
-{/* Barra visível */}
-<Bar dataKey="value" stackId="a" radius={[0, 4, 4, 0]} isAnimationActive={false}>
-  {metricas.dadosGrafico.map((entry, i) => (
-    <Cell key={i} fill={entry.fill} stroke="none" />
-  ))}
-  <LabelList
-    dataKey="value"
-    position="right"
-    formatter={v => v >= 1000
-      ? `R$${(v / 1000).toFixed(0)}k`
-      : `R$${Math.round(v)}`
-    }
-    style={{ fontSize: 10, fill: '#6b7280' }}
-  />
-</Bar>
+                <Bar dataKey="start" stackId="a" isAnimationActive={false}>
+                  {metricas.dadosGrafico.map((_, i) => <Cell key={i} fill="transparent" stroke="none" />)}
+                </Bar>
+                <Bar dataKey="value" stackId="a" radius={[0, 4, 4, 0]} isAnimationActive={false}>
+                  {metricas.dadosGrafico.map((entry, i) => <Cell key={i} fill={entry.fill} stroke="none" />)}
+                  <LabelList dataKey="value" position="right" formatter={v => v >= 1000 ? `R$${(v / 1000).toFixed(0)}k` : `R$${Math.round(v)}`} style={{ fontSize: 10, fill: '#6b7280' }} />
+                </Bar>
               </ComposedChart>
             </ResponsiveContainer>
           ) : (
@@ -551,9 +460,7 @@ export default function Patrimonio() {
 
       {Object.entries(agrupado).map(([propId, grupo]) => (
         <div key={propId} className="space-y-3">
-          <h2 className="text-sm font-bold text-gray-700 border-b border-gray-200 pb-1">
-            {grupo.propNome}
-          </h2>
+          <h2 className="text-sm font-bold text-gray-700 border-b border-gray-200 pb-1">{grupo.propNome}</h2>
           {Object.entries(grupo.categorias).map(([cat, itens]) => (
             <div key={cat} className="space-y-1.5">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">{cat}</p>
@@ -571,33 +478,23 @@ export default function Patrimonio() {
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-medium text-gray-800 truncate">{p.nome}</p>
                         {isRateado && (
-                          <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full flex-shrink-0">
-                            {(pct * 100).toFixed(0)}%
-                          </span>
+                          <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full flex-shrink-0">{(pct * 100).toFixed(0)}%</span>
                         )}
                       </div>
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
-                        <p className="text-xs text-gray-500">
-                          Aquisição: R$ {formatarMoeda(Number(p.valorAquisicao) * pct)}
-                        </p>
-                        <p className="text-xs text-green-700 font-medium">
-                          Atual: R$ {formatarMoeda(valorAtualRateado)}
-                        </p>
-                        {deprecRateada > 0 && (
-                          <p className="text-xs text-red-400">
-                            Deprec.: R$ {formatarMoeda(deprecRateada)}/mês
-                          </p>
-                        )}
+                        <p className="text-xs text-gray-500">Aquisição: R$ {formatarMoeda(Number(p.valorAquisicao) * pct)}</p>
+                        <p className="text-xs text-green-700 font-medium">Atual: R$ {formatarMoeda(valorAtualRateado)}</p>
+                        {deprecRateada > 0 && <p className="text-xs text-red-400">Deprec.: R$ {formatarMoeda(deprecRateada)}/mês</p>}
                       </div>
                       {p.descricao && <p className="text-xs text-gray-400 mt-0.5">{p.descricao}</p>}
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">
-                      <button onClick={() => abrirEdicao(p)} className="text-gray-300 hover:text-blue-500 p-1">
-                        <Pencil size={14} />
-                      </button>
-                      <button onClick={() => excluir(p.id, p.nome)} className="text-gray-300 hover:text-red-500 p-1">
-                       <Trash2 size={14} />
-                      </button>
+                      {!p._compartilhada && (
+                        <>
+                          <button onClick={() => abrirEdicao(p)} className="text-gray-300 hover:text-blue-500 p-1"><Pencil size={14} /></button>
+                          <button onClick={() => excluir(p.id, p.nome)} className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={14} /></button>
+                        </>
+                      )}
                     </div>
                   </div>
                 )
@@ -612,21 +509,15 @@ export default function Patrimonio() {
         {fabAberto && (
           <div className="flex flex-col items-end gap-2 mb-1">
             <div className="flex items-center gap-2">
-              <span className="bg-white text-gray-600 text-xs px-3 py-1.5 rounded-full shadow border border-gray-200 whitespace-nowrap">
-                Novo patrimônio
-              </span>
-              <button onClick={abrirModal}
-                className="w-11 h-11 rounded-full text-white flex items-center justify-center shadow hover:opacity-90 transition-all"
-                style={{ background: 'var(--brand-gradient)' }}>
+              <span className="bg-white text-gray-600 text-xs px-3 py-1.5 rounded-full shadow border border-gray-200 whitespace-nowrap">Novo patrimônio</span>
+              <button onClick={abrirModal} className="w-11 h-11 rounded-full text-white flex items-center justify-center shadow hover:opacity-90 transition-all" style={{ background: 'var(--brand-gradient)' }}>
                 <Plus size={18} />
               </button>
             </div>
           </div>
         )}
         <button onClick={() => setFabAberto(!fabAberto)}
-          className={`w-14 h-14 rounded-full text-white flex items-center justify-center shadow-lg transition-all duration-200 ${
-            fabAberto ? 'rotate-45' : ''
-          }`}
+          className={`w-14 h-14 rounded-full text-white flex items-center justify-center shadow-lg transition-all duration-200 ${fabAberto ? 'rotate-45' : ''}`}
           style={{ background: fabAberto ? '#4B5563' : 'var(--brand-gradient)' }}>
           <Plus size={24} />
         </button>
@@ -638,20 +529,15 @@ export default function Patrimonio() {
           <div className="bg-white rounded-2xl w-full max-w-md shadow-xl max-h-[92vh] overflow-y-auto">
             <div className="p-5 border-b border-gray-100 sticky top-0 bg-white z-10 flex items-center justify-between">
               <h2 className="font-bold text-gray-800">{editando ? 'Editar patrimônio' : 'Novo patrimônio'}</h2>
-              <button onClick={() => { setModal(false); setEditando(null) }}
-                className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+              <button onClick={() => { setModal(false); setEditando(null) }} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
             </div>
             <form onSubmit={salvar} className="p-5 space-y-4">
-
-              {/* Nome */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nome</label>
                 <input value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))}
                   placeholder="Ex: Trator John Deere 5075E"
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" required />
               </div>
-
-              {/* Categoria */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
                 <select value={form.categoria} onChange={e => setForm(f => ({ ...f, categoria: e.target.value }))}
@@ -660,12 +546,9 @@ export default function Patrimonio() {
                   {CATEGORIAS.map(c => <option key={c}>{c}</option>)}
                 </select>
               </div>
-
-              {/* Toggle implemento — só para Equipamentos Móveis */}
               {form.categoria === 'Equipamentos Móveis' && (
                 <div className="bg-gray-50 rounded-xl p-3">
-                  <label className="flex items-center gap-3 cursor-pointer"
-                    onClick={() => setForm(f => ({ ...f, isImplemento: !f.isImplemento }))}>
+                  <label className="flex items-center gap-3 cursor-pointer" onClick={() => setForm(f => ({ ...f, isImplemento: !f.isImplemento }))}>
                     <div className={`w-9 h-5 rounded-full transition-colors relative flex-shrink-0 ${form.isImplemento ? 'bg-green-600' : 'bg-gray-300'}`}>
                       <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${form.isImplemento ? 'translate-x-4' : 'translate-x-0.5'}`} />
                     </div>
@@ -676,80 +559,47 @@ export default function Patrimonio() {
                   </label>
                 </div>
               )}
-
-
-              {/* Propriedades */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Propriedade(s) <span className="text-red-500">*</span>
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Propriedade(s) <span className="text-red-500">*</span></label>
                 <DropdownMulti
                   valor={form.propriedadeIds}
-                  onChange={id => setForm(f => ({
-                    ...f,
-                    propriedadeIds: f.propriedadeIds.includes(id)
-                      ? f.propriedadeIds.filter(x => x !== id)
-                      : [...f.propriedadeIds, id],
-                    percentuaisRateio: {}
-                  }))}
+                  onChange={id => setForm(f => ({ ...f, propriedadeIds: f.propriedadeIds.includes(id) ? f.propriedadeIds.filter(x => x !== id) : [...f.propriedadeIds, id], percentuaisRateio: {} }))}
                   opcoes={propriedades}
                   placeholder="Selecione a(s) Propriedade(s)"
                   aberto={dropdownPropAberto}
                   setAberto={setDropdownPropAberto}
                 />
               </div>
-
-              {/* Rateio — aparece apenas quando há mais de 1 propriedade */}
               {form.propriedadeIds.length > 1 && (
                 <div className="bg-gray-50 rounded-xl p-4 space-y-3">
                   <label className="block text-sm font-medium text-gray-700">Tipo de rateio</label>
                   <div className="flex gap-2">
-                    {[
-                      { val: 'igualitario', label: 'Igualitário' },
-                      { val: 'area', label: 'Por área' },
-                      { val: 'personalizado', label: 'Personalizado' },
-                    ].map(op => (
+                    {[{ val: 'igualitario', label: 'Igualitário' }, { val: 'area', label: 'Por área' }, { val: 'personalizado', label: 'Personalizado' }].map(op => (
                       <button key={op.val} type="button"
                         onClick={() => setForm(f => ({ ...f, tipoRateio: op.val, percentuaisRateio: {} }))}
-                        className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                          form.tipoRateio === op.val
-                            ? 'bg-green-700 text-white border-green-700'
-                            : 'border-gray-300 text-gray-600 hover:bg-gray-100'
-                        }`}>
+                        className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors ${form.tipoRateio === op.val ? 'bg-green-700 text-white border-green-700' : 'border-gray-300 text-gray-600 hover:bg-gray-100'}`}>
                         {op.label}
                       </button>
                     ))}
                   </div>
-
-                  {/* Preview rateio igualitário e por área */}
                   {(form.tipoRateio === 'igualitario' || form.tipoRateio === 'area') && (
                     <div className="space-y-1">
                       {form.propriedadeIds.map(id => {
                         const prop = propriedades.find(p => p.id === id)
-                        const pct = form.tipoRateio === 'igualitario'
-                          ? 100 / form.propriedadeIds.length
-                          : (() => {
-                            const totalArea = form.propriedadeIds.reduce((a, pid) => a + (areasPropriedades[pid] || 0), 0)
-                            return totalArea > 0 ? ((areasPropriedades[id] || 0) / totalArea) * 100 : 0
-                          })()
+                        const pct = form.tipoRateio === 'igualitario' ? 100 / form.propriedadeIds.length
+                          : (() => { const t = form.propriedadeIds.reduce((a, pid) => a + (areasPropriedades[pid] || 0), 0); return t > 0 ? ((areasPropriedades[id] || 0) / t) * 100 : 0 })()
                         return (
                           <div key={id} className="flex items-center justify-between text-xs">
                             <span className="text-gray-600">{prop?.nome}</span>
                             <span className="font-medium text-gray-800">
                               {pct.toFixed(1)}%
-                              {form.tipoRateio === 'area' && (
-                                <span className="text-gray-400 ml-1">
-                                  ({areasPropriedades[id]?.toFixed(1) || '0'} ha)
-                                </span>
-                              )}
+                              {form.tipoRateio === 'area' && <span className="text-gray-400 ml-1">({areasPropriedades[id]?.toFixed(1) || '0'} ha)</span>}
                             </span>
                           </div>
                         )
                       })}
                     </div>
                   )}
-
-                  {/* Rateio personalizado */}
                   {form.tipoRateio === 'personalizado' && (
                     <div className="space-y-2">
                       {form.propriedadeIds.map(id => {
@@ -758,93 +608,65 @@ export default function Patrimonio() {
                           <div key={id} className="flex items-center gap-2">
                             <span className="text-xs text-gray-600 flex-1 truncate">{prop?.nome}</span>
                             <div className="flex items-center gap-1">
-                              <input
-                                type="number" min="0" max="100" step="0.1"
+                              <input type="number" min="0" max="100" step="0.1"
                                 value={form.percentuaisRateio[id] || ''}
-                                onChange={e => setForm(f => ({
-                                  ...f,
-                                  percentuaisRateio: { ...f.percentuaisRateio, [id]: e.target.value }
-                                }))}
+                                onChange={e => setForm(f => ({ ...f, percentuaisRateio: { ...f.percentuaisRateio, [id]: e.target.value } }))}
                                 placeholder="0"
-                                className="w-16 border border-gray-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 text-right"
-                              />
+                                className="w-16 border border-gray-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-green-500 text-right" />
                               <span className="text-xs text-gray-500">%</span>
                             </div>
                           </div>
                         )
                       })}
-                      <div className={`flex justify-end text-xs font-medium ${
-                        Math.abs(totalPercentuais - 100) < 0.01 ? 'text-green-600' : 'text-red-500'
-                      }`}>
+                      <div className={`flex justify-end text-xs font-medium ${Math.abs(totalPercentuais - 100) < 0.01 ? 'text-green-600' : 'text-red-500'}`}>
                         Total: {totalPercentuais.toFixed(1)}% {Math.abs(totalPercentuais - 100) < 0.01 ? '✓' : '(deve ser 100%)'}
                       </div>
                     </div>
                   )}
                 </div>
               )}
-
-              {/* Valores */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Valor de aquisição</label>
-                  <input value={form.valorAquisicaoMask}
-                    onChange={e => setForm(f => ({ ...f, valorAquisicaoMask: mascaraMoeda(e.target.value) }))}
-                    placeholder="R$ 0,00"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+                  <input value={form.valorAquisicaoMask} onChange={e => setForm(f => ({ ...f, valorAquisicaoMask: mascaraMoeda(e.target.value) }))}
+                    placeholder="R$ 0,00" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Valor residual</label>
-                  <input value={form.valorResidualMask}
-                    onChange={e => setForm(f => ({ ...f, valorResidualMask: mascaraMoeda(e.target.value) }))}
-                    placeholder="Valor de revenda esperado"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+                  <input value={form.valorResidualMask} onChange={e => setForm(f => ({ ...f, valorResidualMask: mascaraMoeda(e.target.value) }))}
+                    placeholder="Valor de revenda esperado" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
                 </div>
               </div>
-
-              {/* Ano de aquisição + Vida útil */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Ano de aquisição</label>
-                  <select value={form.anoAquisicao}
-                    onChange={e => setForm(f => ({ ...f, anoAquisicao: Number(e.target.value) }))}
+                  <select value={form.anoAquisicao} onChange={e => setForm(f => ({ ...f, anoAquisicao: Number(e.target.value) }))}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
                     {ANOS.map(a => <option key={a} value={a}>{a}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Vida útil (anos)</label>
-                  <input type="number" value={form.vidaUtil}
-                    onChange={e => setForm(f => ({ ...f, vidaUtil: e.target.value }))}
-                    placeholder="Nº de anos (1-100)"
-                    min={1} max={100}
+                  <input type="number" value={form.vidaUtil} onChange={e => setForm(f => ({ ...f, vidaUtil: e.target.value }))}
+                    placeholder="Nº de anos (1-100)" min={1} max={100}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
                 </div>
               </div>
-
-              {/* Nº Identificação */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nº de Identificação</label>
-                <input value={form.numeroIdentificacao}
-                  onChange={e => setForm(f => ({ ...f, numeroIdentificacao: e.target.value }))}
+                <input value={form.numeroIdentificacao} onChange={e => setForm(f => ({ ...f, numeroIdentificacao: e.target.value }))}
                   placeholder="Número de série, chassi, etc."
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
               </div>
-
-              {/* Descrição */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Descrição</label>
-                <textarea value={form.descricao}
-                  onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))}
-                  rows={2}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+                <textarea value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))}
+                  rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
               </div>
-
-              {/* ── Lançamento financeiro de aquisição (só ao criar) ── */}
               {!editando && (
                 <div className="border-t border-gray-100 pt-4 space-y-3">
                   <label className="flex items-center gap-3 cursor-pointer select-none">
-                    <div className="relative flex-shrink-0"
-                      onClick={() => setForm(f => ({ ...f, gerarLancamento: !f.gerarLancamento }))}>
+                    <div className="relative flex-shrink-0" onClick={() => setForm(f => ({ ...f, gerarLancamento: !f.gerarLancamento }))}>
                       <div className={`w-10 h-6 rounded-full transition-colors ${form.gerarLancamento ? 'bg-green-600' : 'bg-gray-300'}`}>
                         <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${form.gerarLancamento ? 'translate-x-5' : 'translate-x-1'}`} />
                       </div>
@@ -854,14 +676,12 @@ export default function Patrimonio() {
                       <p className="text-xs text-gray-400">Registra a compra em Investimentos no Financeiro</p>
                     </div>
                   </label>
-
                   {form.gerarLancamento && (
                     <div className="bg-gray-50 rounded-xl p-3 space-y-3">
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Data da aquisição</label>
-                          <input value={form.dataAquisicaoMask}
-                            onChange={e => setForm(f => ({ ...f, dataAquisicaoMask: mascaraData(e.target.value) }))}
+                          <input value={form.dataAquisicaoMask} onChange={e => setForm(f => ({ ...f, dataAquisicaoMask: mascaraData(e.target.value) }))}
                             placeholder="dd/mm/aaaa" maxLength={10}
                             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
                         </div>
@@ -869,42 +689,30 @@ export default function Patrimonio() {
                           <label className="block text-xs font-medium text-gray-600 mb-1">Situação</label>
                           <div className="flex gap-2">
                             {[{ val: 'pago', label: 'Pago' }, { val: 'pendente', label: 'Pendente' }].map(op => (
-                              <button key={op.val} type="button"
-                                onClick={() => setForm(f => ({ ...f, statusAquisicao: op.val }))}
-                                className={`flex-1 py-1.5 text-xs rounded-lg border transition-colors ${
-                                  form.statusAquisicao === op.val
-                                    ? 'border-green-600 bg-green-50 text-green-700 font-medium'
-                                    : 'border-gray-200 text-gray-500'
-                                }`}>
+                              <button key={op.val} type="button" onClick={() => setForm(f => ({ ...f, statusAquisicao: op.val }))}
+                                className={`flex-1 py-1.5 text-xs rounded-lg border transition-colors ${form.statusAquisicao === op.val ? 'border-green-600 bg-green-50 text-green-700 font-medium' : 'border-gray-200 text-gray-500'}`}>
                                 {op.label}
                               </button>
                             ))}
                           </div>
                         </div>
                       </div>
-
-                      {/* Parcelamento */}
                       <label className="flex items-center gap-3 cursor-pointer select-none">
-                        <div className="relative flex-shrink-0"
-                          onClick={() => setForm(f => ({ ...f, parcelarAquisicao: !f.parcelarAquisicao, numParcelasAquisicao: 2 }))}>
+                        <div className="relative flex-shrink-0" onClick={() => setForm(f => ({ ...f, parcelarAquisicao: !f.parcelarAquisicao, numParcelasAquisicao: 2 }))}>
                           <div className={`w-8 h-5 rounded-full transition-colors ${form.parcelarAquisicao ? 'bg-green-600' : 'bg-gray-300'}`}>
                             <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${form.parcelarAquisicao ? 'translate-x-3' : 'translate-x-0.5'}`} />
                           </div>
                         </div>
                         <span className="text-xs font-medium text-gray-600">Parcelar</span>
                       </label>
-
                       {form.parcelarAquisicao && (
                         <div className="flex items-center gap-3">
                           <label className="text-xs text-gray-500 whitespace-nowrap">Nº de parcelas:</label>
-                          <input type="number" min={2} max={60}
-                            value={form.numParcelasAquisicao}
+                          <input type="number" min={2} max={60} value={form.numParcelasAquisicao}
                             onChange={e => setForm(f => ({ ...f, numParcelasAquisicao: Math.min(60, Math.max(2, Number(e.target.value))) }))}
                             className="w-20 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-green-500" />
                           {desmascarar(form.valorAquisicaoMask) > 0 && (
-                            <span className="text-xs text-gray-500">
-                              = {form.numParcelasAquisicao}x de R$ {formatarMoeda(desmascarar(form.valorAquisicaoMask) / form.numParcelasAquisicao)}
-                            </span>
+                            <span className="text-xs text-gray-500">= {form.numParcelasAquisicao}x de R$ {formatarMoeda(desmascarar(form.valorAquisicaoMask) / form.numParcelasAquisicao)}</span>
                           )}
                         </div>
                       )}
@@ -912,12 +720,9 @@ export default function Patrimonio() {
                   )}
                 </div>
               )}
-
               <div className="flex gap-3 pt-1">
                 <button type="button" onClick={() => { setModal(false); setEditando(null) }}
-                  className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-lg text-sm hover:bg-gray-50">
-                  Cancelar
-                </button>
+                  className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-lg text-sm hover:bg-gray-50">Cancelar</button>
                 <button type="submit" disabled={loading}
                   className="flex-1 bg-green-700 text-white py-2 rounded-lg text-sm hover:bg-green-800 disabled:opacity-50">
                   {loading ? 'Salvando...' : editando ? 'Atualizar' : 'Salvar'}

@@ -15,7 +15,6 @@ const CULTURAS_PADRAO = [
   'Arroz', 'Feijão', 'Trigo', 'Sorgo', 'Outro'
 ]
 
-// Sugestões para autocomplete
 const CULTURAS_SUGESTOES = [
   'Algodão', 'Amendoim', 'Arroz', 'Aveia', 'Azevém',
   'Batata', 'Café', 'Cana-de-açúcar', 'Cebola', 'Centeio',
@@ -38,11 +37,28 @@ function iconeCultura(nome) {
 
 const FUNCOES = ['Proprietário', 'Consultor', 'Gerente', 'Agrônomo', 'Contador', 'Outro']
 
-const ABAS_PERMISSAO = [
-  { key: 'lavouras',   label: 'Lavouras' },
-  { key: 'safras',     label: 'Safras' },
-  { key: 'patrimonio', label: 'Patrimônio' },
-  { key: 'financeiro', label: 'Financeiro' },
+const NIVEIS_COMPARTILHAMENTO = [
+  {
+    key: 'operacional',
+    label: 'Operacional',
+    descricao: 'Lavouras, Safras, Estoque e Produção',
+    permissoes: ['lavouras', 'safras', 'estoque', 'estoqueProducao', 'producao'],
+    cor: 'green',
+  },
+  {
+    key: 'financeiro',
+    label: 'Financeiro',
+    descricao: 'Operacional + Financeiro',
+    permissoes: ['lavouras', 'safras', 'estoque', 'estoqueProducao', 'producao', 'financeiro'],
+    cor: 'blue',
+  },
+  {
+    key: 'total',
+    label: 'Total',
+    descricao: 'Tudo, incluindo Dashboard e Indicadores',
+    permissoes: ['lavouras', 'safras', 'estoque', 'estoqueProducao', 'producao', 'financeiro', 'dashboard', 'indicadores'],
+    cor: 'purple',
+  },
 ]
 
 function mascaraTelefone(valor) {
@@ -58,19 +74,13 @@ export default function Configuracoes() {
   const [loading, setLoading] = useState(false)
   const [sucesso, setSucesso] = useState('')
 
-  // ── Perfil ───────────────────────────────────────────────────────────────────
-  const [perfil, setPerfil] = useState({
-    nome: '', sobrenome: '', telefone: '', funcao: ''
-  })
-
-  // ── Culturas ──────────────────────────────────────────────────────────────────
+  const [perfil, setPerfil] = useState({ nome: '', sobrenome: '', telefone: '', funcao: '' })
   const [culturas, setCulturas] = useState([])
   const [novaCultura, setNovaCultura] = useState('')
   const [sugestoesFiltradas, setSugestoesFiltradas] = useState([])
   const [dropdownCulturaAberto, setDropdownCulturaAberto] = useState(false)
   const [confirmacaoExcluirCultura, setConfirmacaoExcluirCultura] = useState(null)
 
-  // ── Compartilhamentos ─────────────────────────────────────────────────────────
   const [convitesConcedidos, setConvitesConcedidos] = useState([])
   const [convitesRecebidos, setConvitesRecebidos] = useState([])
   const [modalPermissoes, setModalPermissoes] = useState(null)
@@ -82,13 +92,8 @@ export default function Configuracoes() {
 
     const userDoc = await getDoc(doc(db, 'usuarios', uid))
     if (userDoc.exists()) {
-        const d = userDoc.data()
-        setPerfil({
-            nome: d.nome || '',
-            sobrenome: d.sobrenome || '',
-            telefone: mascaraTelefone(d.telefone || ''),
-            funcao: d.funcao || '',
-        })
+      const d = userDoc.data()
+      setPerfil({ nome: d.nome || '', sobrenome: d.sobrenome || '', telefone: mascaraTelefone(d.telefone || ''), funcao: d.funcao || '' })
       setCulturas(d.culturasFavoritas?.length > 0 ? d.culturasFavoritas : [...CULTURAS_PADRAO])
     } else {
       setCulturas([...CULTURAS_PADRAO])
@@ -109,30 +114,20 @@ export default function Configuracoes() {
     setTimeout(() => setSucesso(''), 3000)
   }
 
-  // ── Perfil ───────────────────────────────────────────────────────────────────
   async function salvarPerfil(e) {
     e.preventDefault()
     setLoading(true)
     await setDoc(doc(db, 'usuarios', usuario.uid), {
-      ...perfil,
-      email: usuario.email,
-      culturasFavoritas: culturas,
+      ...perfil, email: usuario.email, culturasFavoritas: culturas,
     }, { merge: true })
     setLoading(false)
     mostrarSucesso('Perfil atualizado com sucesso!')
   }
 
-  // ── Culturas ──────────────────────────────────────────────────────────────────
   function onChangeCultura(texto) {
     setNovaCultura(texto)
-    if (texto.length < 1) {
-      setSugestoesFiltradas([])
-      setDropdownCulturaAberto(false)
-      return
-    }
-    const filtradas = CULTURAS_SUGESTOES.filter(c =>
-      c.toLowerCase().includes(texto.toLowerCase()) && !culturas.includes(c)
-    )
+    if (texto.length < 1) { setSugestoesFiltradas([]); setDropdownCulturaAberto(false); return }
+    const filtradas = CULTURAS_SUGESTOES.filter(c => c.toLowerCase().includes(texto.toLowerCase()) && !culturas.includes(c))
     setSugestoesFiltradas(filtradas)
     setDropdownCulturaAberto(filtradas.length > 0)
   }
@@ -160,19 +155,18 @@ export default function Configuracoes() {
 
   async function salvarCulturas() {
     setLoading(true)
-    await setDoc(doc(db, 'usuarios', usuario.uid), {
-      culturasFavoritas: culturas
-    }, { merge: true })
+    await setDoc(doc(db, 'usuarios', usuario.uid), { culturasFavoritas: culturas }, { merge: true })
     setLoading(false)
     mostrarSucesso('Culturas salvas com sucesso!')
   }
 
-  // ── Compartilhamentos ─────────────────────────────────────────────────────────
   async function salvarPermissoes() {
     if (!modalPermissoes) return
     setLoading(true)
+    const nivelObj = NIVEIS_COMPARTILHAMENTO.find(n => n.key === modalPermissoes.nivel)
     await updateDoc(doc(db, 'convites', modalPermissoes.conviteId), {
-      permissoes: modalPermissoes.permissoes
+      nivel: modalPermissoes.nivel,
+      permissoes: nivelObj?.permissoes || modalPermissoes.permissoes,
     })
     setModalPermissoes(null)
     await carregar()
@@ -205,7 +199,6 @@ export default function Configuracoes() {
         </div>
       )}
 
-      {/* Abas */}
       <div className="flex gap-1 border-b border-gray-200">
         {[
           { val: 'perfil',            label: 'Perfil',            icon: User },
@@ -214,17 +207,13 @@ export default function Configuracoes() {
         ].map(({ val, label, icon: Icon }) => (
           <button key={val} onClick={() => setAbaSelecionada(val)}
             className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 whitespace-nowrap transition-colors ${
-              abaSelecionada === val
-                ? 'border-green-600 text-green-700'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+              abaSelecionada === val ? 'border-green-600 text-green-700' : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}>
-            <Icon size={13} />
-            {label}
+            <Icon size={13} />{label}
           </button>
         ))}
       </div>
 
-      {/* ── Perfil ── */}
       {abaSelecionada === 'perfil' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
           <h2 className="font-semibold text-gray-700 mb-4">Dados pessoais</h2>
@@ -232,31 +221,21 @@ export default function Configuracoes() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nome</label>
-                <input value={perfil.nome}
-                  onChange={e => setPerfil(p => ({ ...p, nome: e.target.value }))}
-                  className={inputClass} required />
+                <input value={perfil.nome} onChange={e => setPerfil(p => ({ ...p, nome: e.target.value }))} className={inputClass} required />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Sobrenome</label>
-                <input value={perfil.sobrenome}
-                  onChange={e => setPerfil(p => ({ ...p, sobrenome: e.target.value }))}
-                  className={inputClass} required />
+                <input value={perfil.sobrenome} onChange={e => setPerfil(p => ({ ...p, sobrenome: e.target.value }))} className={inputClass} required />
               </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
-              <input
-                value={perfil.telefone}
-                onChange={e => setPerfil(p => ({ ...p, telefone: mascaraTelefone(e.target.value) }))}
-                placeholder="(00) 00000-0000"
-                maxLength={16}
-                className={inputClass} />
+              <input value={perfil.telefone} onChange={e => setPerfil(p => ({ ...p, telefone: mascaraTelefone(e.target.value) }))}
+                placeholder="(00) 00000-0000" maxLength={16} className={inputClass} />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Função</label>
-              <select value={perfil.funcao}
-                onChange={e => setPerfil(p => ({ ...p, funcao: e.target.value }))}
-                className={inputClass}>
+              <select value={perfil.funcao} onChange={e => setPerfil(p => ({ ...p, funcao: e.target.value }))} className={inputClass}>
                 <option value="">Selecione...</option>
                 {FUNCOES.map(f => <option key={f}>{f}</option>)}
               </select>
@@ -276,36 +255,25 @@ export default function Configuracoes() {
         </div>
       )}
 
-      {/* ── Culturas ── */}
       {abaSelecionada === 'culturas' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 space-y-4">
           <div>
             <h2 className="font-semibold text-gray-700">Culturas favoritas</h2>
-            <p className="text-xs text-gray-400 mt-0.5">
-              Estas culturas aparecerão nas opções ao cadastrar uma safra.
-            </p>
+            <p className="text-xs text-gray-400 mt-0.5">Estas culturas aparecerão nas opções ao cadastrar uma safra.</p>
           </div>
-
-          {/* Input com autocomplete */}
           <div className="flex gap-2">
             <div className="flex-1 relative">
-              <input
-                value={novaCultura}
-                onChange={e => onChangeCultura(e.target.value)}
+              <input value={novaCultura} onChange={e => onChangeCultura(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), adicionarCultura())}
                 onBlur={() => setTimeout(() => setDropdownCulturaAberto(false), 150)}
                 placeholder="Nome da cultura..."
-                className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                autoComplete="off"
-              />
+                className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" autoComplete="off" />
               {dropdownCulturaAberto && sugestoesFiltradas.length > 0 && (
                 <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 overflow-hidden">
                   {sugestoesFiltradas.map(s => (
-                    <button key={s} type="button"
-                      onMouseDown={() => selecionarSugestao(s)}
+                    <button key={s} type="button" onMouseDown={() => selecionarSugestao(s)}
                       className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-green-50 transition-colors border-b border-gray-50 last:border-0">
-                      {iconeCultura(s)}
-                      <span className="text-gray-700">{s}</span>
+                      {iconeCultura(s)}<span className="text-gray-700">{s}</span>
                     </button>
                   ))}
                 </div>
@@ -317,30 +285,15 @@ export default function Configuracoes() {
               <Plus size={15} /> Adicionar
             </button>
           </div>
-
-          {/* Lista de culturas */}
           <div className="space-y-1.5">
             {culturas.map(c => (
-              <div key={c}
-                className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-2.5 border border-gray-100">
-                <div className="flex items-center gap-2">
-                  {iconeCultura(c)}
-                  <span className="text-sm text-gray-700">{c}</span>
-                </div>
-                <button
-                  onClick={() => setConfirmacaoExcluirCultura(c)}
-                  className="text-gray-300 hover:text-red-500 p-1 transition-colors">
-                  <Trash2 size={14} />
-                </button>
+              <div key={c} className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-2.5 border border-gray-100">
+                <div className="flex items-center gap-2">{iconeCultura(c)}<span className="text-sm text-gray-700">{c}</span></div>
+                <button onClick={() => setConfirmacaoExcluirCultura(c)} className="text-gray-300 hover:text-red-500 p-1 transition-colors"><Trash2 size={14} /></button>
               </div>
             ))}
-            {culturas.length === 0 && (
-              <p className="text-sm text-gray-400 text-center py-4">
-                Nenhuma cultura cadastrada. Adicione acima.
-              </p>
-            )}
+            {culturas.length === 0 && <p className="text-sm text-gray-400 text-center py-4">Nenhuma cultura cadastrada. Adicione acima.</p>}
           </div>
-
           <button onClick={salvarCulturas} disabled={loading}
             className="w-full text-white py-2.5 rounded-xl text-sm font-medium disabled:opacity-50 shadow-md"
             style={{ background: 'var(--brand-gradient)' }}>
@@ -349,7 +302,6 @@ export default function Configuracoes() {
         </div>
       )}
 
-      {/* ── Compartilhamentos ── */}
       {abaSelecionada === 'compartilhamentos' && (
         <div className="space-y-4">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 space-y-3">
@@ -360,8 +312,7 @@ export default function Configuracoes() {
             ) : (
               <div className="space-y-2">
                 {convitesConcedidos.map(c => (
-                  <div key={c.id}
-                    className="flex items-center justify-between gap-3 bg-gray-50 rounded-xl px-4 py-3 border border-gray-100">
+                  <div key={c.id} className="flex items-center justify-between gap-3 bg-gray-50 rounded-xl px-4 py-3 border border-gray-100">
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-gray-800">{c.propriedadeNome}</p>
                       <p className="text-xs text-gray-500 mt-0.5">{c.emailConvidado}</p>
@@ -373,24 +324,22 @@ export default function Configuracoes() {
                         }`}>
                           {c.status === 'aceito' ? 'Aceito' : c.status === 'recusado' ? 'Recusado' : 'Pendente'}
                         </span>
-                        {c.permissoes?.length > 0 && (
-                          <span className="text-xs text-gray-400">{c.permissoes.join(', ')}</span>
-                        )}
+                        <span className="text-xs text-gray-400">
+                          Nível: {NIVEIS_COMPARTILHAMENTO.find(n => n.key === c.nivel)?.label || c.nivel || 'Operacional'}
+                        </span>
                       </div>
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">
-                      <button
-                        onClick={() => setModalPermissoes({
-                          conviteId: c.id,
-                          propriedadeNome: c.propriedadeNome,
-                          emailConvidado: c.emailConvidado,
-                          permissoes: [...(c.permissoes || [])]
-                        })}
-                        className="text-gray-300 hover:text-blue-500 p-1 transition-colors">
+                      <button onClick={() => setModalPermissoes({
+                        conviteId: c.id,
+                        propriedadeNome: c.propriedadeNome,
+                        emailConvidado: c.emailConvidado,
+                        nivel: c.nivel || 'operacional',
+                        permissoes: [...(c.permissoes || [])]
+                      })} className="text-gray-300 hover:text-blue-500 p-1 transition-colors">
                         <Pencil size={14} />
                       </button>
-                      <button
-                        onClick={() => setConfirmacaoRevogar({ id: c.id, email: c.emailConvidado, prop: c.propriedadeNome })}
+                      <button onClick={() => setConfirmacaoRevogar({ id: c.id, email: c.emailConvidado, prop: c.propriedadeNome })}
                         className="text-gray-300 hover:text-red-500 p-1 transition-colors">
                         <Trash2 size={14} />
                       </button>
@@ -409,8 +358,7 @@ export default function Configuracoes() {
             ) : (
               <div className="space-y-2">
                 {convitesRecebidos.map(c => (
-                  <div key={c.id}
-                    className="flex items-center justify-between gap-3 bg-gray-50 rounded-xl px-4 py-3 border border-gray-100">
+                  <div key={c.id} className="flex items-center justify-between gap-3 bg-gray-50 rounded-xl px-4 py-3 border border-gray-100">
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-gray-800">{c.propriedadeNome}</p>
                       <p className="text-xs text-gray-500 mt-0.5">De: {c.proprietarioNome}</p>
@@ -422,17 +370,13 @@ export default function Configuracoes() {
                         }`}>
                           {c.status === 'aceito' ? 'Aceito' : c.status === 'recusado' ? 'Recusado' : 'Pendente'}
                         </span>
-                        {c.permissoes?.length > 0 && (
-                          <span className="text-xs text-gray-400">Acesso: {c.permissoes.join(', ')}</span>
-                        )}
+                        <span className="text-xs text-gray-400">
+                          Nível: {NIVEIS_COMPARTILHAMENTO.find(n => n.key === c.nivel)?.label || c.nivel || 'Operacional'}
+                        </span>
                       </div>
                     </div>
                     {c.status === 'aceito' && (
-                      <button
-                        onClick={() => setConfirmacaoRevogar({
-                          id: c.id, email: c.proprietarioNome,
-                          prop: c.propriedadeNome, sair: true
-                        })}
+                      <button onClick={() => setConfirmacaoRevogar({ id: c.id, email: c.proprietarioNome, prop: c.propriedadeNome, sair: true })}
                         className="text-xs text-gray-400 hover:text-red-500 border border-gray-200 hover:border-red-300 px-3 py-1.5 rounded-lg transition-colors flex-shrink-0">
                         Sair
                       </button>
@@ -445,48 +389,45 @@ export default function Configuracoes() {
         </div>
       )}
 
-      {/* Modal editar permissões */}
       {modalPermissoes && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl p-6 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-gray-800">Editar permissões</h3>
-              <button onClick={() => setModalPermissoes(null)} className="text-gray-400 hover:text-gray-600">
-                <X size={18} />
-              </button>
+              <button onClick={() => setModalPermissoes(null)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
             </div>
             <div>
               <p className="text-sm text-gray-600">{modalPermissoes.propriedadeNome}</p>
               <p className="text-xs text-gray-400">{modalPermissoes.emailConvidado}</p>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              {ABAS_PERMISSAO.map(aba => {
-                const ativo = modalPermissoes.permissoes.includes(aba.key)
+            <div className="space-y-2">
+              {NIVEIS_COMPARTILHAMENTO.map(nivel => {
+                const cores = {
+                  green:  { borda: 'border-green-500 bg-green-50',   texto: 'text-green-700',  badge: 'bg-green-100 text-green-700' },
+                  blue:   { borda: 'border-blue-500 bg-blue-50',     texto: 'text-blue-700',   badge: 'bg-blue-100 text-blue-700' },
+                  purple: { borda: 'border-purple-500 bg-purple-50', texto: 'text-purple-700', badge: 'bg-purple-100 text-purple-700' },
+                }
+                const cor = cores[nivel.cor] || cores.green
+                const selecionado = modalPermissoes.nivel === nivel.key
                 return (
-                  <label key={aba.key}
-                    className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 cursor-pointer transition-colors ${
-                      ativo ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:border-gray-300'
-                    }`}>
-                    <input type="checkbox" checked={ativo}
-                      onChange={() => setModalPermissoes(m => ({
-                        ...m,
-                        permissoes: ativo
-                          ? m.permissoes.filter(p => p !== aba.key)
-                          : [...m.permissoes, aba.key]
-                      }))}
-                      className="accent-green-600 w-4 h-4" />
-                    <span className={`text-sm font-medium ${ativo ? 'text-green-700' : 'text-gray-600'}`}>
-                      {aba.label}
-                    </span>
+                  <label key={nivel.key}
+                    className={`flex items-center gap-3 px-4 py-3 rounded-xl border-2 cursor-pointer transition-colors ${selecionado ? cor.borda : 'border-gray-200 hover:border-gray-300'}`}>
+                    <input type="radio" name="nivel_edit" value={nivel.key} checked={selecionado}
+                      onChange={() => setModalPermissoes(m => ({ ...m, nivel: nivel.key }))}
+                      className="accent-green-600 w-4 h-4 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-sm font-semibold ${selecionado ? cor.texto : 'text-gray-700'}`}>{nivel.label}</span>
+                        {selecionado && <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${cor.badge}`}>Atual</span>}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-0.5">{nivel.descricao}</p>
+                    </div>
                   </label>
                 )
               })}
             </div>
             <div className="flex gap-3 pt-1">
-              <button onClick={() => setModalPermissoes(null)}
-                className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">
-                Cancelar
-              </button>
+              <button onClick={() => setModalPermissoes(null)} className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">Cancelar</button>
               <button onClick={salvarPermissoes} disabled={loading}
                 className="flex-1 text-white py-2 rounded-xl text-sm font-medium disabled:opacity-50 shadow-md"
                 style={{ background: 'var(--brand-gradient)' }}>
@@ -497,7 +438,6 @@ export default function Configuracoes() {
         </div>
       )}
 
-      {/* Modal confirmação excluir cultura */}
       {confirmacaoExcluirCultura && (
         <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl p-6 space-y-4">
@@ -505,52 +445,32 @@ export default function Configuracoes() {
               <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
               <h3 className="font-bold text-gray-800">Remover cultura?</h3>
             </div>
-            <p className="text-sm text-gray-600">
-              Deseja remover <span className="font-semibold">"{confirmacaoExcluirCultura}"</span> da lista?
-            </p>
+            <p className="text-sm text-gray-600">Deseja remover <span className="font-semibold">"{confirmacaoExcluirCultura}"</span> da lista?</p>
             <p className="text-xs text-gray-400">Safras já cadastradas com esta cultura não serão afetadas.</p>
             <div className="flex gap-3">
-              <button onClick={() => setConfirmacaoExcluirCultura(null)}
-                className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">
-                Cancelar
-              </button>
-              <button onClick={() => removerCultura(confirmacaoExcluirCultura)}
-                className="flex-1 bg-red-600 text-white py-2 rounded-xl text-sm hover:bg-red-700">
-                Remover
-              </button>
+              <button onClick={() => setConfirmacaoExcluirCultura(null)} className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">Cancelar</button>
+              <button onClick={() => removerCultura(confirmacaoExcluirCultura)} className="flex-1 bg-red-600 text-white py-2 rounded-xl text-sm hover:bg-red-700">Remover</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Modal confirmação revogar/sair */}
       {confirmacaoRevogar && (
         <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl p-6 space-y-4">
             <div className="flex items-center gap-2">
               <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
-              <h3 className="font-bold text-gray-800">
-                {confirmacaoRevogar.sair ? 'Sair do compartilhamento?' : 'Revogar acesso?'}
-              </h3>
+              <h3 className="font-bold text-gray-800">{confirmacaoRevogar.sair ? 'Sair do compartilhamento?' : 'Revogar acesso?'}</h3>
             </div>
             <p className="text-sm text-gray-600">
               {confirmacaoRevogar.sair
                 ? `Você perderá o acesso à propriedade "${confirmacaoRevogar.prop}".`
-                : `Remover acesso de ${confirmacaoRevogar.email} à propriedade "${confirmacaoRevogar.prop}"?`
-              }
+                : `Remover acesso de ${confirmacaoRevogar.email} à propriedade "${confirmacaoRevogar.prop}"?`}
             </p>
             <p className="text-xs text-red-500">Esta ação não poderá ser desfeita.</p>
             <div className="flex gap-3">
-              <button onClick={() => setConfirmacaoRevogar(null)}
-                className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">
-                Cancelar
-              </button>
-              <button
-                onClick={() => {
-                  if (confirmacaoRevogar.sair) sairCompartilhamento(confirmacaoRevogar.id)
-                  else revogarAcesso(confirmacaoRevogar.id)
-                  setConfirmacaoRevogar(null)
-                }}
+              <button onClick={() => setConfirmacaoRevogar(null)} className="flex-1 border border-gray-300 text-gray-600 py-2 rounded-xl text-sm hover:bg-gray-50">Cancelar</button>
+              <button onClick={() => { if (confirmacaoRevogar.sair) sairCompartilhamento(confirmacaoRevogar.id); else revogarAcesso(confirmacaoRevogar.id); setConfirmacaoRevogar(null) }}
                 className="flex-1 bg-red-600 text-white py-2 rounded-xl text-sm hover:bg-red-700">
                 {confirmacaoRevogar.sair ? 'Sair' : 'Revogar'}
               </button>

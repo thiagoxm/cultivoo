@@ -262,7 +262,7 @@ const FORM_PADRAO = {
 }
 
 export default function Financeiro() {
-  const { usuario } = useAuth()
+  const { usuario, propriedadesCompartilhadas } = useAuth()
   const [aba, setAba] = useState('Lançamentos')
   const [lista, setLista] = useState([])
   const [propriedades, setPropriedades] = useState([])
@@ -279,7 +279,7 @@ export default function Financeiro() {
   const [previewImport, setPreviewImport] = useState([])
   const [modalDetalhe, setModalDetalhe] = useState(null)
   const [confirmacao, setConfirmacao] = useState(null)
-  const [confirmacaoStatus, setConfirmacaoStatus] = useState(null) // { id, novoStatus, descricao, valor, dataConfirmacao }
+  const [confirmacaoStatus, setConfirmacaoStatus] = useState(null)
   const [salvandoStatus, setSalvandoStatus] = useState(false)
   const [fabAberto, setFabAberto] = useState(false)
   const [dropdownAberto, setDropdownAberto] = useState(false)
@@ -300,17 +300,52 @@ export default function Financeiro() {
       getDocs(q('financeiro')), getDocs(q('propriedades')), getDocs(q('safras')),
       getDocs(q('patrimonios')), getDocs(q('lavouras')),
     ])
-    setLista(finSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado))
-    setPropriedades(propSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    setSafras(safSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    setPatrimonios(patSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    setLavouras(lavSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+    const meusLanc = finSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado)
+    const minhasProps = propSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const minhasSafras = safSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const meusPatrimonios = patSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const minhasLavs = lavSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+    // Dados compartilhados com permissão 'financeiro'
+    const idsComFinanceiro = (propriedadesCompartilhadas || [])
+      .filter(c => c.permissoes.includes('financeiro'))
+      .map(c => c.propriedadeId)
+
+    let lancCompartilhados = []
+    let propsCompartilhadas = []
+    let safrasCompartilhadas = []
+    for (const propId of idsComFinanceiro) {
+      const [fs, ps, ss] = await Promise.all([
+        getDocs(query(collection(db, 'financeiro'), where('propriedadeId', '==', propId))),
+        getDocs(query(collection(db, 'propriedades'), where('__name__', '==', propId))),
+        getDocs(query(collection(db, 'safras'), where('propriedadeId', '==', propId))),
+      ])
+      lancCompartilhados.push(...fs.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })).filter(d => !d.cancelado))
+      propsCompartilhadas.push(...ps.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      safrasCompartilhadas.push(...ss.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+    }
+
+    setLista([...meusLanc, ...lancCompartilhados])
+    setPropriedades([...minhasProps, ...propsCompartilhadas])
+    setSafras([...minhasSafras, ...safrasCompartilhadas])
+    setPatrimonios(meusPatrimonios)
+    setLavouras(minhasLavs)
   }
 
-  // Reler apenas financeiro após mutarções — evita reler 5 coleções
   async function recarregarFinanceiro() {
-    const snap = await getDocs(query(collection(db, 'financeiro'), where('uid', '==', usuario.uid)))
-    setLista(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado))
+    const uid = usuario.uid
+    const snap = await getDocs(query(collection(db, 'financeiro'), where('uid', '==', uid)))
+    const meusLanc = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado)
+
+    const idsComFinanceiro = (propriedadesCompartilhadas || [])
+      .filter(c => c.permissoes.includes('financeiro'))
+      .map(c => c.propriedadeId)
+    let lancCompartilhados = []
+    for (const propId of idsComFinanceiro) {
+      const fs = await getDocs(query(collection(db, 'financeiro'), where('propriedadeId', '==', propId)))
+      lancCompartilhados.push(...fs.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })).filter(d => !d.cancelado))
+    }
+    setLista([...meusLanc, ...lancCompartilhados])
   }
 
   useEffect(() => { carregar() }, [])
@@ -484,7 +519,6 @@ export default function Financeiro() {
     try {
       const { id, novoStatus, dataConfirmacao } = confirmacaoStatus
       await updateDoc(doc(db, 'financeiro', id), { status: novoStatus, dataPagamento: dataConfirmacao })
-      // Atualizar estado local — sem nenhuma leitura do Firestore
       setLista(prev => prev.map(f =>
         f.id === id ? { ...f, status: novoStatus, dataPagamento: dataConfirmacao } : f
       ))
@@ -572,7 +606,6 @@ export default function Financeiro() {
     )
   }
 
-  // ── CardLancamento: todos os botões passam por abrirComScrollLock ──
   function CardLancamento({ l }) {
     const vencido = estaVencido(l.vencimento)
     const isPago  = l.status === 'pago' || l.status === 'recebido'
@@ -615,7 +648,6 @@ export default function Financeiro() {
     )
   }
 
-  // ── CardConta: todos os botões passam por abrirComScrollLock ──
   function CardConta({ c, tipoAcao, onMarcarStatus }) {
     const vencido   = estaVencido(c.vencimento)
     const isAuto    = !!(c.origemEstoque || c.origemEstoqueProducao || c.origemTransferencia || c.origemPatrimonio)
@@ -927,7 +959,6 @@ export default function Financeiro() {
         </div>
       )}
 
-      {/* ── Modal confirmação de pagamento/recebimento ── */}
       {confirmacaoStatus && (
         <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl p-6 space-y-4">
