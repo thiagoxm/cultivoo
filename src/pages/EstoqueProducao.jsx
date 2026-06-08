@@ -1281,7 +1281,7 @@ function DashSaldo({ saldoPorCultura, unidadePorCultura }) {
 // Página principal
 // ─────────────────────────────────────────────
 export default function EstoqueProducao() {
-  const { usuario } = useAuth()
+  const { usuario, propriedadesCompartilhadas } = useAuth()
   const [aba, setAba] = useState('atual')
 
   const [lotes, setLotes] = useState([])
@@ -1324,10 +1324,34 @@ export default function EstoqueProducao() {
       getDocs(q('propriedades')),
       getDocs(q('safras')),
     ])
-    setLotes(lotSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    setMovs(movSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    setPropriedades(propSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    setSafras(safSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+    const meusLotes = lotSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const minhasMovs = movSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const minhasProps = propSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const minhasSafras = safSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+    // Dados compartilhados com permissão 'estoqueProducao'
+    const idsComp = (propriedadesCompartilhadas || [])
+      .filter(c => c.permissoes.includes('estoqueProducao'))
+      .map(c => c.propriedadeId)
+
+    let lotesComp = [], movsComp = [], propsComp = [], safrasComp = []
+    for (const propId of idsComp) {
+      const [ls, ms, ps, ss] = await Promise.all([
+        getDocs(query(collection(db, 'estoqueProducao'), where('propriedadeId', '==', propId))),
+        getDocs(query(collection(db, 'movimentacoesProducao'), where('propriedadeId', '==', propId))),
+        getDocs(query(collection(db, 'propriedades'), where('__name__', '==', propId))),
+        getDocs(query(collection(db, 'safras'), where('propriedadeId', '==', propId))),
+      ])
+      lotesComp.push(...ls.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      movsComp.push(...ms.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      propsComp.push(...ps.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      safrasComp.push(...ss.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+    }
+
+    setLotes([...meusLotes, ...lotesComp])
+    setMovs([...minhasMovs, ...movsComp])
+    setPropriedades([...minhasProps, ...propsComp])
+    setSafras([...minhasSafras, ...safrasComp])
     setCarregando(false)
   }
 

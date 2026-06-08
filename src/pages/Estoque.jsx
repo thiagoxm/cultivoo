@@ -277,15 +277,40 @@ export default function Estoque() {
       getDocs(query(collection(db, 'lavouras'), where('uid', '==', uid))),
       getDocs(query(collection(db, 'patrimonios'), where('uid', '==', uid))),
     ])
-    setProdutos(prodSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    setMovimentacoes(movSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    setPropriedades(propSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    setSafras(safSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    setLavouras(lavSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    setPatrimonios(patSnap.docs
-      .map(d => ({ id: d.id, ...d.data() }))
-      .filter(p => p.categoria === 'Equipamentos Móveis' && !p.isImplemento)
-    )
+    const meusProdutos = prodSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const minhasMovs = movSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const minhasProps = propSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const minhasSafras = safSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const minhasLavs = lavSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const meusPats = patSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => p.categoria === 'Equipamentos Móveis' && !p.isImplemento)
+
+    // Dados compartilhados com permissão 'estoque'
+    const idsComEstoque = (propriedadesCompartilhadas || [])
+      .filter(c => c.permissoes.includes('estoque'))
+      .map(c => c.propriedadeId)
+
+    let produtosComp = [], movsComp = [], propsComp = [], safrasComp = [], lavsComp = []
+    for (const propId of idsComEstoque) {
+      const [ps, ms, prs, ss, ls] = await Promise.all([
+        getDocs(query(collection(db, 'insumos'), where('propriedadeId', '==', propId))),
+        getDocs(query(collection(db, 'movimentacoesInsumos'), where('propriedadeId', '==', propId))),
+        getDocs(query(collection(db, 'propriedades'), where('__name__', '==', propId))),
+        getDocs(query(collection(db, 'safras'), where('propriedadeId', '==', propId))),
+        getDocs(query(collection(db, 'lavouras'), where('propriedadeId', '==', propId))),
+      ])
+      produtosComp.push(...ps.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      movsComp.push(...ms.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      propsComp.push(...prs.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      safrasComp.push(...ss.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      lavsComp.push(...ls.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+    }
+
+    setProdutos([...meusProdutos, ...produtosComp])
+    setMovimentacoes([...minhasMovs, ...movsComp])
+    setPropriedades([...minhasProps, ...propsComp])
+    setSafras([...minhasSafras, ...safrasComp])
+    setLavouras([...minhasLavs, ...lavsComp])
+    setPatrimonios(meusPats)
   }
 
   // Reler apenas insumos + movimentações após mutações

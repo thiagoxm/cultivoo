@@ -187,7 +187,7 @@ function ModalEntradaEstoque({ colheita, totalLotesExistentes, sugestoesLocal, o
 }
 
 export default function Producao() {
-  const { usuario } = useAuth()
+  const { usuario, propriedadesCompartilhadas } = useAuth()
   const [lista, setLista] = useState([])
   const [propriedades, setPropriedades] = useState([])
   const [safras, setSafras] = useState([])
@@ -226,13 +226,40 @@ export default function Producao() {
       getDocs(query(collection(db, 'lavouras'), where('uid', '==', uid))),
       getDocs(query(collection(db, 'estoqueProducao'), where('uid', '==', uid))),
     ])
-    setLista(colSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    setPropriedades(propSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    setSafras(safSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    setLavouras(lavSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    const lotes = estSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-    setLotesEstoque(lotes)
-    setSugestoesLocal([...new Set(lotes.map(l => l.localArmazenagem).filter(Boolean))])
+    const minhasColheitas = colSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const minhasProps = propSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const minhasSafras = safSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const minhasLavs = lavSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const meusLotes = estSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+    // Dados compartilhados com permissão 'producao'
+    const idsComp = (propriedadesCompartilhadas || [])
+      .filter(c => c.permissoes.includes('producao'))
+      .map(c => c.propriedadeId)
+
+    let colheitasComp = [], propsComp = [], safrasComp = [], lavsComp = [], lotesComp = []
+    for (const propId of idsComp) {
+      const [cs, ps, ss, ls, es] = await Promise.all([
+        getDocs(query(collection(db, 'colheitas'), where('propriedadeId', '==', propId))),
+        getDocs(query(collection(db, 'propriedades'), where('__name__', '==', propId))),
+        getDocs(query(collection(db, 'safras'), where('propriedadeId', '==', propId))),
+        getDocs(query(collection(db, 'lavouras'), where('propriedadeId', '==', propId))),
+        getDocs(query(collection(db, 'estoqueProducao'), where('propriedadeId', '==', propId))),
+      ])
+      colheitasComp.push(...cs.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      propsComp.push(...ps.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      safrasComp.push(...ss.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      lavsComp.push(...ls.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      lotesComp.push(...es.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+    }
+
+    setLista([...minhasColheitas, ...colheitasComp])
+    setPropriedades([...minhasProps, ...propsComp])
+    setSafras([...minhasSafras, ...safrasComp])
+    setLavouras([...minhasLavs, ...lavsComp])
+    const todosLotes = [...meusLotes, ...lotesComp]
+    setLotesEstoque(todosLotes)
+    setSugestoesLocal([...new Set(todosLotes.map(l => l.localArmazenagem).filter(Boolean))])
   }
 
   // Reler apenas colheitas + estoqueProdução após mutações
@@ -689,8 +716,10 @@ export default function Producao() {
                                     </button>
                                   )}
                                   <div className="flex items-center gap-0.5">
+                                    {!c._compartilhada && (<>
                                     <button onClick={e => { e.stopPropagation(); abrirEdicao(c) }} className="text-gray-300 hover:text-blue-500 p-1"><Pencil size={15} /></button>
                                     <button onClick={e => { e.stopPropagation(); excluir(c.id, c.lavouraNome || 'colheita') }} className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={15} /></button>
+                                    </>)}
                                   </div>
                                 </div>
                               </div>
@@ -786,8 +815,10 @@ export default function Producao() {
                               <PackagePlus size={11} /><span className="hidden sm:inline">Estoque</span>
                             </button>
                           )}
+                          {!c._compartilhada && (<>
                           <button onClick={() => { abrirEdicao(c); setModalLavoura(null) }} className="text-gray-300 hover:text-blue-500 p-1"><Pencil size={15} /></button>
                           <button onClick={() => { excluir(c.id, c.lavouraNome || 'colheita'); setModalLavoura(null) }} className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={15} /></button>
+                          </>)}
                         </div>
                       </div>
                     </div>
