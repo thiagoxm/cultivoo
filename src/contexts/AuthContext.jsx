@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { onAuthStateChanged } from 'firebase/auth'
-import { collection, query, where, getDocs } from 'firebase/firestore'
+import { collection, query, where, getDocs, setDoc, doc } from 'firebase/firestore'
 import { auth, db } from '../services/firebase'
 import { executarCatchUpDepreciacao } from '../services/depreciacao'
 
@@ -10,21 +10,30 @@ export function AuthProvider({ children }) {
   const [usuario, setUsuario] = useState(undefined)
   const [propriedadesCompartilhadas, setPropriedadesCompartilhadas] = useState([])
 
-  async function carregarCompartilhadas(email) {
+  async function carregarCompartilhadas(user) {
     try {
       const snap = await getDocs(
         query(
           collection(db, 'convites'),
-          where('emailConvidado', '==', email),
+          where('emailConvidado', '==', user.email),
           where('status', '==', 'aceito')
         )
       )
-      setPropriedadesCompartilhadas(
-        snap.docs.map(d => ({
-          propriedadeId: d.data().propriedadeId,
-          permissoes: d.data().permissoes || [],
-        }))
-      )
+      const compartilhadas = snap.docs.map(d => ({
+        propriedadeId: d.data().propriedadeId,
+        permissoes: d.data().permissoes || [],
+        nivel: d.data().nivel || 'operacional',
+      }))
+      setPropriedadesCompartilhadas(compartilhadas)
+
+      // Gravar coleção 'acessos' para uso nas Firestore Rules
+      const propriedadeIds = compartilhadas.map(c => c.propriedadeId)
+      await setDoc(doc(db, 'acessos', user.uid), {
+        uid: user.uid,
+        email: user.email,
+        propriedadeIds,
+        atualizadoEm: new Date(),
+      })
     } catch {
       setPropriedadesCompartilhadas([])
     }
@@ -35,7 +44,7 @@ export function AuthProvider({ children }) {
       setUsuario(user)
       if (user) {
         executarCatchUpDepreciacao(user.uid)
-        await carregarCompartilhadas(user.email)
+        await carregarCompartilhadas(user)
       } else {
         setPropriedadesCompartilhadas([])
       }
