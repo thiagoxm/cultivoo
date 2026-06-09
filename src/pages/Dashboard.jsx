@@ -1069,6 +1069,8 @@ export default function Dashboard() {
 
   useEffect(() => { carregar() }, [carregar])
 
+  useEffect(() => { carregarOnboarding() }, [usuario])
+
   useEffect(() => {
     const MAP = { soja: 'Soja', milho: 'Milho', cafe: 'Café', cafe_arabica: 'Café Arábica', cafe_conilon: 'Café Conilon', trigo: 'Trigo', algodao: 'Algodão', boi_gordo: 'Boi Gordo' }
     async function buscar() {
