@@ -1328,62 +1328,80 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {safrasAtivas.length > 0 && (
-        <>
-          <div className="mb-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:items-stretch">
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                  <Wheat size={14} className="text-green-700" />
-                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Safras em andamento</span>
-                  <div className="flex-1 h-px bg-gray-200" />
-                </div>
-                <div className="flex-1">
-                  <CardSafrasLista safrasAtivas={safrasAtivas} colheitas={colheitas} lotesEstoque={lotesEstoque} lavouras={lavouras} safrasComColheita={safrasComColheita} />
-                </div>
-              </div>
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                  <Cloud size={14} className="text-sky-500" />
-                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Clima</span>
-                  <div className="flex-1 h-px bg-gray-200" />
-                </div>
-                <div className="flex-1">
-                  <CardClima safrasAtivas={safrasAtivas} clima={clima} />
-                </div>
-              </div>
+      {/* Safras em andamento + Clima */}
+      <div className="mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:items-stretch">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <Wheat size={14} className="text-green-700" />
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Safras em andamento</span>
+              <div className="flex-1 h-px bg-gray-200" />
+            </div>
+            <div className="flex-1">
+              {safrasAtivas.length > 0
+                ? <CardSafrasLista safrasAtivas={safrasAtivas} colheitas={colheitas} lotesEstoque={lotesEstoque} lavouras={lavouras} safrasComColheita={safrasComColheita} />
+                : <div className="bg-white rounded-xl p-6 text-center text-gray-400 shadow-sm border border-gray-100"><Wheat size={28} className="mx-auto mb-2 opacity-30" /><p className="text-xs">Nenhuma safra em andamento</p></div>
+              }
             </div>
           </div>
-          <div className="mb-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:items-stretch">
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                  <Package size={14} className="text-amber-500" />
-                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Estoque de produção</span>
-                  <div className="flex-1 h-px bg-gray-200" />
-                </div>
-                <div className="flex-1">
-                  <CardEstoque lotesEstoque={lotesEstoque} todasSafras={todasSafras} cotacoes={cotacoes} movsProducao={movsProducao} />
-                </div>
-              </div>
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                  <BarChart2 size={13} className="text-green-600" />
-                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Mercado</span>
-                  <div className="flex-1 h-px bg-gray-200" />
-                </div>
-                <div className="flex-1">
-                  <CardCotacao safrasAtivas={safrasAtivas} cotacoes={cotacoes} setCotacoes={setCotacoes} />
-                </div>
-              </div>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <Cloud size={14} className="text-sky-500" />
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Clima</span>
+              <div className="flex-1 h-px bg-gray-200" />
+            </div>
+            <div className="flex-1">
+              {safrasAtivas.length > 0
+                ? <CardClima safrasAtivas={safrasAtivas} clima={clima} />
+                : <div className="bg-white rounded-xl p-6 text-center text-gray-400 shadow-sm border border-gray-100"><Cloud size={28} className="mx-auto mb-2 opacity-30" /><p className="text-xs">Disponível quando houver safra ativa</p></div>
+              }
             </div>
           </div>
-        </>
+        </div>
+      </div>
+
+      {/* Estoque de produção + Mercado */}
+      <div className="mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:items-stretch">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <Package size={14} className="text-amber-500" />
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Estoque de produção</span>
+              <div className="flex-1 h-px bg-gray-200" />
+            </div>
+            <div className="flex-1">
+              {lotesEstoque.length > 0
+                ? <CardEstoque lotesEstoque={lotesEstoque} todasSafras={todasSafras} cotacoes={cotacoes} movsProducao={movsProducao} />
+                : <div className="bg-white rounded-xl p-6 text-center text-gray-400 shadow-sm border border-gray-100"><Package size={28} className="mx-auto mb-2 opacity-30" /><p className="text-xs">Nenhum lote em estoque</p></div>
+              }
+            </div>
+          </div>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <BarChart2 size={13} className="text-green-600" />
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Mercado</span>
+              <div className="flex-1 h-px bg-gray-200" />
+            </div>
+            <div className="flex-1">
+              <CardCotacao safrasAtivas={safrasAtivas} cotacoes={cotacoes} setCotacoes={setCotacoes} />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Botão para rever o tutorial */}
+      {onboarding?.step === 'done' && (
+        <div className="flex justify-center mt-2 mb-4">
+          <button
+            onClick={() => setOnboarding({ step: 4 })}
+            className="flex items-center gap-2 text-xs text-gray-400 hover:text-green-700 border border-gray-200 hover:border-green-300 px-4 py-2 rounded-full transition-colors bg-white shadow-sm">
+            <span>📖</span> Como usar o Cultivoo
+          </button>
+        </div>
       )}
 
-      {alertasCriticos.length === 0 && vencimentos7Dias.length === 0 && safrasAtivas.length === 0 && (
-        <div className="bg-white rounded-xl p-10 text-center text-gray-400 shadow-sm border border-gray-100 mt-4">
-          <Wheat size={36} className="mx-auto mb-3 opacity-30" />
+      {alertasCriticos.length === 0 && vencimentos7Dias.length === 0 && (
+        <div className="bg-white rounded-xl p-6 text-center text-gray-400 shadow-sm border border-gray-100 mt-2">
           <p className="text-sm">Tudo em dia! Nenhum alerta ou vencimento próximo.</p>
         </div>
       )}
