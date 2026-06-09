@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
-import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore'
+import { collection, query, where, getDocs, doc, updateDoc, getDoc, setDoc } from 'firebase/firestore'
 import { db } from '../services/firebase'
 import { useAuth } from '../contexts/AuthContext'
 import {
@@ -722,8 +722,256 @@ function CardEstoque({ lotesEstoque, todasSafras, cotacoes, movsProducao }) {
   )
 }
 
+
+// ─── Dados dos fluxos do passo 4 ─────────────────────────────────────────────
+const FLUXOS = [
+  {
+    key: 'estoque',
+    icon: '📦',
+    cor: '#EAF3DE',
+    corIcone: '#3B6D11',
+    titulo: 'Estoque de Insumos',
+    resumo: 'Entradas e saídas geram custos automáticos',
+    passos: [
+      { icone: '➕', texto: 'Você cadastra um insumo (semente, adubo, defensivo) e registra a entrada com quantidade e valor' },
+      { icone: '💰', texto: 'A entrada gera automaticamente um lançamento financeiro no seu Fluxo de Caixa' },
+      { icone: '🌱', texto: 'Ao registrar a saída do insumo para uma safra, o custo é contabilizado no Custo de Produção daquela safra' },
+      { icone: '📊', texto: 'Isso permite calcular com precisão o custo por saca e a margem de cada safra nos Indicadores' },
+    ]
+  },
+  {
+    key: 'patrimonio',
+    icon: '🚜',
+    cor: '#E6F1FB',
+    corIcone: '#0C447C',
+    titulo: 'Patrimônio',
+    resumo: 'Equipamentos com depreciação automática',
+    passos: [
+      { icone: '➕', texto: 'Cadastre seus equipamentos (trator, colheitadeira, implementos) com valor de compra e vida útil' },
+      { icone: '📉', texto: 'O app calcula automaticamente a depreciação mensal de cada equipamento' },
+      { icone: '📊', texto: 'A depreciação entra no Custo de Produção como custo gerencial — não afeta o caixa, mas é fundamental para saber o custo real da safra' },
+      { icone: '⛽', texto: 'Registre combustível e manutenção no Estoque de Insumos vinculado ao equipamento para ter o custo total por máquina' },
+    ]
+  },
+  {
+    key: 'producao',
+    icon: '🌾',
+    cor: '#FAEEDA',
+    corIcone: '#854F0B',
+    titulo: 'Produção',
+    resumo: 'Colheitas e vendas alimentam os Indicadores',
+    passos: [
+      { icone: '✅', texto: 'Registre cada colheita informando a lavoura, a quantidade colhida e a unidade (sacas, kg, toneladas)' },
+      { icone: '🏪', texto: 'A produção colhida entra automaticamente no Estoque de Produção — você controla o que ainda está armazenado' },
+      { icone: '💵', texto: 'Ao registrar uma venda no Estoque de Produção, o app gera automaticamente a receita no Financeiro' },
+      { icone: '📈', texto: 'Com colheitas registradas, os Indicadores mostram produtividade por hectare, custo por saca e margem da safra' },
+    ]
+  },
+  {
+    key: 'financeiro',
+    icon: '💳',
+    cor: '#FCEBEB',
+    corIcone: '#A32D2D',
+    titulo: 'Financeiro',
+    resumo: 'Despesas que não vêm do estoque',
+    passos: [
+      { icone: '📝', texto: 'Use o Financeiro para registrar despesas que não são geradas automaticamente: mão de obra, arrendamento, consultoria, impostos' },
+      { icone: '📅', texto: 'Cadastre contas a pagar e a receber com data de vencimento para acompanhar os pagamentos pendentes' },
+      { icone: '🔄', texto: 'Lançamentos de insumos, vendas e aquisições de patrimônio são gerados automaticamente — não precisa lançar duas vezes' },
+      { icone: '📊', texto: 'O Fluxo de Caixa consolida tudo: automático + manual, dando a visão completa das finanças da propriedade' },
+    ]
+  },
+]
+
+const PASSOS_CONFIG = [
+  { num: 1, titulo: 'Cadastrar propriedade', sub: 'Registre sua fazenda ou sítio' },
+  { num: 2, titulo: 'Cadastrar lavouras', sub: 'Defina os talhões e áreas' },
+  { num: 3, titulo: 'Criar safra', sub: 'Registre cultura e período' },
+  { num: 4, titulo: 'Registrar o dia a dia', sub: 'Estoque, financeiro e produção' },
+]
+
+function OnboardingDashboard({ step, propNome, qtdLavs, onAvancar, modalFluxo, setModalFluxo }) {
+  const navigate = useNavigate ? useNavigate() : null
+  const [naoMostrar, setNaoMostrar] = useState(false)
+
+  function ir(rota) {
+    if (navigate) navigate(rota)
+  }
+
+  const textoBtn = step === 1 ? 'Cadastrar minha propriedade →'
+    : step === 2 ? 'Ir para Lavouras →'
+    : step === 3 ? 'Ir para Safras →'
+    : null
+
+  const rotaBtn = step === 1 ? '/propriedades'
+    : step === 2 ? '/lavouras'
+    : step === 3 ? '/safras'
+    : null
+
+  const icone = step === 1 ? '🌱' : step === 2 ? '🗺️' : step === 3 ? '📅' : '🏆'
+
+  const titulo = step === 1 ? 'Bem-vindo ao Cultivoo'
+    : step === 2 ? 'Agora cadastre suas lavouras'
+    : step === 3 ? 'Crie sua primeira safra'
+    : 'Tudo pronto! Veja como usar o app'
+
+  const subtitulo = step === 1
+    ? 'Siga os passos abaixo para configurar sua primeira propriedade e começar a acompanhar sua operação.'
+    : step === 2
+    ? 'Cada lavoura é um talhão ou área de plantio. Cadastre todas antes de criar a safra.'
+    : step === 3
+    ? 'Informe a cultura, o período e as lavouras que fazem parte desta safra.'
+    : 'Agora registre o dia a dia da sua fazenda. Toque em cada área para entender como funciona.'
+
+  return (
+    <div className="space-y-4 pb-4">
+      {/* Card principal */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <div className="flex flex-col items-center text-center mb-5">
+          <div className="w-14 h-14 rounded-full bg-green-50 flex items-center justify-center text-3xl mb-3">
+            {icone}
+          </div>
+          <h1 className="text-lg font-bold text-gray-800 mb-1">{titulo}</h1>
+          <p className="text-sm text-gray-500 leading-relaxed max-w-xs">{subtitulo}</p>
+        </div>
+
+        {/* Botão de ação principal */}
+        {rotaBtn && (
+          <button onClick={() => ir(rotaBtn)}
+            className="w-full py-3 rounded-xl text-white text-sm font-semibold shadow-md mb-2"
+            style={{ background: 'var(--brand-gradient)' }}>
+            {textoBtn}
+          </button>
+        )}
+
+        {/* Botão secundário passo 2 */}
+        {step === 2 && (
+          <button onClick={() => onAvancar(3)}
+            className="w-full py-2.5 rounded-xl text-sm font-medium border border-green-600 text-green-700 hover:bg-green-50 transition-colors">
+            Já cadastrei todas as lavouras →
+          </button>
+        )}
+
+        {/* Fluxos clicáveis do passo 4 */}
+        {step === 4 && (
+          <div className="grid grid-cols-2 gap-3 mt-2">
+            {FLUXOS.map(f => (
+              <button key={f.key} onClick={() => setModalFluxo(f)}
+                className="flex flex-col items-start p-3 rounded-xl border border-gray-100 hover:border-green-300 hover:shadow-sm transition-all text-left">
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center text-xl mb-2" style={{ background: f.cor }}>
+                  {f.icon}
+                </div>
+                <p className="text-xs font-semibold text-gray-800 leading-tight mb-1">{f.titulo}</p>
+                <p className="text-xs text-gray-400 leading-tight">{f.resumo}</p>
+                <p className="text-xs text-green-600 mt-1.5 font-medium">Ver detalhes →</p>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Botão concluir passo 4 */}
+        {step === 4 && (
+          <div className="flex items-center gap-3 mt-4 pt-4 border-t border-gray-100">
+            <label className="flex items-center gap-2 flex-1 cursor-pointer select-none">
+              <div onClick={() => setNaoMostrar(n => !n)}
+                className={`w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center transition-colors cursor-pointer ${naoMostrar ? 'bg-green-600 border-green-600' : 'border-gray-300'}`}>
+                {naoMostrar && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+              </div>
+              <span className="text-xs text-gray-500">Não mostrar novamente</span>
+            </label>
+            <button onClick={() => onAvancar('step4visto', naoMostrar)}
+              className="px-4 py-2 rounded-xl text-white text-sm font-semibold shadow-sm flex-shrink-0"
+              style={{ background: 'var(--brand-gradient)' }}>
+              Entendi, vamos lá!
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Linha de passos */}
+      <div className="space-y-2">
+        {PASSOS_CONFIG.map((p, i) => {
+          const done = p.num < step
+          const active = p.num === step
+          const pendente = p.num > step
+          return (
+            <div key={p.num} className={`flex items-center gap-3 px-4 py-3 rounded-xl border transition-all ${
+              done ? 'bg-white border-gray-100 opacity-60'
+              : active ? 'bg-white border-green-300 shadow-sm'
+              : 'bg-white border-gray-100 opacity-40'
+            }`}>
+              <div className={`w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center text-sm font-semibold ${
+                done ? 'bg-green-100 text-green-700'
+                : active ? 'bg-green-700 text-white'
+                : 'bg-gray-100 text-gray-400'
+              }`}>
+                {done
+                  ? <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                  : p.num}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-medium ${active ? 'text-gray-800' : 'text-gray-600'}`}>{p.titulo}</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {done && p.num === 1 && propNome ? `${propNome} — concluído`
+                  : done && p.num === 2 && qtdLavs ? `${qtdLavs} lavoura${qtdLavs > 1 ? 's' : ''} — concluído`
+                  : done ? 'Concluído'
+                  : p.sub}
+                </p>
+              </div>
+              {done && (
+                <svg className="w-4 h-4 text-green-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                </svg>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Modal de detalhe do fluxo */}
+      {modalFluxo && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl max-h-[85vh] flex flex-col overflow-hidden">
+            <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-2xl flex-shrink-0" style={{ background: modalFluxo.cor }}>
+                {modalFluxo.icon}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-gray-800">{modalFluxo.titulo}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{modalFluxo.resumo}</p>
+              </div>
+              <button onClick={() => setModalFluxo(null)} className="text-gray-400 hover:text-gray-600 p-1">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-5 space-y-3">
+              {modalFluxo.passos.map((passo, i) => (
+                <div key={i} className="flex gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-gray-50 flex items-center justify-center text-lg flex-shrink-0 border border-gray-100">
+                    {passo.icone}
+                  </div>
+                  <div className="flex-1 pt-1">
+                    <p className="text-sm text-gray-700 leading-relaxed">{passo.texto}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="p-4 border-t border-gray-100">
+              <button onClick={() => setModalFluxo(null)}
+                className="w-full py-2.5 rounded-xl text-white text-sm font-semibold"
+                style={{ background: 'var(--brand-gradient)' }}>
+                Entendi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Dashboard() {
-  const { usuario } = useAuth()
+  const { usuario, propriedadesCompartilhadas } = useAuth()
   const [loading, setLoading] = useState(true)
   const [propriedades, setPropriedades] = useState([])
   const [safrasAtivas, setSafrasAtivas] = useState([])
@@ -742,6 +990,8 @@ export default function Dashboard() {
   const [expandidoAlertas, setExpandidoAlertas] = useState(false)
   const [expandidoVencimentos, setExpandidoVencimentos] = useState(false)
   const [modalDetalheVenc, setModalDetalheVenc] = useState(null)
+  const [onboarding, setOnboarding] = useState(null) // null = ainda carregando
+  const [modalFluxo, setModalFluxo] = useState(null)
 
   const clima = useClima(
     propriedades.map(p => ({ id: p.id, nome: p.nome, lat: p.lat, lng: p.lng, cidade: p.cidade, estado: p.estado }))
@@ -756,10 +1006,50 @@ export default function Dashboard() {
       getDocs(q('insumos')), getDocs(q('movimentacoesInsumos')), getDocs(q('lavouras')),
       getDocs(query(collection(db, 'movimentacoesProducao'), where('uid', '==', uid))),
     ])
-    const props = propsSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-    setPropriedades(props)
-    const propMap = Object.fromEntries(props.map(p => [p.id, p]))
-    const todasSafrasData = safrasSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const minhasProps = propsSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const minhasSafras = safrasSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const minhasCol = colheitasSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const meusLotes = lotesSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const meusFin = finSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const meusProd = prodSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const minhasMovIns = movInsSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const minhasLavs = lavourasSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const minhasMovsProd = movsProducaoSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+    // Dados compartilhados — apenas nível 'total' inclui Dashboard
+    const idsComp = (propriedadesCompartilhadas || [])
+      .filter(c => c.permissoes.includes('dashboard'))
+      .map(c => c.propriedadeId)
+
+    let propsComp=[], safrasComp=[], colComp=[], lotesComp=[], finComp=[]
+    let prodComp=[], movInsComp=[], lavsComp=[], movsProdComp=[]
+    for (const propId of idsComp) {
+      const [ps, ss, cs, ls, fs, prs, mis, lavs, mps] = await Promise.all([
+        getDocs(query(collection(db, 'propriedades'), where('__name__', '==', propId))),
+        getDocs(query(collection(db, 'safras'), where('propriedadeId', '==', propId))),
+        getDocs(query(collection(db, 'colheitas'), where('propriedadeId', '==', propId))),
+        getDocs(query(collection(db, 'estoqueProducao'), where('propriedadeId', '==', propId))),
+        getDocs(query(collection(db, 'financeiro'), where('propriedadeId', '==', propId))),
+        getDocs(query(collection(db, 'insumos'), where('propriedadeId', '==', propId))),
+        getDocs(query(collection(db, 'movimentacoesInsumos'), where('propriedadeId', '==', propId))),
+        getDocs(query(collection(db, 'lavouras'), where('propriedadeId', '==', propId))),
+        getDocs(query(collection(db, 'movimentacoesProducao'), where('propriedadeId', '==', propId))),
+      ])
+      propsComp.push(...ps.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      safrasComp.push(...ss.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      colComp.push(...cs.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      lotesComp.push(...ls.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      finComp.push(...fs.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      prodComp.push(...prs.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      movInsComp.push(...mis.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      lavsComp.push(...lavs.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      movsProdComp.push(...mps.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+    }
+
+    const todasProps = [...minhasProps, ...propsComp]
+    setPropriedades(todasProps)
+    const propMap = Object.fromEntries(todasProps.map(p => [p.id, p]))
+    const todasSafrasData = [...minhasSafras, ...safrasComp]
     setTodasSafras(todasSafrasData)
     setSafrasAtivas(
       todasSafrasData.map(s => {
@@ -767,15 +1057,15 @@ export default function Dashboard() {
         return { ...s, cidadePropriedade: prop.cidade || '', estadoPropriedade: prop.estado || '' }
       }).filter(s => s.status !== 'Colhida' && s.status !== 'Cancelada')
     )
-    setColheitas(colheitasSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    setLotesEstoque(lotesSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    setFinanceiro(finSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    setProdutos(prodSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    setMovInsumos(movInsSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    setLavouras(lavourasSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    setMovsProducao(movsProducaoSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+    setColheitas([...minhasCol, ...colComp])
+    setLotesEstoque([...meusLotes, ...lotesComp])
+    setFinanceiro([...meusFin, ...finComp])
+    setProdutos([...meusProd, ...prodComp])
+    setMovInsumos([...minhasMovIns, ...movInsComp])
+    setLavouras([...minhasLavs, ...lavsComp])
+    setMovsProducao([...minhasMovsProd, ...movsProdComp])
     setLoading(false)
-  }, [usuario])
+  }, [usuario, propriedadesCompartilhadas])
 
   useEffect(() => { carregar() }, [carregar])
 
@@ -866,9 +1156,61 @@ export default function Dashboard() {
   const criticos = alertasCriticos.filter(a => a.tipo === 'critico')
   const atencao  = alertasCriticos.filter(a => a.tipo === 'atencao')
 
+  async function carregarOnboarding() {
+    try {
+      const snap = await getDoc(doc(db, 'usuarios', usuario.uid))
+      const d = snap.exists() ? snap.data() : {}
+      if (d.onboardingConcluido) { setOnboarding({ step: 'done' }); return }
+      // Detectar passo atual com base nos dados já carregados
+      // Reler direto do firestore para não depender do estado (que pode não ter carregado ainda)
+      const uid = usuario.uid
+      const [propsSnap, lavSnap, safSnap] = await Promise.all([
+        getDocs(query(collection(db, 'propriedades'), where('uid', '==', uid))),
+        getDocs(query(collection(db, 'lavouras'), where('uid', '==', uid))),
+        getDocs(query(collection(db, 'safras'), where('uid', '==', uid))),
+      ])
+      const temProp = !propsSnap.empty
+      const temLav = !lavSnap.empty
+      const temSafra = !safSnap.empty
+      const propNome = temProp ? propsSnap.docs[0].data().nome : ''
+      const qtdLavs = lavSnap.size
+      if (!temProp) setOnboarding({ step: 1 })
+      else if (!temLav) setOnboarding({ step: 2, propNome })
+      else if (!temSafra) setOnboarding({ step: 3, propNome, qtdLavs })
+      else if (!d.onboardingStep4Visto) setOnboarding({ step: 4, propNome })
+      else setOnboarding({ step: 'done' })
+    } catch { setOnboarding({ step: 'done' }) }
+  }
+
+  async function avancarOnboarding(novoStep, naoMostrarNovamente = false) {
+    if (novoStep === 'done' || naoMostrarNovamente) {
+      await setDoc(doc(db, 'usuarios', usuario.uid), { onboardingConcluido: true }, { merge: true })
+      setOnboarding({ step: 'done' })
+    } else if (novoStep === 4) {
+      setOnboarding(prev => ({ ...prev, step: 4 }))
+    } else if (novoStep === 'step4visto') {
+      await setDoc(doc(db, 'usuarios', usuario.uid), { onboardingStep4Visto: true }, { merge: true })
+      setOnboarding({ step: 'done' })
+    }
+  }
+
   return (
     <div className="pb-8">
-      <h1 className="text-2xl font-bold text-gray-800 mb-4">Início</h1>
+      {/* ── Onboarding ──────────────────────────────────────────────────────── */}
+    {onboarding && onboarding.step !== 'done' && (
+      <OnboardingDashboard
+        step={onboarding.step}
+        propNome={onboarding.propNome}
+        qtdLavs={onboarding.qtdLavs}
+        onAvancar={avancarOnboarding}
+        modalFluxo={modalFluxo}
+        setModalFluxo={setModalFluxo}
+      />
+    )}
+
+    {(!onboarding || onboarding.step === 'done') && (
+    <div>
+    <h1 className="text-2xl font-bold text-gray-800 mb-4">Início</h1>
 
       <div className="mb-4">
         <div className="flex items-center gap-2 mb-2">
@@ -1151,6 +1493,8 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+    </div>
+    )}
     </div>
   )
 }

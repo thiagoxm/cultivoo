@@ -288,8 +288,88 @@ function SecaoDetalhe({ titulo, children }) {
 
 const CORES = ['#639922', '#EF9F27', '#378ADD', '#B4B2A9', '#E24B4A', '#7C3AED', '#0891B2']
 
+
+// ─── Preview de Indicadores (sem colheitas ainda) ────────────────────────────
+function IndicadoresPreview() {
+  return (
+    <div className="space-y-4 pb-8 relative">
+      <h1 className="text-2xl font-bold text-gray-800">Indicadores</h1>
+
+      {/* Camada de preview borrada */}
+      <div className="relative select-none pointer-events-none" aria-hidden="true">
+        {/* KPIs fictícios */}
+        <div className="grid grid-cols-3 gap-3 mb-3" style={{ filter: 'blur(6px)', opacity: 0.45 }}>
+          {[
+            { label: 'Custo/sc', val: 'R$ 68,40', cor: 'text-gray-800' },
+            { label: 'Margem', val: '28%', cor: 'text-green-700' },
+            { label: 'Produtiv.', val: '62 sc/ha', cor: 'text-gray-800' },
+          ].map(k => (
+            <div key={k.label} className="bg-white rounded-xl p-3 shadow-sm border border-gray-100">
+              <p className="text-xs text-gray-400 mb-1">{k.label}</p>
+              <p className={`text-base font-bold ${k.cor}`}>{k.val}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Gráfico fictício */}
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 mb-3" style={{ filter: 'blur(6px)', opacity: 0.45 }}>
+          <div className="h-5 bg-gray-100 rounded w-40 mb-3" />
+          <div className="flex items-end gap-2 h-24">
+            {[60, 85, 45, 90, 70, 55, 80].map((h, i) => (
+              <div key={i} className="flex-1 rounded-t" style={{ height: `${h}%`, background: i % 2 === 0 ? '#EAF3DE' : '#DBEAFE' }} />
+            ))}
+          </div>
+        </div>
+
+        {/* Tabela fictícia */}
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100" style={{ filter: 'blur(6px)', opacity: 0.45 }}>
+          <div className="h-4 bg-gray-100 rounded w-32 mb-3" />
+          {[1,2,3].map(i => (
+            <div key={i} className="flex justify-between py-2 border-b border-gray-50 last:border-0">
+              <div className="h-3 bg-gray-100 rounded w-24" />
+              <div className="h-3 bg-gray-100 rounded w-16" />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Overlay com mensagem */}
+      <div className="absolute inset-0 flex items-center justify-center px-4" style={{ top: '60px' }}>
+        <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6 max-w-sm w-full text-center">
+          <div className="w-14 h-14 rounded-full bg-green-50 flex items-center justify-center text-3xl mx-auto mb-3">
+            📊
+          </div>
+          <p className="text-base font-bold text-gray-800 mb-2">
+            Seus indicadores aparecem aqui
+          </p>
+          <p className="text-sm text-gray-500 leading-relaxed mb-4">
+            Quando você registrar sua primeira colheita, esta página vai mostrar os resultados reais da sua propriedade — custo por saca, margem, produtividade e muito mais.
+          </p>
+          <div className="bg-gray-50 rounded-xl p-3 mb-4 text-left space-y-2">
+            {[
+              { icon: '💰', label: 'Custo de produção por saca' },
+              { icon: '📈', label: 'Margem e lucro por safra' },
+              { icon: '🌾', label: 'Produtividade por hectare' },
+              { icon: '💳', label: 'Fluxo de caixa consolidado' },
+              { icon: '🚜', label: 'Depreciação de equipamentos' },
+            ].map(item => (
+              <div key={item.label} className="flex items-center gap-2">
+                <span className="text-base">{item.icon}</span>
+                <span className="text-xs text-gray-600">{item.label}</span>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-gray-400 italic">
+            O que você vê ao fundo é apenas uma prévia de como esta página ficará.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Indicadores() {
-  const { usuario } = useAuth()
+  const { usuario, propriedadesCompartilhadas } = useAuth()
   const [loading, setLoading] = useState(true)
   const [filtroSafraId, setFiltroSafraId] = useState('')
   const [dropdownAberto, setDropdownAberto] = useState(false)
@@ -314,15 +394,52 @@ export default function Indicadores() {
         getDocs(q('movimentacoesInsumos')), getDocs(q('insumos')),
         getDocs(q('estoqueProducao')), getDocs(q('movimentacoesProducao')),
       ])
-      setSafras(safrasSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-      setLavouras(lavSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-      setColheitas(colSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado))
-      setFinanceiro(finSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado))
-      setPatrimonios(patSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-      setMovInsumos(movInsSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado))
-      setInsumos(insSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-      setLotesEstoque(lotesSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado))
-      setMovsProducao(movsProdSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado))
+      const meusSafras = safrasSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+      const minhasLavs = lavSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+      const minhasCol = colSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado)
+      const meusFin = finSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado)
+      const meusPats = patSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+      const minhasMovIns = movInsSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado)
+      const meusIns = insSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+      const meusLotes = lotesSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado)
+      const minhasMovsProd = movsProdSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado)
+
+      // Dados compartilhados — apenas nível 'total' inclui Indicadores
+      const idsComp = (propriedadesCompartilhadas || [])
+        .filter(c => c.permissoes.includes('indicadores'))
+        .map(c => c.propriedadeId)
+
+      let sComp=[], lComp=[], cComp=[], fComp=[], miComp=[], iComp=[], loComp=[], mpComp=[]
+      for (const propId of idsComp) {
+        const [ss, ls, cs, fs, mis, is_, los, mps] = await Promise.all([
+          getDocs(query(collection(db, 'safras'), where('propriedadeId', '==', propId))),
+          getDocs(query(collection(db, 'lavouras'), where('propriedadeId', '==', propId))),
+          getDocs(query(collection(db, 'colheitas'), where('propriedadeId', '==', propId))),
+          getDocs(query(collection(db, 'financeiro'), where('propriedadeId', '==', propId))),
+          getDocs(query(collection(db, 'movimentacoesInsumos'), where('propriedadeId', '==', propId))),
+          getDocs(query(collection(db, 'insumos'), where('propriedadeId', '==', propId))),
+          getDocs(query(collection(db, 'estoqueProducao'), where('propriedadeId', '==', propId))),
+          getDocs(query(collection(db, 'movimentacoesProducao'), where('propriedadeId', '==', propId))),
+        ])
+        sComp.push(...ss.docs.map(d => ({ id: d.id, ...d.data() })))
+        lComp.push(...ls.docs.map(d => ({ id: d.id, ...d.data() })))
+        cComp.push(...cs.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado))
+        fComp.push(...fs.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado))
+        miComp.push(...mis.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado))
+        iComp.push(...is_.docs.map(d => ({ id: d.id, ...d.data() })))
+        loComp.push(...los.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado))
+        mpComp.push(...mps.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado))
+      }
+
+      setSafras([...meusSafras, ...sComp])
+      setLavouras([...minhasLavs, ...lComp])
+      setColheitas([...minhasCol, ...cComp])
+      setFinanceiro([...meusFin, ...fComp])
+      setPatrimonios(meusPats)
+      setMovInsumos([...minhasMovIns, ...miComp])
+      setInsumos([...meusIns, ...iComp])
+      setLotesEstoque([...meusLotes, ...loComp])
+      setMovsProducao([...minhasMovsProd, ...mpComp])
       setLoading(false)
     }
     carregar()
@@ -489,6 +606,10 @@ export default function Indicadores() {
   const maxEquip = Math.max(...custoPorEquipamento.map(e => e.total), 1)
 
   if (loading) return <div className="text-gray-400 text-sm p-4">Carregando indicadores...</div>
+
+  // Gatilho: mostrar tela de preview se não houver colheitas
+  if (colheitas.length === 0) return <IndicadoresPreview />
+
   const bs = safraRef ? { texto: safraRef.nome, bg: '#EAF3DE', cor: '#3B6D11' } : null
 
   return (
