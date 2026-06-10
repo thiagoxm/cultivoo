@@ -1,5 +1,4 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { collection, query, where, getDocs, doc, updateDoc, getDoc, setDoc } from 'firebase/firestore'
 import { db } from '../services/firebase'
 import { useAuth } from '../contexts/AuthContext'
@@ -309,7 +308,12 @@ function CardCotacao({ safrasAtivas, cotacoes, setCotacoes }) {
         if (novoCot?.ok) setCotacoes(prev => ({ ...prev, [culturaEfetiva]: { ...prev[culturaEfetiva], historico: novoCot.historico, periodo } }))
       }).catch(() => {}).finally(() => setCarregandoGrafico(false))
   }, [culturaEfetiva, periodo])
-  if (!cot && culturasDisp.length === 0) return <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3 text-xs text-gray-400">Cotação indisponível</div>
+  if (!cot && culturasDisp.length === 0) return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm flex flex-col items-center justify-center py-6 gap-2">
+      <BarChart2 size={20} className="text-gray-300" />
+      <p className="text-xs text-gray-400">Cotação disponível após cadastrar safra com cultura</p>
+    </div>
+  )
   if (!cot) return null
   const historico = cot.historico || []
   const valores = historico.map(h => h.valor).filter(Boolean)
@@ -1070,8 +1074,6 @@ export default function Dashboard() {
 
   useEffect(() => { carregar() }, [carregar])
 
-  useEffect(() => { carregarOnboarding() }, [usuario])
-
   useEffect(() => {
     const MAP = { soja: 'Soja', milho: 'Milho', cafe: 'Café', cafe_arabica: 'Café Arábica', cafe_conilon: 'Café Conilon', trigo: 'Trigo', algodao: 'Algodão', boi_gordo: 'Boi Gordo' }
     async function buscar() {
@@ -1244,45 +1246,56 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* ── Alertas + Vencimentos ──────────────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-        {alertasCriticos.length > 0 && (
-          <div className="flex flex-col">
-            <div className="flex items-center gap-2 mb-2">
-              <AlertCircle size={13} className={criticos.length > 0 ? 'text-red-500' : atencao.length > 0 ? 'text-amber-500' : 'text-gray-400'} />
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Alertas</span>
-              {criticos.length > 0 && <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-50 text-red-700">{criticos.length} urgente{criticos.length > 1 ? 's' : ''}</span>}
-              {atencao.length > 0 && <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">{atencao.length} atenção</span>}
-              <div className="flex-1 h-px bg-gray-200" />
-            </div>
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden flex-1">
-              {(expandidoAlertas ? alertasCriticos : alertasCriticos.slice(0, 4)).map(a => (
-                <div key={a.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
-                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${a.tipo === 'critico' ? 'bg-red-50' : 'bg-amber-50'}`}>
-                    <AlertCircle size={14} className={a.tipo === 'critico' ? 'text-red-600' : 'text-amber-600'} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800 truncate">{a.titulo}</p>
-                    <p className="text-xs text-gray-400 truncate">{a.subtitulo}</p>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${a.tipo === 'critico' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>{a.badge}</span>
-                    {a.itens?.length > 0 && (
-                      <button type="button" onClick={() => setModalAlerta(a)} className="text-gray-300 hover:text-blue-500 p-0.5 transition-colors">
-                        <Info size={14} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-              {alertasCriticos.length > 4 && (
-                <button onClick={() => setExpandidoAlertas(e => !e)} className="w-full text-xs text-gray-400 py-2 hover:text-gray-600 transition-colors border-t border-gray-50">
-                  {expandidoAlertas ? 'ver menos ↑' : `ver mais (${alertasCriticos.length - 4}) ↓`}
-                </button>
-              )}
-            </div>
-          </div>
-        )}
 
+        {/* Alertas */}
+        <div className="flex flex-col">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertCircle size={13} className={criticos.length > 0 ? 'text-red-500' : atencao.length > 0 ? 'text-amber-500' : 'text-gray-400'} />
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Alertas</span>
+            {criticos.length > 0 && <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-50 text-red-700">{criticos.length} urgente{criticos.length > 1 ? 's' : ''}</span>}
+            {atencao.length > 0 && <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">{atencao.length} atenção</span>}
+            <div className="flex-1 h-px bg-gray-200" />
+          </div>
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden flex-1">
+            {alertasCriticos.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-6 gap-2">
+                <CheckCircle size={20} className="text-green-400" />
+                <p className="text-xs text-gray-400">Nenhum alerta no momento</p>
+              </div>
+            ) : (
+              <>
+                {(expandidoAlertas ? alertasCriticos : alertasCriticos.slice(0, 4)).map(a => (
+                  <div key={a.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${a.tipo === 'critico' ? 'bg-red-50' : 'bg-amber-50'}`}>
+                      <AlertCircle size={14} className={a.tipo === 'critico' ? 'text-red-600' : 'text-amber-600'} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-800 truncate">{a.titulo}</p>
+                      <p className="text-xs text-gray-400 truncate">{a.subtitulo}</p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${a.tipo === 'critico' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>{a.badge}</span>
+                      {a.itens?.length > 0 && (
+                        <button type="button" onClick={() => setModalAlerta(a)} className="text-gray-300 hover:text-blue-500 p-0.5 transition-colors">
+                          <Info size={14} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {alertasCriticos.length > 4 && (
+                  <button onClick={() => setExpandidoAlertas(e => !e)} className="w-full text-xs text-gray-400 py-2 hover:text-gray-600 transition-colors border-t border-gray-50">
+                    {expandidoAlertas ? 'ver menos ↑' : `ver mais (${alertasCriticos.length - 4}) ↓`}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Vencimentos */}
         <div className="flex flex-col">
           <div className="flex items-center gap-2 mb-2">
             <CalendarClock size={13} className="text-blue-500" />
@@ -1290,45 +1303,48 @@ export default function Dashboard() {
             <div className="flex-1 h-px bg-gray-200" />
           </div>
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden flex-1">
-            {(expandidoVencimentos ? vencimentos7Dias : vencimentos7Dias.slice(0, 4)).map(f => {
-              const diff = diffDias(f.vencimento)
-              const isReceita = f.tipo === 'receita'
-              return (
-                <div key={f.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
-                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${isReceita ? 'bg-green-50' : 'bg-red-50'}`}>
-                    <CalendarClock size={13} className={isReceita ? 'text-green-600' : 'text-red-600'} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800 truncate">{f.descricao || f.categoria || '—'}</p>
-                    <p className="text-xs text-gray-400">{formatarData(f.vencimento)} · R$ {formatarValor(f.valor)}</p>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${isReceita ? (diff <= 0 ? 'bg-green-100 text-green-800' : 'bg-green-50 text-green-700') : (diff <= 1 ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700')}`}>
-                      {diff <= 0 ? 'hoje' : `em ${diff}d`}
-                    </span>
-                    <button onClick={() => setModalDetalheVenc(f)} className="text-gray-300 hover:text-blue-500 transition-colors p-0.5">
-                      <Info size={15} />
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
-            {vencimentos7Dias.length > 4 && (
-              <button onClick={() => setExpandidoVencimentos(e => !e)} className="w-full text-xs text-gray-400 py-2 hover:text-gray-600 transition-colors border-t border-gray-50">
-                {expandidoVencimentos ? 'ver menos ↑' : `ver mais (${vencimentos7Dias.length - 4}) ↓`}
-              </button>
-            )}
-            {vencimentos7Dias.length === 0 && (
+            {vencimentos7Dias.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-6 gap-2">
                 <CheckCircle size={20} className="text-green-400" />
                 <p className="text-xs text-gray-400">Nenhum vencimento nos próximos 7 dias</p>
               </div>
+            ) : (
+              <>
+                {(expandidoVencimentos ? vencimentos7Dias : vencimentos7Dias.slice(0, 4)).map(f => {
+                  const diff = diffDias(f.vencimento)
+                  const isReceita = f.tipo === 'receita'
+                  return (
+                    <div key={f.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
+                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${isReceita ? 'bg-green-50' : 'bg-red-50'}`}>
+                        <CalendarClock size={13} className={isReceita ? 'text-green-600' : 'text-red-600'} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">{f.descricao || f.categoria || '—'}</p>
+                        <p className="text-xs text-gray-400">{formatarData(f.vencimento)} · R$ {formatarValor(f.valor)}</p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${isReceita ? (diff <= 0 ? 'bg-green-100 text-green-800' : 'bg-green-50 text-green-700') : (diff <= 1 ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700')}`}>
+                          {diff <= 0 ? 'hoje' : `em ${diff}d`}
+                        </span>
+                        <button onClick={() => setModalDetalheVenc(f)} className="text-gray-300 hover:text-blue-500 transition-colors p-0.5">
+                          <Info size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+                {vencimentos7Dias.length > 4 && (
+                  <button onClick={() => setExpandidoVencimentos(e => !e)} className="w-full text-xs text-gray-400 py-2 hover:text-gray-600 transition-colors border-t border-gray-50">
+                    {expandidoVencimentos ? 'ver menos ↑' : `ver mais (${vencimentos7Dias.length - 4}) ↓`}
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>
       </div>
 
-      {/* Safras em andamento + Clima */}
+      {/* ── Safras em andamento + Clima ─────────────────────────────────── */}
       <div className="mb-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:items-stretch">
           <div className="flex flex-col gap-2">
@@ -1340,7 +1356,10 @@ export default function Dashboard() {
             <div className="flex-1">
               {safrasAtivas.length > 0
                 ? <CardSafrasLista safrasAtivas={safrasAtivas} colheitas={colheitas} lotesEstoque={lotesEstoque} lavouras={lavouras} safrasComColheita={safrasComColheita} />
-                : <div className="bg-white rounded-xl p-6 text-center text-gray-400 shadow-sm border border-gray-100"><Wheat size={28} className="mx-auto mb-2 opacity-30" /><p className="text-xs">Nenhuma safra em andamento</p></div>
+                : <div className="bg-white rounded-xl border border-gray-100 shadow-sm flex flex-col items-center justify-center py-6 gap-2">
+                    <Wheat size={20} className="text-gray-300" />
+                    <p className="text-xs text-gray-400">Nenhuma safra em andamento</p>
+                  </div>
               }
             </div>
           </div>
@@ -1353,14 +1372,17 @@ export default function Dashboard() {
             <div className="flex-1">
               {safrasAtivas.length > 0
                 ? <CardClima safrasAtivas={safrasAtivas} clima={clima} />
-                : <div className="bg-white rounded-xl p-6 text-center text-gray-400 shadow-sm border border-gray-100"><Cloud size={28} className="mx-auto mb-2 opacity-30" /><p className="text-xs">Disponível quando houver safra ativa</p></div>
+                : <div className="bg-white rounded-xl border border-gray-100 shadow-sm flex flex-col items-center justify-center py-6 gap-2">
+                    <Cloud size={20} className="text-gray-300" />
+                    <p className="text-xs text-gray-400">Disponível quando houver safra ativa</p>
+                  </div>
               }
             </div>
           </div>
         </div>
       </div>
 
-      {/* Estoque de produção + Mercado */}
+      {/* ── Estoque de produção + Mercado ───────────────────────────────── */}
       <div className="mb-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:items-stretch">
           <div className="flex flex-col gap-2">
@@ -1370,9 +1392,12 @@ export default function Dashboard() {
               <div className="flex-1 h-px bg-gray-200" />
             </div>
             <div className="flex-1">
-              {lotesEstoque.length > 0
+              {lotesEstoque.filter(l => !l.cancelado).length > 0
                 ? <CardEstoque lotesEstoque={lotesEstoque} todasSafras={todasSafras} cotacoes={cotacoes} movsProducao={movsProducao} />
-                : <div className="bg-white rounded-xl p-6 text-center text-gray-400 shadow-sm border border-gray-100"><Package size={28} className="mx-auto mb-2 opacity-30" /><p className="text-xs">Nenhum lote em estoque</p></div>
+                : <div className="bg-white rounded-xl border border-gray-100 shadow-sm flex flex-col items-center justify-center py-6 gap-2">
+                    <Package size={20} className="text-gray-300" />
+                    <p className="text-xs text-gray-400">Nenhum lote em estoque</p>
+                  </div>
               }
             </div>
           </div>
@@ -1390,21 +1415,13 @@ export default function Dashboard() {
       </div>
 
       {/* Botão para rever o tutorial */}
-      {onboarding?.step === 'done' && (
-        <div className="flex justify-center mt-2 mb-4">
-          <button
-            onClick={() => setOnboarding({ step: 4 })}
-            className="flex items-center gap-2 text-xs text-gray-400 hover:text-green-700 border border-gray-200 hover:border-green-300 px-4 py-2 rounded-full transition-colors bg-white shadow-sm">
-            <span>📖</span> Como usar o Cultivoo
-          </button>
-        </div>
-      )}
-
-      {alertasCriticos.length === 0 && vencimentos7Dias.length === 0 && (
-        <div className="bg-white rounded-xl p-6 text-center text-gray-400 shadow-sm border border-gray-100 mt-2">
-          <p className="text-sm">Tudo em dia! Nenhum alerta ou vencimento próximo.</p>
-        </div>
-      )}
+      <div className="flex justify-center mt-2 mb-4">
+        <button
+          onClick={() => setOnboarding({ step: 4 })}
+          className="flex items-center gap-2 text-xs text-gray-400 hover:text-green-700 border border-gray-200 hover:border-green-300 px-4 py-2 rounded-full transition-colors bg-white shadow-sm">
+          <span>📖</span> Como usar o Cultivoo
+        </button>
+      </div>
 
       {modalAlerta && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -1438,6 +1455,17 @@ export default function Dashboard() {
               ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Botão para rever o tutorial */}
+      {onboarding?.step === 'done' && (
+        <div className="flex justify-center mt-2 mb-4">
+          <button
+            onClick={() => setOnboarding({ step: 4 })}
+            className="flex items-center gap-2 text-xs text-gray-400 hover:text-green-700 border border-gray-200 hover:border-green-300 px-4 py-2 rounded-full transition-colors bg-white shadow-sm">
+            <span>📖</span> Como usar o Cultivoo
+          </button>
         </div>
       )}
 
