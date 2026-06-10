@@ -233,7 +233,7 @@ function TooltipChip({ children, texto, className = '' }) {
 // Componente principal
 // ─────────────────────────────────────────────
 export default function Estoque() {
-  const { usuario } = useAuth()
+  const { usuario, propriedadesCompartilhadas } = useAuth()
 
   const [produtos, setProdutos] = useState([])
   const [movimentacoes, setMovimentacoes] = useState([])
