@@ -7,7 +7,7 @@ import {
   TrendingUp, TrendingDown, CheckCircle, X,
   AlertTriangle, BarChart2, Info, Package, Cloud
 } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useClima, diasBonsParaColheita, nomeDiaSemana } from '../hooks/useClima'
 
 const HOJE = new Date().toISOString().split('T')[0]
@@ -796,11 +796,11 @@ const PASSOS_CONFIG = [
 ]
 
 function OnboardingDashboard({ step, propNome, qtdLavs, onAvancar, modalFluxo, setModalFluxo }) {
-  const navigate = useNavigate ? useNavigate() : null
+  const navigate = useNavigate()
   const [naoMostrar, setNaoMostrar] = useState(false)
 
   function ir(rota) {
-    if (navigate) navigate(rota)
+    navigate(rota)
   }
 
   const textoBtn = step === 1 ? 'Cadastrar minha propriedade →'
@@ -1073,6 +1073,8 @@ export default function Dashboard() {
   }, [usuario, propriedadesCompartilhadas])
 
   useEffect(() => { carregar() }, [carregar])
+
+  useEffect(() => { carregarOnboarding() }, [usuario])
 
   useEffect(() => {
     const MAP = { soja: 'Soja', milho: 'Milho', cafe: 'Café', cafe_arabica: 'Café Arábica', cafe_conilon: 'Café Conilon', trigo: 'Trigo', algodao: 'Algodão', boi_gordo: 'Boi Gordo' }
@@ -1455,17 +1457,6 @@ export default function Dashboard() {
               ))}
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Botão para rever o tutorial */}
-      {onboarding?.step === 'done' && (
-        <div className="flex justify-center mt-2 mb-4">
-          <button
-            onClick={() => setOnboarding({ step: 4 })}
-            className="flex items-center gap-2 text-xs text-gray-400 hover:text-green-700 border border-gray-200 hover:border-green-300 px-4 py-2 rounded-full transition-colors bg-white shadow-sm">
-            <span>📖</span> Como usar o Cultivoo
-          </button>
         </div>
       )}
 
