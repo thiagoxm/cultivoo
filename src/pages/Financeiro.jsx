@@ -46,7 +46,7 @@ export const CONFIG_CATEGORIAS = {
     campos: { patrimonio: 'obrigatorio', propriedade: 'travada', safra: 'oculta' },
   },
   'Administrativo': {
-    tipos: ['Pessoal', 'Contabilidade', 'Consultoria', 'Arrendamento', 'Financiamento', 'Outros'],
+    tipos: ['Pessoal', 'Contabilidade', 'Consultoria', 'Arrendamento', 'Financiamento', 'Energia Elétrica', 'Outros'],
     campos: { propriedade: 'multipla', safra: 'oculta', patrimonio: 'oculto' },
   },
   'Cultivo': {
