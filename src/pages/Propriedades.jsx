@@ -345,15 +345,17 @@ function selecionarSugestaoCidade(sugestao) {
     setLoadingConvite(true)
     setErroConvite('')
     try {
-      // Verifica se já existe convite pendente ou aceito
+      // Verifica se já existe convite para esta propriedade+email
       const existente = await getDocs(
         query(
           collection(db, 'convites'),
-          where('propriedadeId', '==', propriedadeSelecionada.id),
-          where('emailConvidado', '==', emailConvidado.trim().toLowerCase())
+          where('propriedadeId', '==', propriedadeSelecionada.id)
         )
       )
-      if (!existente.empty) {
+      const jaExiste = existente.docs.some(
+        d => d.data().emailConvidado === emailConvidado.trim().toLowerCase()
+      )
+      if (jaExiste) {
         setErroConvite('Já existe um convite enviado para este e-mail nesta propriedade.')
         setLoadingConvite(false)
         return
@@ -371,7 +373,8 @@ function selecionarSugestaoCidade(sugestao) {
       })
       setSucessoConvite(true)
       setEmailConvidado('')
-    } catch {
+    } catch (err) {
+      console.error('Erro ao enviar convite:', err)
       setErroConvite('Erro ao enviar convite. Tente novamente.')
     } finally {
       setLoadingConvite(false)
