@@ -805,6 +805,26 @@ function selecionarSugestaoCidade(sugestao) {
               <button onClick={() => setModalCompartilhar(false)}
                 className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
             </div>
+            {sucessoConvite ? (
+              <div className="p-5 space-y-4">
+                <div className="flex flex-col items-center text-center py-4">
+                  <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mb-3">
+                    <Check size={28} className="text-green-600" />
+                  </div>
+                  <p className="font-bold text-gray-800 mb-1">Convite enviado!</p>
+                  <p className="text-sm text-gray-500">
+                    O colaborador receberá o convite ao fazer login no Cultivoo.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setModalCompartilhar(false)}
+                  className="w-full text-white py-2.5 rounded-xl text-sm font-medium shadow-md"
+                  style={{ background: 'var(--brand-gradient)' }}>
+                  Concluir
+                </button>
+              </div>
+            ) : (
             <form onSubmit={enviarConvite} className="p-5 space-y-4">
 
               {/* E-mail do convidado */}
@@ -893,6 +913,7 @@ function selecionarSugestaoCidade(sugestao) {
                 </button>
               </div>
             </form>
+            )}
           </div>
         </div>
       )}
