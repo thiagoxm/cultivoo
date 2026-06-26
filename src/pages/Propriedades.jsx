@@ -140,40 +140,33 @@ export default function Propriedades() {
     )
     setLista(propSnap.docs.map(d => ({ id: d.id, ...d.data() })))
 
-    // Convites aceitos — propriedades compartilhadas
-    const convAceitosSnap = await getDocs(
-      query(
-        collection(db, 'convites'),
-        where('emailConvidado', '==', email),
-        where('status', '==', 'aceito')
-      )
+    // Todos os convites do email (único where — sem índice composto)
+    const todosConvitesSnap = await getDocs(
+      query(collection(db, 'convites'), where('emailConvidado', '==', email))
     )
-    const idsCompartilhadas = convAceitosSnap.docs.map(d => d.data().propriedadeId)
+    const todosConvites = todosConvitesSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+    // Filtrar por status no JS
+    const convAceitos = todosConvites.filter(c => c.status === 'aceito')
+    const convPendentes = todosConvites.filter(c => c.status === 'pendente')
+
+    // Carregar propriedades compartilhadas aceitas
     const propCompartilhadas = []
-    for (const id of idsCompartilhadas) {
-      const propDoc = await getDoc(doc(db, 'propriedades', id))
+    for (const conv of convAceitos) {
+      const propDoc = await getDoc(doc(db, 'propriedades', conv.propriedadeId))
       if (propDoc.exists()) {
-        const convData = convAceitosSnap.docs.find(d => d.data().propriedadeId === id)?.data()
         propCompartilhadas.push({
           id: propDoc.id,
           ...propDoc.data(),
           _compartilhada: true,
-          _permissoes: convData?.permissoes || [],
-          _proprietarioNome: convData?.proprietarioNome || '',
+          _nivel: conv.nivel || 'operacional',
+          _permissoes: conv.permissoes || [],
+          _proprietarioNome: conv.proprietarioNome || '',
         })
       }
     }
     setCompartilhadas(propCompartilhadas)
-
-    // Convites pendentes
-    const convPendSnap = await getDocs(
-      query(
-        collection(db, 'convites'),
-        where('emailConvidado', '==', email),
-        where('status', '==', 'pendente')
-      )
-    )
-    setConvitesPendentes(convPendSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+    setConvitesPendentes(convPendentes)
   }
 
   useEffect(() => { carregar() }, [])
@@ -345,6 +338,20 @@ function selecionarSugestaoCidade(sugestao) {
     setLoadingConvite(true)
     setErroConvite('')
     try {
+      // Verificar duplicata: buscar convites desta propriedade e filtrar no JS
+      const existentesSnap = await getDocs(
+        query(collection(db, 'convites'), where('proprietarioUid', '==', usuario.uid))
+      )
+      const emailNorm = emailConvidado.trim().toLowerCase()
+      const jaExiste = existentesSnap.docs.some(d =>
+        d.data().propriedadeId === propriedadeSelecionada.id &&
+        d.data().emailConvidado === emailNorm
+      )
+      if (jaExiste) {
+        setErroConvite('Já existe um convite enviado para este e-mail nesta propriedade.')
+        setLoadingConvite(false)
+        return
+      }
       await addDoc(collection(db, 'convites'), {
         propriedadeId: propriedadeSelecionada.id,
         propriedadeNome: propriedadeSelecionada.nome,

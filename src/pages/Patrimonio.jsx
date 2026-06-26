@@ -120,9 +120,30 @@ export default function Patrimonio() {
       getDocs(query(collection(db, 'propriedades'), where('uid', '==', uid))),
       getDocs(query(collection(db, 'lavouras'), where('uid', '==', uid))),
     ])
-    setLista(patSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    setPropriedades(propSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    setLavouras(lavSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+    const meusPatrimonios = patSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const minhasProps = propSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const minhasLavs = lavSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+    // Dados compartilhados com permissão 'patrimonio'
+    const idsComPatrimonio = (propriedadesCompartilhadas || [])
+      .filter(c => c.permissoes.includes('patrimonio'))
+      .map(c => c.propriedadeId)
+
+    let patsComp = [], propsComp = [], lavsComp = []
+    for (const propId of idsComPatrimonio) {
+      const [ps, prs, ls] = await Promise.all([
+        getDocs(query(collection(db, 'patrimonios'), where('propriedadeIds', 'array-contains', propId))),
+        getDocs(query(collection(db, 'propriedades'), where('__name__', '==', propId))),
+        getDocs(query(collection(db, 'lavouras'), where('propriedadeId', '==', propId))),
+      ])
+      patsComp.push(...ps.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      propsComp.push(...prs.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      lavsComp.push(...ls.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+    }
+
+    setLista([...meusPatrimonios, ...patsComp])
+    setPropriedades([...minhasProps, ...propsComp])
+    setLavouras([...minhasLavs, ...lavsComp])
   }
 
   useEffect(() => { carregar() }, [])
