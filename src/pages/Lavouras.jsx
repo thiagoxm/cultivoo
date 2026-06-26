@@ -373,7 +373,7 @@ export default function Lavouras() {
     setPropriedades([...minhasProps, ...propsCompartilhadas])
   }
 
-  useEffect(() => { carregar() }, [])
+  useEffect(() => { carregar() }, [propriedadesCompartilhadas])
 
   useEffect(() => {
     document.body.style.overflow = modal || mapaFullscreen || miniMapaFullscreen ? 'hidden' : ''

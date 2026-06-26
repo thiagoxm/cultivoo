@@ -146,7 +146,7 @@ export default function Patrimonio() {
     setLavouras([...minhasLavs, ...lavsComp])
   }
 
-  useEffect(() => { carregar() }, [])
+  useEffect(() => { carregar() }, [propriedadesCompartilhadas])
 
   // Fecha dropdowns ao clicar fora
   useEffect(() => {

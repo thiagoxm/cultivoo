@@ -87,7 +87,7 @@ export default function Safras() {
     setLavouras([...minhasLavs, ...lavsCompartilhadas])
   }
 
-  useEffect(() => { carregar() }, [])
+  useEffect(() => { carregar() }, [propriedadesCompartilhadas])
 
   useEffect(() => {
     function fechar(e) {

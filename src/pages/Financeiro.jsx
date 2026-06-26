@@ -348,7 +348,7 @@ export default function Financeiro() {
     setLista([...meusLanc, ...lancCompartilhados])
   }
 
-  useEffect(() => { carregar() }, [])
+  useEffect(() => { carregar() }, [propriedadesCompartilhadas])
 
   useEffect(() => {
     function fechar(e) {

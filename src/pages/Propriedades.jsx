@@ -375,10 +375,16 @@ function selecionarSugestaoCidade(sugestao) {
 
   // Aceitar/recusar convite
   async function responderConvite(conviteId, aceitar) {
-    await updateDoc(doc(db, 'convites', conviteId), {
-      status: aceitar ? 'aceito' : 'recusado'
-    })
-    await carregar()
+    try {
+      await updateDoc(doc(db, 'convites', conviteId), {
+        status: aceitar ? 'aceito' : 'recusado',
+        uidConvidado: usuario.uid,
+        respondidoEm: new Date(),
+      })
+      await carregar()
+    } catch (err) {
+      console.error('Erro ao responder convite:', err)
+    }
   }
 
   const todasPropriedades = [...lista, ...compartilhadas]

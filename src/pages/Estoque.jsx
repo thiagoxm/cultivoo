@@ -324,7 +324,7 @@ export default function Estoque() {
     setMovimentacoes(movSnap.docs.map(d => ({ id: d.id, ...d.data() })))
   }
 
-  useEffect(() => { carregar() }, [])
+  useEffect(() => { carregar() }, [propriedadesCompartilhadas])
   useEffect(() => {
     function fechar(e) {
       if (!e.target.closest('[data-dropdown-estoque]')) setDropdownFiltroAberto(false)

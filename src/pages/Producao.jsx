@@ -353,7 +353,7 @@ export default function Producao() {
     setSugestoesLocal([...new Set(todosLotes.map(l => l.localArmazenagem).filter(Boolean))])
   }
 
-  useEffect(() => { carregar() }, [])
+  useEffect(() => { carregar() }, [propriedadesCompartilhadas])
 
   useEffect(() => {
     function fechar(e) {
