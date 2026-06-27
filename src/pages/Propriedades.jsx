@@ -376,16 +376,32 @@ function selecionarSugestaoCidade(sugestao) {
   // Aceitar/recusar convite
   async function responderConvite(conviteId, aceitar) {
     try {
-      console.log('Tentando atualizar convite:', conviteId, 'usuario:', usuario?.uid, 'email:', usuario?.email)
       await updateDoc(doc(db, 'convites', conviteId), {
         status: aceitar ? 'aceito' : 'recusado',
         uidConvidado: usuario.uid,
         respondidoEm: new Date(),
       })
-      console.log('Convite atualizado com sucesso')
+
+      // Atualizar acessos imediatamente para que carregar() funcione
+      if (aceitar) {
+        const todosConvitesSnap = await getDocs(
+          query(collection(db, 'convites'), where('emailConvidado', '==', usuario.email))
+        )
+        const idsAceitos = todosConvitesSnap.docs
+          .filter(d => d.data().status === 'aceito' || d.id === conviteId)
+          .map(d => d.data().propriedadeId)
+          .filter(Boolean)
+        await setDoc(doc(db, 'acessos', usuario.uid), {
+          uid: usuario.uid,
+          email: usuario.email,
+          propriedadeIds: idsAceitos,
+          atualizadoEm: new Date(),
+        })
+      }
+
       await carregar()
     } catch (err) {
-      console.error('Erro completo ao responder convite:', JSON.stringify(err), err.code, err.message)
+      console.error('Erro ao responder convite:', err.code, err.message)
     }
   }
 
