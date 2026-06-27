@@ -12,18 +12,20 @@ export function AuthProvider({ children }) {
 
   async function carregarCompartilhadas(user) {
     try {
+      // Um único where para evitar índice composto — filtra status no JS
       const snap = await getDocs(
         query(
           collection(db, 'convites'),
-          where('emailConvidado', '==', user.email),
-          where('status', '==', 'aceito')
+          where('emailConvidado', '==', user.email)
         )
       )
-      const compartilhadas = snap.docs.map(d => ({
-        propriedadeId: d.data().propriedadeId,
-        permissoes: d.data().permissoes || [],
-        nivel: d.data().nivel || 'operacional',
-      }))
+      const compartilhadas = snap.docs
+        .filter(d => d.data().status === 'aceito')
+        .map(d => ({
+          propriedadeId: d.data().propriedadeId,
+          permissoes: d.data().permissoes || [],
+          nivel: d.data().nivel || 'operacional',
+        }))
       setPropriedadesCompartilhadas(compartilhadas)
 
       // Gravar coleção 'acessos' para uso nas Firestore Rules
@@ -34,7 +36,8 @@ export function AuthProvider({ children }) {
         propriedadeIds,
         atualizadoEm: new Date(),
       })
-    } catch {
+    } catch (err) {
+      console.error('carregarCompartilhadas erro:', err)
       setPropriedadesCompartilhadas([])
     }
   }

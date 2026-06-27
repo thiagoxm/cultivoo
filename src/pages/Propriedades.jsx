@@ -100,7 +100,7 @@ function SeletorPin({ onSelect }) {
 }
 
 export default function Propriedades() {
-  const { usuario } = useAuth()
+  const { usuario, propriedadesCompartilhadas, carregarCompartilhadas } = useAuth()
   const [lista, setLista] = useState([])
   const [compartilhadas, setCompartilhadas] = useState([])
   const [convitesPendentes, setConvitesPendentes] = useState([])
@@ -397,6 +397,8 @@ function selecionarSugestaoCidade(sugestao) {
           propriedadeIds: idsAceitos,
           atualizadoEm: new Date(),
         })
+        // Atualizar contexto global para todas as páginas recarregarem
+        await carregarCompartilhadas(usuario)
       }
 
       await carregar()
