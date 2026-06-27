@@ -376,14 +376,16 @@ function selecionarSugestaoCidade(sugestao) {
   // Aceitar/recusar convite
   async function responderConvite(conviteId, aceitar) {
     try {
+      console.log('Tentando atualizar convite:', conviteId, 'usuario:', usuario?.uid, 'email:', usuario?.email)
       await updateDoc(doc(db, 'convites', conviteId), {
         status: aceitar ? 'aceito' : 'recusado',
         uidConvidado: usuario.uid,
         respondidoEm: new Date(),
       })
+      console.log('Convite atualizado com sucesso')
       await carregar()
     } catch (err) {
-      console.error('Erro ao responder convite:', err)
+      console.error('Erro completo ao responder convite:', JSON.stringify(err), err.code, err.message)
     }
   }
 
