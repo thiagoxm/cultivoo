@@ -65,3 +65,13 @@ export function AuthProvider({ children }) {
 export function useAuth() {
   return useContext(AuthContext)
 }
+
+// Helper: verifica se o usuário pode editar dados de uma propriedade compartilhada
+// permissaoPagina: 'lavouras' | 'safras' | 'estoque' | 'estoqueProducao' | 'producao' | 'financeiro' | 'patrimonio'
+export function usePodeEditar(propriedadeId, permissaoPagina) {
+  const { propriedadesCompartilhadas } = useContext(AuthContext)
+  if (!propriedadeId) return true // próprio usuário, pode sempre
+  const compartilhado = propriedadesCompartilhadas.find(c => c.propriedadeId === propriedadeId)
+  if (!compartilhado) return true // próprio usuário
+  return compartilhado.permissoes.includes(permissaoPagina)
+}

@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { collection, query, where, getDocs, addDoc, deleteDoc, doc, updateDoc, getDoc } from 'firebase/firestore'
 import { db } from '../services/firebase'
-import { useAuth } from '../contexts/AuthContext'
+import { useAuth, usePodeEditar } from '../contexts/AuthContext'
 import { Plus, Trash2, Layers, Pencil, X } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { CULTURAS, UNIDADES, getCultura } from '../config/culturasConfig'
@@ -319,7 +319,7 @@ export default function Safras() {
                 </div>
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
-                {!s._compartilhada && (
+                {(!s._compartilhada || propriedadesCompartilhadas.find(c => c.propriedadeId === s.propriedadeId)?.permissoes.includes('safras')) && (
                   <>
                     <button onClick={() => abrirEdicao(s)} className="text-gray-300 hover:text-blue-500 p-1 transition-colors">
                       <Pencil size={15} />

@@ -353,7 +353,7 @@ export default function Producao() {
     setSugestoesLocal([...new Set(todosLotes.map(l => l.localArmazenagem).filter(Boolean))])
   }
 
-  useEffect(() => { carregar() }, [propriedadesCompartilhadas])
+  useEffect(() => { carregar() }, [])
 
   useEffect(() => {
     function fechar(e) {
@@ -697,7 +697,9 @@ export default function Producao() {
                             </div>
                           </div>
 
-                          {!isComp && (
+                          {(() => {
+                            const podeEditar = !isComp || propriedadesCompartilhadas.find(c => c.propriedadeId === safra.propriedadeId)?.permissoes.includes('producao')
+                            return podeEditar ? (
                             <div className="flex items-center gap-1.5 flex-shrink-0">
                               <button
                                 onClick={() => setModalStatus({ lavoura: lav, safra, dadosStatus })}
@@ -712,7 +714,8 @@ export default function Producao() {
                                 <span className="hidden sm:inline">Estoque</span>
                               </button>
                             </div>
-                          )}
+                            ) : null
+                          })()}
                         </div>
                       </div>
                     )

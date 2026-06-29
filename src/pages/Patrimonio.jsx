@@ -613,12 +613,16 @@ export default function Patrimonio() {
                       {p.descricao && <p className="text-xs text-gray-400 mt-0.5">{p.descricao}</p>}
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">
-                      <button onClick={() => abrirEdicao(p)} className="text-gray-300 hover:text-blue-500 p-1">
-                        <Pencil size={14} />
-                      </button>
-                      <button onClick={() => excluir(p.id, p.nome)} className="text-gray-300 hover:text-red-500 p-1">
-                       <Trash2 size={14} />
-                      </button>
+                      {(!p._compartilhada || propriedadesCompartilhadas.find(c => p.propriedadeIds?.includes(c.propriedadeId))?.permissoes.includes('patrimonio')) && (
+                        <>
+                          <button onClick={() => abrirEdicao(p)} className="text-gray-300 hover:text-blue-500 p-1">
+                            <Pencil size={14} />
+                          </button>
+                          <button onClick={() => excluir(p.id, p.nome)} className="text-gray-300 hover:text-red-500 p-1">
+                            <Trash2 size={14} />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 )

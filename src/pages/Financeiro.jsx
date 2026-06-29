@@ -610,6 +610,7 @@ export default function Financeiro() {
     const vencido = estaVencido(l.vencimento)
     const isPago  = l.status === 'pago' || l.status === 'recebido'
     const isAuto  = !!(l.origemEstoque || l.origemEstoqueProducao || l.origemTransferencia || l.origemPatrimonio)
+    const podeEditar = !isAuto && (!l._compartilhada || propriedadesCompartilhadas.find(c => c.propriedadeId === l.propriedadeId)?.permissoes.includes('financeiro'))
     return (
       <div className="bg-white rounded-lg px-3 py-2 shadow-sm border border-gray-100 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
@@ -640,9 +641,9 @@ export default function Financeiro() {
           {isPago && <span className="text-xs bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded-full hidden sm:inline">{l.status === 'recebido' ? 'Recebido' : 'Pago'}</span>}
           {isAuto
             ? <button onClick={() => abrirComScrollLock(() => setModalDetalhe(l))} className="text-gray-300 hover:text-blue-500 p-0.5" title="Detalhes"><Info size={12} /></button>
-            : <button onClick={() => abrirEdicao(l)} className="text-gray-300 hover:text-blue-500 p-0.5" title="Editar"><Pencil size={12} /></button>
+            : podeEditar && <button onClick={() => abrirEdicao(l)} className="text-gray-300 hover:text-blue-500 p-0.5" title="Editar"><Pencil size={12} /></button>
           }
-          {!isAuto && <button onClick={() => excluir(l.id, l.descricao)} className="text-gray-300 hover:text-red-500 p-0.5"><Trash2 size={12} /></button>}
+          {podeEditar && <button onClick={() => excluir(l.id, l.descricao)} className="text-gray-300 hover:text-red-500 p-0.5"><Trash2 size={12} /></button>}
         </div>
       </div>
     )
@@ -651,6 +652,7 @@ export default function Financeiro() {
   function CardConta({ c, tipoAcao, onMarcarStatus }) {
     const vencido   = estaVencido(c.vencimento)
     const isAuto    = !!(c.origemEstoque || c.origemEstoqueProducao || c.origemTransferencia || c.origemPatrimonio)
+    const podeEditar = !isAuto && (!c._compartilhada || propriedadesCompartilhadas.find(x => x.propriedadeId === c.propriedadeId)?.permissoes.includes('financeiro'))
     const labelBtn  = tipoAcao === 'receber' ? 'Recebido' : 'Pago'
     const novoStatus = tipoAcao === 'receber' ? 'recebido' : 'pago'
     const corBtn    = tipoAcao === 'receber' ? 'bg-green-700 hover:bg-green-800' : 'bg-red-600 hover:bg-red-700'
@@ -684,9 +686,9 @@ export default function Financeiro() {
         <div className="flex flex-col gap-0.5">
           {isAuto
             ? <button onClick={() => abrirComScrollLock(() => setModalDetalhe(c))} className="text-gray-300 hover:text-blue-500 p-0.5"><Info size={12} /></button>
-            : <button onClick={() => abrirEdicao(c)} className="text-gray-300 hover:text-blue-500 p-0.5"><Pencil size={12} /></button>
+            : podeEditar && <button onClick={() => abrirEdicao(c)} className="text-gray-300 hover:text-blue-500 p-0.5"><Pencil size={12} /></button>
           }
-          {!isAuto && <button onClick={() => excluir(c.id, c.descricao)} className="text-gray-300 hover:text-red-500 p-0.5"><Trash2 size={12} /></button>}
+          {podeEditar && <button onClick={() => excluir(c.id, c.descricao)} className="text-gray-300 hover:text-red-500 p-0.5"><Trash2 size={12} /></button>}
         </div>
       </div>
     )

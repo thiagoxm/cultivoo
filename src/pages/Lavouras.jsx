@@ -3,7 +3,7 @@ import {
   addDoc, deleteDoc, doc, updateDoc
 } from 'firebase/firestore'
 import { db } from '../services/firebase'
-import { useAuth } from '../contexts/AuthContext'
+import { useAuth, usePodeEditar } from '../contexts/AuthContext'
 import {
   MapContainer, TileLayer, FeatureGroup,
   Marker, Polygon, Tooltip, useMap
@@ -774,7 +774,7 @@ export default function Lavouras() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
-                    {!l._compartilhada && (
+                    {(!l._compartilhada || propriedadesCompartilhadas.find(c => c.propriedadeId === l.propriedadeId)?.permissoes.includes('lavouras')) && (
                       <>
                         <button onClick={() => abrirEdicao(l)} className="text-gray-300 hover:text-blue-500 p-1"><Pencil size={14} /></button>
                         <button onClick={() => excluir(l.id, l.nome)} className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={14} /></button>

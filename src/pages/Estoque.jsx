@@ -931,6 +931,8 @@ export default function Estoque() {
                                     </div>
                                   </div>
                                   <div className="flex items-center gap-2 flex-shrink-0">
+                                    {(!produto._compartilhada || propriedadesCompartilhadas.find(c => c.propriedadeId === produto.propriedadeId)?.permissoes.includes('estoque')) && (
+                                      <>
                                     <button onClick={e => { e.stopPropagation(); abrirModalMov(produto.id, 'entrada') }}
                                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white shadow-sm hover:opacity-90" style={{ background: 'var(--brand-gradient)' }}>
                                       <ArrowDownCircle size={13} />Entrada
@@ -944,6 +946,11 @@ export default function Estoque() {
                                       <button onClick={e => { e.stopPropagation(); abrirModalProduto(produto) }} className="text-gray-300 hover:text-blue-500 p-1" title="Editar"><Pencil size={14} /></button>
                                       <button onClick={e => { e.stopPropagation(); excluirProduto(produto.id, produto.produto) }} className="text-gray-300 hover:text-red-500 p-1" title="Excluir"><Trash2 size={14} /></button>
                                     </div>
+                                      </>
+                                    )}
+                                    {produto._compartilhada && !propriedadesCompartilhadas.find(c => c.propriedadeId === produto.propriedadeId)?.permissoes.includes('estoque') && (
+                                      <button onClick={e => { e.stopPropagation(); setModalDetalhe(produto); setHistoricoExpandido(false) }} className="text-gray-300 hover:text-blue-500 p-1" title="Detalhes"><Info size={14} /></button>
+                                    )}
                                   </div>
                                 </div>
                               </div>
