@@ -17,8 +17,8 @@ import Indicadores from './pages/Indicadores'
 import { useCustoProducaoBackground } from './hooks/useCustoProducao'
 
 function RotaProtegida({ children }) {
-  const { usuario } = useAuth()
-  useCustoProducaoBackground(usuario?.uid)
+  const { usuario, propriedadesCompartilhadas } = useAuth()
+  useCustoProducaoBackground(usuario?.uid, propriedadesCompartilhadas)
   return usuario ? children : <Navigate to="/login" />  
 }
 

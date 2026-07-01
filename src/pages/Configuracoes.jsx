@@ -48,15 +48,15 @@ const NIVEIS_COMPARTILHAMENTO = [
   {
     key: 'financeiro',
     label: 'Financeiro',
-    descricao: 'Operacional + Financeiro',
-    permissoes: ['lavouras', 'safras', 'estoque', 'estoqueProducao', 'producao', 'financeiro'],
+    descricao: 'Operacional + Financeiro + Patrimônio',
+    permissoes: ['lavouras', 'safras', 'estoque', 'estoqueProducao', 'producao', 'financeiro', 'patrimonio'],
     cor: 'blue',
   },
   {
     key: 'total',
     label: 'Total',
     descricao: 'Tudo, incluindo Dashboard e Indicadores',
-    permissoes: ['lavouras', 'safras', 'estoque', 'estoqueProducao', 'producao', 'financeiro', 'dashboard', 'indicadores'],
+    permissoes: ['lavouras', 'safras', 'estoque', 'estoqueProducao', 'producao', 'financeiro', 'patrimonio', 'dashboard', 'indicadores'],
     cor: 'purple',
   },
 ]

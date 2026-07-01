@@ -314,22 +314,25 @@ export default function Financeiro() {
     let lancCompartilhados = []
     let propsCompartilhadas = []
     let safrasCompartilhadas = []
+    let lavsCompartilhadas = []
     for (const propId of idsComFinanceiro) {
-      const [fs, ps, ss] = await Promise.all([
+      const [fs, ps, ss, ls] = await Promise.all([
         getDocs(query(collection(db, 'financeiro'), where('propriedadeId', '==', propId))),
         getDocs(query(collection(db, 'propriedades'), where('__name__', '==', propId))),
         getDocs(query(collection(db, 'safras'), where('propriedadeId', '==', propId))),
+        getDocs(query(collection(db, 'lavouras'), where('propriedadeId', '==', propId))),
       ])
       lancCompartilhados.push(...fs.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })).filter(d => !d.cancelado))
       propsCompartilhadas.push(...ps.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
       safrasCompartilhadas.push(...ss.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      lavsCompartilhadas.push(...ls.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
     }
 
     setLista([...meusLanc, ...lancCompartilhados])
     setPropriedades([...minhasProps, ...propsCompartilhadas])
     setSafras([...minhasSafras, ...safrasCompartilhadas])
     setPatrimonios(meusPatrimonios)
-    setLavouras(minhasLavs)
+    setLavouras([...minhasLavs, ...lavsCompartilhadas])
   }
 
   async function recarregarFinanceiro() {

@@ -949,10 +949,12 @@ function BadgesQualidade({ lote }) {
 // Ponto 15: ícone Info nas saídas da aba atual
 // ─────────────────────────────────────────────
 function CardLote({ lote, movs, idx, onEditar, onCancelarLote, onCancelarSaida, safra }) {
+  const { propriedadesCompartilhadas } = useAuth()
   const [detalheSaida, setDetalheSaida] = useState(null)
   const unidade = lote.unidade || 'sc'
   const bg = idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/60'
   const podeCancelar = lote.saldoAtual === lote.quantidadeEntrada
+  const podeEditar = !lote._compartilhada || propriedadesCompartilhadas.find(c => c.propriedadeId === lote.propriedadeId)?.permissoes.includes('estoqueProducao')
   const isTransferencia = !!lote.transferenciaOrigemId
 
   const custoLote = safra ? getCustoLote(safra, lote.lavouraId) : null
@@ -987,8 +989,12 @@ function CardLote({ lote, movs, idx, onEditar, onCancelarLote, onCancelarSaida, 
                 </p>
               )}
             </div>
-            <button onClick={() => onEditar(lote)} title="Editar" className="text-gray-300 hover:text-blue-500 p-0.5"><Pencil size={13} /></button>
-            <button onClick={() => onCancelarLote(lote, podeCancelar)} title="Cancelar entrada" className="text-gray-300 hover:text-red-500 p-0.5"><Ban size={13} /></button>
+            {podeEditar && (
+              <>
+                <button onClick={() => onEditar(lote)} title="Editar" className="text-gray-300 hover:text-blue-500 p-0.5"><Pencil size={13} /></button>
+                <button onClick={() => onCancelarLote(lote, podeCancelar)} title="Cancelar entrada" className="text-gray-300 hover:text-red-500 p-0.5"><Ban size={13} /></button>
+              </>
+            )}
           </div>
         </div>
         {movs.length > 0 && (

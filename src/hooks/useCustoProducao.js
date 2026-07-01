@@ -59,7 +59,7 @@ function mesesSobrepostos(inicioA, fimA, inicioB, fimB) {
 // ─────────────────────────────────────────────
 // Função principal
 // ─────────────────────────────────────────────
-export async function calcularCustoProducao(uid) {
+export async function calcularCustoProducao(uid, propriedadesCompartilhadas = []) {
   if (!uid) return
 
   const [safrasSnap, lavouraSnap, colheitasSnap, saidasSnap, entradasSnap, despesasSnap, patrimoniosSnap] =
@@ -73,14 +73,43 @@ export async function calcularCustoProducao(uid) {
       getDocs(query(collection(db, 'patrimonios'),          where('uid', '==', uid))),
     ])
 
-  const safras      = safrasSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-  const lavouras    = lavouraSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-  const colheitas   = colheitasSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado)
-  const saidas      = saidasSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado)
-  const entradas    = entradasSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado)
+  let safras      = safrasSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+  let lavouras    = lavouraSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+  let colheitas   = colheitasSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado)
+  let saidas      = saidasSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado)
+  let entradas    = entradasSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado)
   // Despesas: filtrar cancelados localmente — compatível com docs sem o campo 'cancelado'
-  const despesas    = despesasSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado)
-  const patrimonios = patrimoniosSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+  let despesas    = despesasSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado)
+  let patrimonios = patrimoniosSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+  // Propriedades compartilhadas: recalcula também as safras do dono, garantindo que
+  // alterações feitas pelo usuário convidado (insumos, financeiro) atualizem o custo
+  const idsCompartilhados = (propriedadesCompartilhadas || []).map(c => c.propriedadeId)
+  for (const propId of idsCompartilhados) {
+    const [ss, ls, cs, sds, ens, ds, ps] = await Promise.all([
+      getDocs(query(collection(db, 'safras'), where('propriedadeId', '==', propId))),
+      getDocs(query(collection(db, 'lavouras'), where('propriedadeId', '==', propId))),
+      getDocs(query(collection(db, 'colheitas'), where('propriedadeId', '==', propId))),
+      getDocs(query(collection(db, 'movimentacoesInsumos'), where('propriedadeId', '==', propId), where('tipoMov', '==', 'saida'))),
+      getDocs(query(collection(db, 'movimentacoesInsumos'), where('propriedadeId', '==', propId), where('tipoMov', '==', 'entrada'))),
+      getDocs(query(collection(db, 'financeiro'), where('propriedadeId', '==', propId), where('tipo', '==', 'despesa'))),
+      getDocs(query(collection(db, 'patrimonios'), where('propriedadeIds', 'array-contains', propId))),
+    ])
+    const idsJaSafras = new Set(safras.map(s => s.id))
+    ss.docs.forEach(d => { if (!idsJaSafras.has(d.id)) safras.push({ id: d.id, ...d.data() }) })
+    const idsJaLav = new Set(lavouras.map(l => l.id))
+    ls.docs.forEach(d => { if (!idsJaLav.has(d.id)) lavouras.push({ id: d.id, ...d.data() }) })
+    const idsJaCol = new Set(colheitas.map(c => c.id))
+    cs.docs.forEach(d => { if (!d.data().cancelado && !idsJaCol.has(d.id)) colheitas.push({ id: d.id, ...d.data() }) })
+    const idsJaSaida = new Set(saidas.map(s => s.id))
+    sds.docs.forEach(d => { if (!d.data().cancelado && !idsJaSaida.has(d.id)) saidas.push({ id: d.id, ...d.data() }) })
+    const idsJaEntrada = new Set(entradas.map(e => e.id))
+    ens.docs.forEach(d => { if (!d.data().cancelado && !idsJaEntrada.has(d.id)) entradas.push({ id: d.id, ...d.data() }) })
+    const idsJaDesp = new Set(despesas.map(x => x.id))
+    ds.docs.forEach(d => { if (!d.data().cancelado && !idsJaDesp.has(d.id)) despesas.push({ id: d.id, ...d.data() }) })
+    const idsJaPat = new Set(patrimonios.map(p => p.id))
+    ps.docs.forEach(d => { if (!idsJaPat.has(d.id)) patrimonios.push({ id: d.id, ...d.data() }) })
+  }
 
   // Mapa de custo unitário por entradaId (id do documento de entrada)
   // Usado como fallback quando a saída não tem custoCalculado
@@ -685,18 +714,18 @@ function calcularCustoPorSafraComDebug(
 // ─────────────────────────────────────────────
 // Hook de background (dispara 3s após login)
 // ─────────────────────────────────────────────
-export function useCustoProducaoBackground(uid) {
+export function useCustoProducaoBackground(uid, propriedadesCompartilhadas = []) {
   const calculadoRef = useRef(false)
 
   useEffect(() => {
     if (!uid || calculadoRef.current) return
     calculadoRef.current = true
     setTimeout(() => {
-      calcularCustoProducao(uid).catch(e =>
+      calcularCustoProducao(uid, propriedadesCompartilhadas).catch(e =>
         console.warn('[custo] Cálculo background falhou:', e.message)
       )
     }, 3000)
-  }, [uid])
+  }, [uid, propriedadesCompartilhadas])
 }
 
 // ─────────────────────────────────────────────

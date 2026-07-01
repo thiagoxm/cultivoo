@@ -1074,7 +1074,7 @@ export default function Dashboard() {
 
   useEffect(() => { carregar() }, [carregar])
 
-  useEffect(() => { carregarOnboarding() }, [usuario])
+  useEffect(() => { carregarOnboarding() }, [usuario, propriedadesCompartilhadas])
 
   useEffect(() => {
     const MAP = { soja: 'Soja', milho: 'Milho', cafe: 'Café', cafe_arabica: 'Café Arábica', cafe_conilon: 'Café Conilon', trigo: 'Trigo', algodao: 'Algodão', boi_gordo: 'Boi Gordo' }
@@ -1165,6 +1165,11 @@ export default function Dashboard() {
 
   async function carregarOnboarding() {
     try {
+      // Usuário com pelo menos uma propriedade compartilhada aceita não é "novo" — pula onboarding
+      if ((propriedadesCompartilhadas || []).length > 0) {
+        setOnboarding({ step: 'done' })
+        return
+      }
       const snap = await getDoc(doc(db, 'usuarios', usuario.uid))
       const d = snap.exists() ? snap.data() : {}
       if (d.onboardingConcluido) { setOnboarding({ step: 'done' }); return }
