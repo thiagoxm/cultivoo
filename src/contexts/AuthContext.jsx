@@ -28,12 +28,17 @@ export function AuthProvider({ children }) {
         }))
       setPropriedadesCompartilhadas(compartilhadas)
 
-      // Gravar coleção 'acessos' para uso nas Firestore Rules
+      // Gravar coleção 'acessos' para uso nas Firestore Rules.
+      // 'propriedadeIds': lista simples (leitura genérica).
+      // 'acessos': mapa propriedadeId -> lista de permissões (para regras de escrita granulares).
       const propriedadeIds = compartilhadas.map(c => c.propriedadeId)
+      const acessosMap = {}
+      compartilhadas.forEach(c => { acessosMap[c.propriedadeId] = c.permissoes })
       await setDoc(doc(db, 'acessos', user.uid), {
         uid: user.uid,
         email: user.email,
         propriedadeIds,
+        acessos: acessosMap,
         atualizadoEm: new Date(),
       })
     } catch (err) {

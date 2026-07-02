@@ -550,13 +550,14 @@ export default function Estoque() {
     if (!formProduto.propriedadeId) return alert('Selecione a propriedade.')
     setLoading(true)
     const prop = propriedades.find(p => p.id === formProduto.propriedadeId)
-    const payload = { produto: formProduto.produto.trim(), tipo: formProduto.tipo, unidade: formProduto.unidade, propriedadeId: formProduto.propriedadeId, propriedadeNome: prop?.nome || '', temEstoqueMinimo: formProduto.temEstoqueMinimo, estoqueMinimo: formProduto.temEstoqueMinimo ? Number(formProduto.estoqueMinimo) : 0, observacoes: formProduto.observacoes || '', uid: usuario.uid }
+    const uidDono = prop?._compartilhada ? prop.uid : usuario.uid
+    const payload = { produto: formProduto.produto.trim(), tipo: formProduto.tipo, unidade: formProduto.unidade, propriedadeId: formProduto.propriedadeId, propriedadeNome: prop?.nome || '', temEstoqueMinimo: formProduto.temEstoqueMinimo, estoqueMinimo: formProduto.temEstoqueMinimo ? Number(formProduto.estoqueMinimo) : 0, observacoes: formProduto.observacoes || '', uid: uidDono }
     let novoProdutoId = editandoProduto
     if (editandoProduto) {
       await updateDoc(doc(db, 'insumos', editandoProduto), payload)
-      const movsSnap = await getDocs(query(collection(db, 'movimentacoesInsumos'), where('uid', '==', usuario.uid), where('produtoId', '==', editandoProduto)))
+      const movsSnap = await getDocs(query(collection(db, 'movimentacoesInsumos'), where('produtoId', '==', editandoProduto)))
       await Promise.all(movsSnap.docs.map(d => updateDoc(doc(db, 'movimentacoesInsumos', d.id), { produtoNome: payload.produto })))
-      const finSnap = await getDocs(query(collection(db, 'financeiro'), where('uid', '==', usuario.uid), where('produtoId', '==', editandoProduto), where('origemEstoque', '==', true)))
+      const finSnap = await getDocs(query(collection(db, 'financeiro'), where('produtoId', '==', editandoProduto), where('origemEstoque', '==', true)))
       await Promise.all(finSnap.docs.map(async d => {
         const data = d.data()
         let novaDescricao = data.descricao
@@ -586,13 +587,13 @@ export default function Estoque() {
     setConfirmacaoCancelamento(null); setLoading(true)
     await updateDoc(doc(db, 'movimentacoesInsumos', mov.id), { cancelado: true, canceladoEm: new Date() })
     if (mov.tipoSaida === 'transferencia' || mov.origemTransferencia) {
-      const movDestSnap = await getDocs(query(collection(db, 'movimentacoesInsumos'), where('uid', '==', usuario.uid), where('origemTransferencia', '==', true), where('dataMovimento', '==', mov.dataMovimento)))
+      const movDestSnap = await getDocs(query(collection(db, 'movimentacoesInsumos'), where('origemTransferencia', '==', true), where('dataMovimento', '==', mov.dataMovimento)))
       await Promise.all(movDestSnap.docs.filter(d => d.id !== mov.id).map(d => updateDoc(doc(db, 'movimentacoesInsumos', d.id), { cancelado: true, canceladoEm: new Date() })))
     }
-    const finSnap = await getDocs(query(collection(db, 'financeiro'), where('uid', '==', usuario.uid), where('movimentacaoId', '==', mov.id)))
+    const finSnap = await getDocs(query(collection(db, 'financeiro'), where('movimentacaoId', '==', mov.id)))
     await Promise.all(finSnap.docs.map(d => updateDoc(doc(db, 'financeiro', d.id), { cancelado: true, canceladoEm: new Date() })))
     if (finSnap.empty) {
-      const finFallSnap = await getDocs(query(collection(db, 'financeiro'), where('uid', '==', usuario.uid), where('produtoId', '==', mov.produtoId), where('origemEstoque', '==', true)))
+      const finFallSnap = await getDocs(query(collection(db, 'financeiro'), where('produtoId', '==', mov.produtoId), where('origemEstoque', '==', true)))
       const dataRef = mov.dataVencimentoPagamento || mov.dataMovimento
       await Promise.all(finFallSnap.docs.filter(d => d.data().vencimento === dataRef && !d.data().cancelado).map(d => updateDoc(doc(db, 'financeiro', d.id), { cancelado: true, canceladoEm: new Date() })))
     }
@@ -604,10 +605,10 @@ export default function Estoque() {
     const { mov, dataPagamento } = confirmacaoPagamento
     setConfirmacaoPagamento(null); setLoading(true)
     await updateDoc(doc(db, 'movimentacoesInsumos', mov.id), { statusPagamento: 'pago', dataVencimentoPagamento: dataPagamento })
-    const finSnap = await getDocs(query(collection(db, 'financeiro'), where('uid', '==', usuario.uid), where('movimentacaoId', '==', mov.id)))
+    const finSnap = await getDocs(query(collection(db, 'financeiro'), where('movimentacaoId', '==', mov.id)))
     await Promise.all(finSnap.docs.map(d => updateDoc(doc(db, 'financeiro', d.id), { status: 'pago', vencimento: dataPagamento })))
     if (finSnap.empty) {
-      const finFallSnap = await getDocs(query(collection(db, 'financeiro'), where('uid', '==', usuario.uid), where('produtoId', '==', mov.produtoId), where('origemEstoque', '==', true)))
+      const finFallSnap = await getDocs(query(collection(db, 'financeiro'), where('produtoId', '==', mov.produtoId), where('origemEstoque', '==', true)))
       const dataRef = mov.dataVencimentoPagamento || mov.dataMovimento
       await Promise.all(finFallSnap.docs.filter(d => d.data().vencimento === dataRef && d.data().status === 'pendente').map(d => updateDoc(doc(db, 'financeiro', d.id), { status: 'pago', vencimento: dataPagamento })))
     }
@@ -645,6 +646,7 @@ export default function Estoque() {
     const produto = produtoMov
     const safra = safras.find(s => s.id === formMov.safraId)
     const prop = propriedades.find(p => p.id === produto?.propriedadeId)
+    const uidDono = prop?._compartilhada ? prop.uid : usuario.uid
     const patrimonio = patrimonios.find(p => p.id === formMov.patrimonioId)
     const valorTotal = (formMov.tipoMov === 'entrada' || formMov.tipoSaida === 'venda') ? Number(desmascarar(formMov.valorMask)) : 0
     setLoading(true)
@@ -684,6 +686,7 @@ export default function Estoque() {
 
     const dosagemCalculada = (formMov.tipoMov === 'saida' && areaLavourasSelecionadas > 0) ? Number((qtdFinal / areaLavourasSelecionadas).toFixed(2)) : null
     const propDestino = formMov.tipoSaida === 'transferencia' ? propriedades.find(p => p.id === formMov.propriedadeDestinoId) : null
+    const uidDestino = propDestino?._compartilhada ? propDestino.uid : usuario.uid
 
     // Observações: não incluir info de transferência (fica no título)
     const observacoesFinal = formMov.tipoSaida === 'transferencia' ? (formMov.observacoes || '') : (formMov.observacoes || '')
@@ -712,7 +715,7 @@ export default function Estoque() {
       propriedadeDestinoId: formMov.tipoSaida === 'transferencia' ? formMov.propriedadeDestinoId : '',
       propriedadeDestinoNome: propDestino?.nome || '',
       observacoes: observacoesFinal,
-      cancelado: false, uid: usuario.uid,
+      cancelado: false, uid: uidDono,
     }
 
     const movRef = await addDoc(collection(db, 'movimentacoesInsumos'), { ...payloadBase, criadoEm: new Date() })
@@ -722,24 +725,24 @@ export default function Estoque() {
     if (formMov.tipoMov === 'entrada') {
       const tipoConfig = getTipoInsumo(produto?.tipo)
       const dataVenc = formMov.dataVencimentoPagamento || formMov.dataMovimento
-      await addDoc(collection(db, 'financeiro'), { descricao: `Compra: ${produto?.produto || 'Insumo'}`, tipo: 'despesa', categoria: tipoConfig?.categoriaFinanceiro || 'Insumos', tipoDespesa: tipoConfig?.tipoFinanceiro || 'Outros', valor: valorTotal, vencimento: dataVenc, status: formMov.statusPagamento === 'pago' ? 'pago' : 'pendente', notaRef: formMov.notaRef || '', propriedadeId: produto?.propriedadeId || '', propriedadeNome: prop?.nome || '', safraId: '', patrimonioId: '', origemEstoque: true, produtoId: formMov.produtoId, movimentacaoId, cancelado: false, uid: usuario.uid, criadoEm: new Date() })
+      await addDoc(collection(db, 'financeiro'), { descricao: `Compra: ${produto?.produto || 'Insumo'}`, tipo: 'despesa', categoria: tipoConfig?.categoriaFinanceiro || 'Insumos', tipoDespesa: tipoConfig?.tipoFinanceiro || 'Outros', valor: valorTotal, vencimento: dataVenc, status: formMov.statusPagamento === 'pago' ? 'pago' : 'pendente', notaRef: formMov.notaRef || '', propriedadeId: produto?.propriedadeId || '', propriedadeNome: prop?.nome || '', safraId: '', patrimonioId: '', origemEstoque: true, produtoId: formMov.produtoId, movimentacaoId, cancelado: false, uid: uidDono, criadoEm: new Date() })
     }
     if (formMov.tipoMov === 'saida' && formMov.tipoSaida === 'venda' && valorTotal > 0) {
-      await addDoc(collection(db, 'financeiro'), { descricao: `Venda de excedente: ${produto?.produto || 'Insumo'}`, tipo: 'receita', categoria: '', tipoDespesa: '', valor: valorTotal, vencimento: formMov.dataMovimento, status: 'recebido', notaRef: formMov.notaRef || '', propriedadeId: produto?.propriedadeId || '', propriedadeNome: prop?.nome || '', safraId: '', patrimonioId: '', origemEstoque: true, produtoId: formMov.produtoId, movimentacaoId, cancelado: false, uid: usuario.uid, criadoEm: new Date() })
+      await addDoc(collection(db, 'financeiro'), { descricao: `Venda de excedente: ${produto?.produto || 'Insumo'}`, tipo: 'receita', categoria: '', tipoDespesa: '', valor: valorTotal, vencimento: formMov.dataMovimento, status: 'recebido', notaRef: formMov.notaRef || '', propriedadeId: produto?.propriedadeId || '', propriedadeNome: prop?.nome || '', safraId: '', patrimonioId: '', origemEstoque: true, produtoId: formMov.produtoId, movimentacaoId, cancelado: false, uid: uidDono, criadoEm: new Date() })
     }
     if (formMov.tipoMov === 'saida' && formMov.tipoSaida === 'transferencia') {
       const { custoTotal, lotesUsados } = calcularCustoTransferencia(produto.movs, qtdFinal)
-      await addDoc(collection(db, 'financeiro'), { descricao: `Transferência saída: ${produto?.produto || 'Insumo'} → ${propDestino?.nome || ''}`, tipo: 'receita', categoria: 'Transferência Interna', tipoDespesa: '', valor: custoTotal, vencimento: formMov.dataMovimento, status: 'recebido', propriedadeId: produto?.propriedadeId || '', propriedadeNome: prop?.nome || '', safraId: '', patrimonioId: '', origemEstoque: true, origemTransferencia: true, produtoId: formMov.produtoId, movimentacaoId, cancelado: false, uid: usuario.uid, criadoEm: new Date() })
+      await addDoc(collection(db, 'financeiro'), { descricao: `Transferência saída: ${produto?.produto || 'Insumo'} → ${propDestino?.nome || ''}`, tipo: 'receita', categoria: 'Transferência Interna', tipoDespesa: '', valor: custoTotal, vencimento: formMov.dataMovimento, status: 'recebido', propriedadeId: produto?.propriedadeId || '', propriedadeNome: prop?.nome || '', safraId: '', patrimonioId: '', origemEstoque: true, origemTransferencia: true, produtoId: formMov.produtoId, movimentacaoId, cancelado: false, uid: uidDono, criadoEm: new Date() })
       const produtoDestino = produtos.find(p => p.produto === produto?.produto && p.tipo === produto?.tipo && p.propriedadeId === formMov.propriedadeDestinoId)
       let produtoDestinoId = produtoDestino?.id
       if (!produtoDestinoId) {
-        const ref = await addDoc(collection(db, 'insumos'), { produto: produto?.produto || '', tipo: produto?.tipo || '', unidade: produto?.unidade || '', propriedadeId: formMov.propriedadeDestinoId, propriedadeNome: propDestino?.nome || '', temEstoqueMinimo: false, estoqueMinimo: 0, observacoes: '', uid: usuario.uid, criadoEm: new Date() })
+        const ref = await addDoc(collection(db, 'insumos'), { produto: produto?.produto || '', tipo: produto?.tipo || '', unidade: produto?.unidade || '', propriedadeId: formMov.propriedadeDestinoId, propriedadeNome: propDestino?.nome || '', temEstoqueMinimo: false, estoqueMinimo: 0, observacoes: '', uid: uidDestino, criadoEm: new Date() })
         produtoDestinoId = ref.id
       }
       const dataValidadeTransf = lotesUsados.find(l => l.dataValidade)?.dataValidade || ''
-      const movDestinoRef = await addDoc(collection(db, 'movimentacoesInsumos'), { produtoId: produtoDestinoId, produtoNome: produto?.produto || '', tipoProduto: produto?.tipo || '', unidade: produto?.unidade || '', tipoMov: 'entrada', tipoSaida: null, quantidade: qtdFinal, valorTotal: custoTotal, dataMovimento: formMov.dataMovimento, propriedadeId: formMov.propriedadeDestinoId, propriedadeNome: propDestino?.nome || '', safraId: '', safraNome: '', lavouraIds: [], lavouraNomes: [], areaHa: null, dosagem: null, patrimonioId: '', patrimonioNome: '', statusPagamento: 'pago', dataVencimentoPagamento: '', notaRef: '', dataValidade: dataValidadeTransf, observacoes: '', origemTransferencia: true, propriedadeOrigemId: produto?.propriedadeId || '', propriedadeOrigemNome: prop?.nome || '', movimentacaoOrigemId: movimentacaoId, lotesConsumidos: lotesUsados, cancelado: false, uid: usuario.uid, criadoEm: new Date() })
+      const movDestinoRef = await addDoc(collection(db, 'movimentacoesInsumos'), { produtoId: produtoDestinoId, produtoNome: produto?.produto || '', tipoProduto: produto?.tipo || '', unidade: produto?.unidade || '', tipoMov: 'entrada', tipoSaida: null, quantidade: qtdFinal, valorTotal: custoTotal, dataMovimento: formMov.dataMovimento, propriedadeId: formMov.propriedadeDestinoId, propriedadeNome: propDestino?.nome || '', safraId: '', safraNome: '', lavouraIds: [], lavouraNomes: [], areaHa: null, dosagem: null, patrimonioId: '', patrimonioNome: '', statusPagamento: 'pago', dataVencimentoPagamento: '', notaRef: '', dataValidade: dataValidadeTransf, observacoes: '', origemTransferencia: true, propriedadeOrigemId: produto?.propriedadeId || '', propriedadeOrigemNome: prop?.nome || '', movimentacaoOrigemId: movimentacaoId, lotesConsumidos: lotesUsados, cancelado: false, uid: uidDestino, criadoEm: new Date() })
       await updateDoc(doc(db, 'movimentacoesInsumos', movDestinoRef.id), { movimentacaoId: movDestinoRef.id })
-      await addDoc(collection(db, 'financeiro'), { descricao: `Transferência entrada: ${produto?.produto || 'Insumo'} ← ${prop?.nome || ''}`, tipo: 'despesa', categoria: getTipoInsumo(produto?.tipo)?.categoriaFinanceiro || 'Insumos', tipoDespesa: getTipoInsumo(produto?.tipo)?.tipoFinanceiro || 'Outros', valor: custoTotal, vencimento: formMov.dataMovimento, status: 'pago', propriedadeId: formMov.propriedadeDestinoId, propriedadeNome: propDestino?.nome || '', safraId: '', patrimonioId: '', origemEstoque: true, origemTransferencia: true, produtoId: produtoDestinoId, movimentacaoId: movDestinoRef.id, cancelado: false, uid: usuario.uid, criadoEm: new Date() })
+      await addDoc(collection(db, 'financeiro'), { descricao: `Transferência entrada: ${produto?.produto || 'Insumo'} ← ${prop?.nome || ''}`, tipo: 'despesa', categoria: getTipoInsumo(produto?.tipo)?.categoriaFinanceiro || 'Insumos', tipoDespesa: getTipoInsumo(produto?.tipo)?.tipoFinanceiro || 'Outros', valor: custoTotal, vencimento: formMov.dataMovimento, status: 'pago', propriedadeId: formMov.propriedadeDestinoId, propriedadeNome: propDestino?.nome || '', safraId: '', patrimonioId: '', origemEstoque: true, origemTransferencia: true, produtoId: produtoDestinoId, movimentacaoId: movDestinoRef.id, cancelado: false, uid: uidDestino, criadoEm: new Date() })
     }
 
     setModalMov(false); setFormMov(MOV_PADRAO)

@@ -101,7 +101,7 @@ function ModalAtualizarStatus({ lavoura, safra, dadosStatus, onClose, onSalvo })
         statusColheita: status,
         dataInicio: inicio,
         dataFim: status === 'colhida' ? fim : '',
-        uid: usuario.uid,
+        uid: safra.uid || usuario.uid,
         atualizadoEm: new Date(),
       })
       await onSalvo()
@@ -214,7 +214,7 @@ function ModalEntradaEstoque({ dadosLavoura, safra, lavoura, sugestoesLocal, onC
         idLote: idLote.trim(),
         colheitaOrigemId: `${safra.id}_${lavoura.id}`,
         cancelado: false,
-        uid: usuario.uid,
+        uid: safra.uid || usuario.uid,
         criadoEm: new Date(),
       })
       await onSalvo()

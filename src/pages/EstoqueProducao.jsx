@@ -208,7 +208,7 @@ function ModalConfirmacao({ titulo, mensagem, detalhe, labelBotao = 'Confirmar',
 // Ponto 1: classificação própria adicionada
 // ─────────────────────────────────────────────
 function ModalEntrada({ colheita, loteExistente, totalLotesCultura, onClose, onSalvo, sugestoesLocal }) {
-  const { usuario } = useAuth()
+  const { usuario, propriedadesCompartilhadas } = useAuth()
   const camposQ = getCamposQualidade(colheita.cultura || '')
   const unidade = getUnidadePadrao(colheita.cultura || '') || colheita.unidade || 'sc'
   const editando = !!loteExistente
@@ -225,6 +225,8 @@ function ModalEntrada({ colheita, loteExistente, totalLotesCultura, onClose, onS
     if (invalido) return
     setSalvando(true)
     try {
+      const compartilhada = propriedadesCompartilhadas.find(c => c.propriedadeId === colheita.propriedadeId)
+      const uidDono = compartilhada ? compartilhada.uid : usuario.uid
       const payload = {
         cultura: colheita.cultura || '',
         safraId: colheita.safraId || '',
@@ -241,7 +243,7 @@ function ModalEntrada({ colheita, loteExistente, totalLotesCultura, onClose, onS
         qualidade: qualidade || {},
         idLote: idLote.trim(),
         colheitaOrigemId: colheita.id,
-        uid: usuario.uid,
+        uid: uidDono,
       }
       if (editando) {
         await updateDoc(doc(db, 'estoqueProducao', loteExistente.id), {
@@ -482,7 +484,7 @@ function ModalDetalhesLote({ lote, vendas, onClose, onCancelarVenda }) {
 // Ponto 16: campo Nº Doc. Referência
 // ─────────────────────────────────────────────
 function ModalVenda({ lotes, onClose, onSalvo }) {
-  const { usuario } = useAuth()
+  const { usuario, propriedadesCompartilhadas } = useAuth()
   const [filtroLocal, setFiltroLocal] = useState('')
   const [filtroSafra, setFiltroSafra] = useState('')
   const [selecoes, setSelecoes] = useState({})
@@ -533,6 +535,8 @@ function ModalVenda({ lotes, onClose, onSalvo }) {
       for (const lote of lotesSelecionados) {
         const qtd = Number(selecoes[lote.id])
         const movId = `venda_${Date.now()}_${lote.id}`
+        const compartilhada = propriedadesCompartilhadas.find(c => c.propriedadeId === lote.propriedadeId)
+        const uidDono = compartilhada ? compartilhada.uid : usuario.uid
         await addDoc(collection(db, 'movimentacoesProducao'), {
           tipo: 'saida_venda', estoqueProducaoId: lote.id,
           idLote: lote.idLote || '', cultura: lote.cultura,
@@ -544,7 +548,7 @@ function ModalVenda({ lotes, onClose, onSalvo }) {
           valorBruto: brutoNum, valorLiquido: liquidoNum,
           deducoes: deducoes || 0, dataVenda, dataRecebimento: dataPagamento || null,
           docRef: docRef.trim(), observacoes: observacoes.trim(),
-          cancelado: false, movimentacaoId: movId, uid: usuario.uid, criadoEm: new Date(),
+          cancelado: false, movimentacaoId: movId, uid: uidDono, criadoEm: new Date(),
         })
         await updateDoc(doc(db, 'estoqueProducao', lote.id), { saldoAtual: lote.saldoAtual - qtd })
         await addDoc(collection(db, 'financeiro'), {
@@ -556,7 +560,7 @@ function ModalVenda({ lotes, onClose, onSalvo }) {
           propriedadeId: lote.propriedadeId, propriedadeNome: lote.propriedadeNome,
           safraId: lote.safraId, safraNome: lote.safraNome, patrimonioId: '',
           origemEstoqueProducao: true, movimentacaoId: movId,
-          cancelado: false, uid: usuario.uid, criadoEm: new Date(),
+          cancelado: false, uid: uidDono, criadoEm: new Date(),
         })
       }
       onSalvo(); onClose()
@@ -714,7 +718,7 @@ function ModalVenda({ lotes, onClose, onSalvo }) {
 // Ponto 9: checkbox separado; Ponto 16: Nº Doc.
 // ─────────────────────────────────────────────
 function ModalTransferencia({ lotes, onClose, onSalvo, sugestoesLocal }) {
-  const { usuario } = useAuth()
+  const { usuario, propriedadesCompartilhadas } = useAuth()
   const [filtroLocal, setFiltroLocal] = useState('')
   const [filtroSafra, setFiltroSafra] = useState('')
   const [selecoes, setSelecoes] = useState({})
@@ -763,6 +767,8 @@ function ModalTransferencia({ lotes, onClose, onSalvo, sugestoesLocal }) {
       for (const lote of lotesSelecionados) {
         const qtd = Number(selecoes[lote.id])
         const movId = `transf_${Date.now()}_${lote.id}`
+        const compartilhada = propriedadesCompartilhadas.find(c => c.propriedadeId === lote.propriedadeId)
+        const uidDono = compartilhada ? compartilhada.uid : usuario.uid
         await addDoc(collection(db, 'movimentacoesProducao'), {
           tipo: 'transferencia_estoque', estoqueProducaoId: lote.id,
           idLote: lote.idLote || '', cultura: lote.cultura,
@@ -771,7 +777,7 @@ function ModalTransferencia({ lotes, onClose, onSalvo, sugestoesLocal }) {
           localOrigem: lote.localArmazenagem, localDestino: localDestino.trim(),
           unidade, quantidade: qtd, custoTransporte: custo,
           docRef: docRef.trim(), dataMov,
-          cancelado: false, movimentacaoId: movId, uid: usuario.uid, criadoEm: new Date(),
+          cancelado: false, movimentacaoId: movId, uid: uidDono, criadoEm: new Date(),
         })
         await updateDoc(doc(db, 'estoqueProducao', lote.id), { saldoAtual: lote.saldoAtual - qtd })
         const { id: _id, criadoEm: _c, ...base } = lote
@@ -789,7 +795,7 @@ function ModalTransferencia({ lotes, onClose, onSalvo, sugestoesLocal }) {
             safraId: lote.safraId || '', patrimonioId: '',
             movimentacaoId: movId,
             origemEstoqueProducao: true,  // marca como automático no Financeiro
-            cancelado: false, uid: usuario.uid, criadoEm: new Date(),
+            cancelado: false, uid: uidDono, criadoEm: new Date(),
           })
         }
       }
@@ -1471,7 +1477,6 @@ export default function EstoqueProducao() {
           // Buscar a movimentação de transferência pelo movimentacaoId
           const movSnap = await getDocs(query(
             collection(db, 'movimentacoesProducao'),
-            where('uid', '==', usuario.uid),
             where('movimentacaoId', '==', lote.transferenciaOrigemId)
           ))
           for (const movDoc of movSnap.docs) {
@@ -1488,7 +1493,6 @@ export default function EstoqueProducao() {
             // Apagar lançamento financeiro vinculado (não deve permanecer no financeiro)
             const finSnap = await getDocs(query(
               collection(db, 'financeiro'),
-              where('uid', '==', usuario.uid),
               where('movimentacaoId', '==', lote.transferenciaOrigemId)
             ))
             await Promise.all(finSnap.docs.map(d => deleteDoc(d.ref)))
@@ -1523,7 +1527,6 @@ export default function EstoqueProducao() {
         if (mov.tipo === 'transferencia_estoque') {
           const destSnap = await getDocs(query(
             collection(db, 'estoqueProducao'),
-            where('uid', '==', usuario.uid),
             where('transferenciaOrigemId', '==', movId)
           ))
           await Promise.all(
@@ -1534,7 +1537,6 @@ export default function EstoqueProducao() {
         // 4. Apagar lançamento(s) financeiro(s) vinculados (não devem permanecer no financeiro)
         const finQuery1 = await getDocs(query(
           collection(db, 'financeiro'),
-          where('uid', '==', usuario.uid),
           where('movimentacaoId', '==', movId)
         ))
         if (finQuery1.docs.length > 0) {

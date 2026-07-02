@@ -456,6 +456,7 @@ export default function Financeiro() {
         for (let i = 0; i < parcelas; i++) {
           documentos.push({ ...payloadBase, valor: parcelas > 1 ? valorProp / parcelas : valorProp,
             vencimento: adicionarMeses(dataVenc, i), propriedadeId: propId, propriedadeNome: prop?.nome || '',
+            uid: prop?._compartilhada ? prop.uid : usuario.uid,
             safraId: '', safraNome: '', patrimonioId: '', patrimonioNome: '',
             propriedadeIds: ids, tipoRateio: form.tipoRateio,
             percentuaisRateio: form.tipoRateio === 'personalizado' ? form.percentuaisRateio : {},
@@ -468,13 +469,15 @@ export default function Financeiro() {
 
     } else if (form.tipo === 'despesa' && form.categoria === 'Máquinas e Equipamentos') {
       const pat = patrimonios.find(p => p.id === form.patrimonioId)
-      const propId = propriedadesDoPatrimonio[0]?.id || ''
-      const propNome = propriedadesDoPatrimonio[0]?.nome || ''
+      const propObj = propriedadesDoPatrimonio[0]
+      const propId = propObj?.id || ''
+      const propNome = propObj?.nome || ''
       const parcelas = form.parcelar ? form.numParcelas : 1
       const parcelaGrupoId = `grp_${Date.now()}`
       for (let i = 0; i < parcelas; i++) {
         const payload = { ...payloadBase, valor: parcelas > 1 ? valorTotal / parcelas : valorTotal,
           vencimento: adicionarMeses(dataVenc, i), propriedadeId: propId, propriedadeNome: propNome,
+          uid: propObj?._compartilhada ? propObj.uid : usuario.uid,
           safraId: '', safraNome: '', patrimonioId: form.patrimonioId, patrimonioNome: pat?.nome || '',
           ...(parcelas > 1 ? { parcelaNum: i + 1, parcelaTot: parcelas, parcelaGrupoId } : {}),
         }
@@ -491,6 +494,7 @@ export default function Financeiro() {
         const payload = { ...payloadBase, valor: parcelas > 1 ? valorTotal / parcelas : valorTotal,
           vencimento: adicionarMeses(dataVenc, i), propriedadeId: form.propriedadeId,
           propriedadeNome: prop?.nome || '', safraId: form.safraId, safraNome: safra?.nome || '',
+          uid: prop?._compartilhada ? prop.uid : usuario.uid,
           patrimonioId: form.patrimonioId || '', patrimonioNome: '',
           ...(parcelas > 1 ? { parcelaNum: i + 1, parcelaTot: parcelas, parcelaGrupoId } : {}),
         }

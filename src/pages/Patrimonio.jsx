@@ -324,6 +324,10 @@ export default function Patrimonio() {
     const propNomes = propriedades
       .filter(p => form.propriedadeIds.includes(p.id))
       .map(p => p.nome)
+    // Se a propriedade principal do rateio for compartilhada, o patrimônio fica
+    // registrado no nome do proprietário (para que ele consiga vê-lo e editá-lo)
+    const propPrincipal = propriedades.find(p => p.id === form.propriedadeIds[0])
+    const uidDono = propPrincipal?._compartilhada ? propPrincipal.uid : usuario.uid
     const payload = {
       nome: form.nome,
       categoria: form.categoria,
@@ -338,7 +342,7 @@ export default function Patrimonio() {
       numeroIdentificacao: form.numeroIdentificacao,
       descricao: form.descricao,
       isImplemento: form.categoria === 'Equipamentos Móveis' ? form.isImplemento : false,
-      uid: usuario.uid,
+      uid: uidDono,
     }
     if (editando) {
       await updateDoc(doc(db, 'patrimonios', editando), payload)
@@ -387,7 +391,7 @@ export default function Patrimonio() {
               origemPatrimonio: true,
               ...(numParcelas > 1 ? { parcelaNum: i + 1, parcelaTot: numParcelas, parcelaGrupoId } : {}),
               cancelado: false,
-              uid: usuario.uid,
+              uid: prop?._compartilhada ? prop.uid : usuario.uid,
               criadoEm: new Date(),
             })
           }
@@ -410,7 +414,6 @@ export default function Patrimonio() {
         // Excluir lançamentos financeiros vinculados (origemPatrimonio)
         const finSnap = await getDocs(query(
           collection(db, 'financeiro'),
-          where('uid', '==', usuario.uid),
           where('patrimonioId', '==', id),
           where('origemPatrimonio', '==', true)
         ))
