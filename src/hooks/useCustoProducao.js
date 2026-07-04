@@ -476,18 +476,18 @@ function calcularCustoPorSafra(
 // Versão debug — retorna o mesmo resultado + debugLog
 // Chamada diretamente pelo PainelDebugCusto (não persiste no Firestore)
 // ─────────────────────────────────────────────
-export async function calcularCustoProducaoDebug(uid, safraId) {
-  if (!uid || !safraId) return null
+export async function calcularCustoProducaoDebug(propriedadeId, safraId) {
+  if (!propriedadeId || !safraId) return null
 
   const [safrasSnap, lavouraSnap, colheitasSnap, saidasSnap, entradasSnap, despesasSnap, patrimoniosSnap] =
     await Promise.all([
-      getDocs(query(collection(db, 'safras'),              where('uid', '==', uid))),
-      getDocs(query(collection(db, 'lavouras'),            where('uid', '==', uid))),
-      getDocs(query(collection(db, 'colheitas'),           where('uid', '==', uid))),
-      getDocs(query(collection(db, 'movimentacoesInsumos'), where('uid', '==', uid), where('tipoMov', '==', 'saida'))),
-      getDocs(query(collection(db, 'movimentacoesInsumos'), where('uid', '==', uid), where('tipoMov', '==', 'entrada'))),
-      getDocs(query(collection(db, 'financeiro'),           where('uid', '==', uid), where('tipo', '==', 'despesa'))),
-      getDocs(query(collection(db, 'patrimonios'),          where('uid', '==', uid))),
+      getDocs(query(collection(db, 'safras'),              where('propriedadeId', '==', propriedadeId))),
+      getDocs(query(collection(db, 'lavouras'),            where('propriedadeId', '==', propriedadeId))),
+      getDocs(query(collection(db, 'colheitas'),           where('propriedadeId', '==', propriedadeId))),
+      getDocs(query(collection(db, 'movimentacoesInsumos'), where('propriedadeId', '==', propriedadeId), where('tipoMov', '==', 'saida'))),
+      getDocs(query(collection(db, 'movimentacoesInsumos'), where('propriedadeId', '==', propriedadeId), where('tipoMov', '==', 'entrada'))),
+      getDocs(query(collection(db, 'financeiro'),           where('propriedadeId', '==', propriedadeId), where('tipo', '==', 'despesa'))),
+      getDocs(query(collection(db, 'patrimonios'),          where('propriedadeIds', 'array-contains', propriedadeId))),
     ])
 
   const safras      = safrasSnap.docs.map(d => ({ id: d.id, ...d.data() }))

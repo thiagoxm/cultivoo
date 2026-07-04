@@ -9,8 +9,10 @@ const AuthContext = createContext()
 export function AuthProvider({ children }) {
   const [usuario, setUsuario] = useState(undefined)
   const [propriedadesCompartilhadas, setPropriedadesCompartilhadas] = useState([])
+  const [carregandoCompartilhadas, setCarregandoCompartilhadas] = useState(true)
 
   async function carregarCompartilhadas(user) {
+    setCarregandoCompartilhadas(true)
     try {
       // Um único where para evitar índice composto — filtra status no JS
       const snap = await getDocs(
@@ -44,6 +46,8 @@ export function AuthProvider({ children }) {
     } catch (err) {
       console.error('carregarCompartilhadas erro:', err)
       setPropriedadesCompartilhadas([])
+    } finally {
+      setCarregandoCompartilhadas(false)
     }
   }
 
@@ -61,7 +65,7 @@ export function AuthProvider({ children }) {
   }, [])
 
   return (
-    <AuthContext.Provider value={{ usuario, propriedadesCompartilhadas, carregarCompartilhadas }}>
+    <AuthContext.Provider value={{ usuario, propriedadesCompartilhadas, carregarCompartilhadas, carregandoCompartilhadas }}>
       {usuario !== undefined && children}
     </AuthContext.Provider>
   )

@@ -77,11 +77,12 @@ export function PainelDebugCusto({ safras }) {
     setErro(null)
     setResultado(null)
     try {
-      // Para safras compartilhadas, o dono da safra (safra.uid) é diferente do usuário logado.
-      // Usar o uid do dono garante que as queries encontrem os dados corretos.
+      // A busca é filtrada pela propriedade da safra (não pelo dono), assim funciona
+      // tanto para o dono quanto para um convidado com acesso à propriedade,
+      // mesmo que o dono tenha outras propriedades não compartilhadas.
       const safraObj = safrasDisponiveis.find(s => s.id === safraId)
-      const donoUid = safraObj?.uid || usuario.uid
-      const res = await calcularCustoProducaoDebug(donoUid, safraId)
+      const propriedadeId = safraObj?.propriedadeId
+      const res = await calcularCustoProducaoDebug(propriedadeId, safraId)
       setResultado(res)
     } catch (e) {
       setErro(e.message)

@@ -976,7 +976,7 @@ function OnboardingDashboard({ step, propNome, qtdLavs, onAvancar, modalFluxo, s
 }
 
 export default function Dashboard() {
-  const { usuario, propriedadesCompartilhadas } = useAuth()
+  const { usuario, propriedadesCompartilhadas, carregandoCompartilhadas } = useAuth()
   const [loading, setLoading] = useState(true)
   const [propriedades, setPropriedades] = useState([])
   const [safrasAtivas, setSafrasAtivas] = useState([])
@@ -1074,7 +1074,7 @@ export default function Dashboard() {
 
   useEffect(() => { carregar() }, [carregar])
 
-  useEffect(() => { carregarOnboarding() }, [usuario, propriedadesCompartilhadas])
+  useEffect(() => { carregarOnboarding() }, [usuario, propriedadesCompartilhadas, carregandoCompartilhadas])
 
   useEffect(() => {
     const MAP = { soja: 'Soja', milho: 'Milho', cafe: 'Café', cafe_arabica: 'Café Arábica', cafe_conilon: 'Café Conilon', trigo: 'Trigo', algodao: 'Algodão', boi_gordo: 'Boi Gordo' }
@@ -1165,6 +1165,10 @@ export default function Dashboard() {
 
   async function carregarOnboarding() {
     try {
+      // Aguarda a checagem de propriedades compartilhadas terminar por completo
+      // antes de decidir se mostra o onboarding — evita mostrar o tutorial
+      // por engano para um convidado, por uma fração de segundo, no primeiro login.
+      if (carregandoCompartilhadas) return
       // Usuário com pelo menos uma propriedade compartilhada aceita não é "novo" — pula onboarding
       if ((propriedadesCompartilhadas || []).length > 0) {
         setOnboarding({ step: 'done' })

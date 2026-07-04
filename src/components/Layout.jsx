@@ -13,12 +13,12 @@ const menus = [
   { to: '/indicadores',      icon: BarChart2,        label: 'Indicadores' },
   { to: '/propriedades',     icon: MapPin,           label: 'Propriedades' },
   { to: '/lavouras',         icon: Sprout,           label: 'Lavouras' },
-  { to: '/safras',           icon: Layers,           label: 'Safras' },
-  { to: '/producao',         icon: Wheat,            label: 'Produção' },
   { to: '/patrimonio',       icon: Tractor,          label: 'Patrimônio' },
   { to: '/financeiro',       icon: DollarSign,       label: 'Financeiro' },
-  { to: '/estoque',          icon: Package,          label: 'Estoque Insumos' },
-  { to: '/estoque-producao', icon: Warehouse,        label: 'Estoque Produção' },
+  { to: '/safras',           icon: Layers,           label: 'Safras' },
+  { to: '/estoque',          icon: Package,          label: 'Insumos' },
+  { to: '/producao',         icon: Wheat,            label: 'Produção' },
+  { to: '/estoque-producao', icon: Warehouse,        label: 'Estoque Produção' },  
 ]
 
 export default function Layout() {
