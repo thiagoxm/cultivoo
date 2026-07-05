@@ -1375,11 +1375,28 @@ export default function EstoqueProducao() {
       getDocs(query(collection(db, 'estoqueProducao'), where('uid', '==', uid))),
       getDocs(query(collection(db, 'movimentacoesProducao'), where('uid', '==', uid))),
     ])
-    setLotes(lotSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-    setMovs(movSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+    const meusLotes = lotSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    const minhasMovs = movSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+    const idsComp = (propriedadesCompartilhadas || [])
+      .filter(c => c.permissoes.includes('estoqueProducao'))
+      .map(c => c.propriedadeId)
+
+    let lotesComp = [], movsComp = []
+    for (const propId of idsComp) {
+      const [ls, ms] = await Promise.all([
+        getDocs(query(collection(db, 'estoqueProducao'), where('propriedadeId', '==', propId))),
+        getDocs(query(collection(db, 'movimentacoesProducao'), where('propriedadeId', '==', propId))),
+      ])
+      lotesComp.push(...ls.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+      movsComp.push(...ms.docs.map(d => ({ id: d.id, ...d.data(), _compartilhada: true })))
+    }
+
+    setLotes([...meusLotes, ...lotesComp])
+    setMovs([...minhasMovs, ...movsComp])
   }
 
-  useEffect(() => { carregar() }, [usuario])
+  useEffect(() => { carregar() }, [usuario, propriedadesCompartilhadas])
 
   // Cotações
   useEffect(() => {
