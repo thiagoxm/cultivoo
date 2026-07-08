@@ -479,16 +479,26 @@ function calcularCustoPorSafra(
 export async function calcularCustoProducaoDebug(propriedadeId, safraId) {
   if (!propriedadeId || !safraId) return null
 
-  const [safrasSnap, lavouraSnap, colheitasSnap, saidasSnap, entradasSnap, despesasSnap, patrimoniosSnap] =
-    await Promise.all([
-      getDocs(query(collection(db, 'safras'),              where('propriedadeId', '==', propriedadeId))),
-      getDocs(query(collection(db, 'lavouras'),            where('propriedadeId', '==', propriedadeId))),
-      getDocs(query(collection(db, 'colheitas'),           where('propriedadeId', '==', propriedadeId))),
-      getDocs(query(collection(db, 'movimentacoesInsumos'), where('propriedadeId', '==', propriedadeId), where('tipoMov', '==', 'saida'))),
-      getDocs(query(collection(db, 'movimentacoesInsumos'), where('propriedadeId', '==', propriedadeId), where('tipoMov', '==', 'entrada'))),
-      getDocs(query(collection(db, 'financeiro'),           where('propriedadeId', '==', propriedadeId), where('tipo', '==', 'despesa'))),
-      getDocs(query(collection(db, 'patrimonios'),          where('propriedadeIds', 'array-contains', propriedadeId))),
-    ])
+  // Diagnóstico temporário: busca cada coleção separadamente para identificar
+  // exatamente qual delas está causando o erro de permissão.
+  async function buscarComDiagnostico(nome, q) {
+    try {
+      const snap = await getDocs(q)
+      console.log(`[DEBUG-CUSTO] ✅ ${nome}: ${snap.docs.length} documentos`)
+      return snap
+    } catch (e) {
+      console.error(`[DEBUG-CUSTO] ❌ ${nome}: ERRO -`, e.code, e.message)
+      throw e
+    }
+  }
+
+  const safrasSnap = await buscarComDiagnostico('safras', query(collection(db, 'safras'), where('propriedadeId', '==', propriedadeId)))
+  const lavouraSnap = await buscarComDiagnostico('lavouras', query(collection(db, 'lavouras'), where('propriedadeId', '==', propriedadeId)))
+  const colheitasSnap = await buscarComDiagnostico('colheitas', query(collection(db, 'colheitas'), where('propriedadeId', '==', propriedadeId)))
+  const saidasSnap = await buscarComDiagnostico('movimentacoesInsumos (saida)', query(collection(db, 'movimentacoesInsumos'), where('propriedadeId', '==', propriedadeId), where('tipoMov', '==', 'saida')))
+  const entradasSnap = await buscarComDiagnostico('movimentacoesInsumos (entrada)', query(collection(db, 'movimentacoesInsumos'), where('propriedadeId', '==', propriedadeId), where('tipoMov', '==', 'entrada')))
+  const despesasSnap = await buscarComDiagnostico('financeiro', query(collection(db, 'financeiro'), where('propriedadeId', '==', propriedadeId), where('tipo', '==', 'despesa')))
+  const patrimoniosSnap = await buscarComDiagnostico('patrimonios', query(collection(db, 'patrimonios'), where('propriedadeIds', 'array-contains', propriedadeId)))
 
   const safras      = safrasSnap.docs.map(d => ({ id: d.id, ...d.data() }))
   const lavouras    = lavouraSnap.docs.map(d => ({ id: d.id, ...d.data() }))
