@@ -7,6 +7,7 @@ import { useState, useCallback } from 'react'
 import { ChevronDown, ChevronUp, RefreshCw } from 'lucide-react'
 import { calcularCustoProducaoDebug, calcularCustoProducao } from '../hooks/useCustoProducao'
 import { useAuth } from '../contexts/AuthContext'
+import { auth } from '../services/firebase'
 import { format, parseISO } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 
