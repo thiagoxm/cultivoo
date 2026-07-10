@@ -83,6 +83,14 @@ export function PainelDebugCusto({ safras }) {
       // mesmo que o dono tenha outras propriedades não compartilhadas.
       const safraObj = safrasDisponiveis.find(s => s.id === safraId)
       const propriedadeId = safraObj?.propriedadeId
+
+      console.log('[DEBUG-CUSTO] safraId:', safraId)
+      console.log('[DEBUG-CUSTO] safraObj encontrado:', safraObj)
+      console.log('[DEBUG-CUSTO] propriedadeId resolvido:', propriedadeId)
+      console.log('[DEBUG-CUSTO] usuario.uid (contexto React):', usuario?.uid)
+      console.log('[DEBUG-CUSTO] auth.currentUser?.uid (sessao real Firebase):', auth.currentUser?.uid)
+      console.log('[DEBUG-CUSTO] auth.currentUser?.email:', auth.currentUser?.email)
+
       const res = await calcularCustoProducaoDebug(propriedadeId, safraId)
       setResultado(res)
     } catch (e) {
