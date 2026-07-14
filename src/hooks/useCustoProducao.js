@@ -8,7 +8,7 @@
 //   Camada 5 — depreciação de patrimônios vinculados à propriedade (proporcional ao período da safra)
 
 import { useEffect, useRef } from 'react'
-import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore'
+import { collection, query, where, getDocs, getDoc, doc, updateDoc } from 'firebase/firestore'
 import { db } from '../services/firebase'
 
 // ─────────────────────────────────────────────
@@ -478,6 +478,15 @@ function calcularCustoPorSafra(
 // ─────────────────────────────────────────────
 export async function calcularCustoProducaoDebug(propriedadeId, safraId) {
   if (!propriedadeId || !safraId) return null
+
+  // Diagnóstico temporário: testa GET (documento único) vs LIST (busca por filtro)
+  // lado a lado, para descobrir se o problema é específico de um dos dois tipos.
+  try {
+    const docUnico = await getDoc(doc(db, 'safras', safraId))
+    console.log('[DEBUG-CUSTO] ✅ GET documento único (safras/' + safraId + '): sucesso, existe =', docUnico.exists())
+  } catch (e) {
+    console.error('[DEBUG-CUSTO] ❌ GET documento único (safras/' + safraId + '): ERRO -', e.code, e.message)
+  }
 
   // Diagnóstico temporário: busca cada coleção separadamente para identificar
   // exatamente qual delas está causando o erro de permissão.
