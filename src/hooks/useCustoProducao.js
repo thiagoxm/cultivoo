@@ -479,37 +479,21 @@ function calcularCustoPorSafra(
 export async function calcularCustoProducaoDebug(propriedadeId, safraId) {
   if (!propriedadeId || !safraId) return null
 
-  // Diagnóstico temporário: testa GET (documento único) vs LIST (busca por filtro)
-  // lado a lado, para descobrir se o problema é específico de um dos dois tipos.
-  try {
-    const docUnico = await getDoc(doc(db, 'safras', safraId))
-    console.log('[DEBUG-CUSTO] ✅ GET documento único (safras/' + safraId + '): sucesso, existe =', docUnico.exists())
-  } catch (e) {
-    console.error('[DEBUG-CUSTO] ❌ GET documento único (safras/' + safraId + '): ERRO -', e.code, e.message)
-  }
+  // Busca a safra alvo diretamente pelo ID (mais confiável que buscar por lista/filtro)
+  const safraDoc = await getDoc(doc(db, 'safras', safraId))
+  if (!safraDoc.exists()) return null
+  const safra = { id: safraDoc.id, ...safraDoc.data() }
 
-  // Diagnóstico temporário: busca cada coleção separadamente para identificar
-  // exatamente qual delas está causando o erro de permissão.
-  async function buscarComDiagnostico(nome, q) {
-    try {
-      const snap = await getDocs(q)
-      console.log(`[DEBUG-CUSTO] ✅ ${nome}: ${snap.docs.length} documentos`)
-      return snap
-    } catch (e) {
-      console.error(`[DEBUG-CUSTO] ❌ ${nome}: ERRO -`, e.code, e.message)
-      throw e
-    }
-  }
+  const [lavouraSnap, colheitasSnap, saidasSnap, entradasSnap, despesasSnap, patrimoniosSnap] =
+    await Promise.all([
+      getDocs(query(collection(db, 'lavouras'),            where('propriedadeId', '==', propriedadeId))),
+      getDocs(query(collection(db, 'colheitas'),           where('propriedadeId', '==', propriedadeId))),
+      getDocs(query(collection(db, 'movimentacoesInsumos'), where('propriedadeId', '==', propriedadeId), where('tipoMov', '==', 'saida'))),
+      getDocs(query(collection(db, 'movimentacoesInsumos'), where('propriedadeId', '==', propriedadeId), where('tipoMov', '==', 'entrada'))),
+      getDocs(query(collection(db, 'financeiro'),           where('propriedadeId', '==', propriedadeId), where('tipo', '==', 'despesa'))),
+      getDocs(query(collection(db, 'patrimonios'),          where('propriedadeIds', 'array-contains', propriedadeId))),
+    ])
 
-  const safrasSnap = await buscarComDiagnostico('safras', query(collection(db, 'safras'), where('propriedadeId', '==', propriedadeId)))
-  const lavouraSnap = await buscarComDiagnostico('lavouras', query(collection(db, 'lavouras'), where('propriedadeId', '==', propriedadeId)))
-  const colheitasSnap = await buscarComDiagnostico('colheitas', query(collection(db, 'colheitas'), where('propriedadeId', '==', propriedadeId)))
-  const saidasSnap = await buscarComDiagnostico('movimentacoesInsumos (saida)', query(collection(db, 'movimentacoesInsumos'), where('propriedadeId', '==', propriedadeId), where('tipoMov', '==', 'saida')))
-  const entradasSnap = await buscarComDiagnostico('movimentacoesInsumos (entrada)', query(collection(db, 'movimentacoesInsumos'), where('propriedadeId', '==', propriedadeId), where('tipoMov', '==', 'entrada')))
-  const despesasSnap = await buscarComDiagnostico('financeiro', query(collection(db, 'financeiro'), where('propriedadeId', '==', propriedadeId), where('tipo', '==', 'despesa')))
-  const patrimoniosSnap = await buscarComDiagnostico('patrimonios', query(collection(db, 'patrimonios'), where('propriedadeIds', 'array-contains', propriedadeId)))
-
-  const safras      = safrasSnap.docs.map(d => ({ id: d.id, ...d.data() }))
   const lavouras    = lavouraSnap.docs.map(d => ({ id: d.id, ...d.data() }))
   const colheitas   = colheitasSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado)
   const saidas      = saidasSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado)
@@ -517,8 +501,12 @@ export async function calcularCustoProducaoDebug(propriedadeId, safraId) {
   const despesas    = despesasSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado)
   const patrimonios = patrimoniosSnap.docs.map(d => ({ id: d.id, ...d.data() }))
 
-  const safra = safras.find(s => s.id === safraId)
-  if (!safra) return null
+  // Nota: para a rateio de depreciação entre safras concorrentes (camada 5), usamos
+  // apenas a safra alvo (não a lista completa de safras da propriedade), já que
+  // buscar todas as safras por 'propriedadeId' apresentou instabilidade nesta
+  // coleção especificamente. Isso é uma simplificação aceitável apenas no painel
+  // de debug (não afeta o cálculo oficial usado no restante do app).
+  const safras = [safra]
 
   const custoUnitPorEntrada = {}
   entradas.forEach(e => {
