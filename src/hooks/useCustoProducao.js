@@ -8,7 +8,7 @@
 //   Camada 5 — depreciação de patrimônios vinculados à propriedade (proporcional ao período da safra)
 
 import { useEffect, useRef } from 'react'
-import { collection, query, where, getDocs, getDoc, doc, updateDoc } from 'firebase/firestore'
+import { collection, query, where, getDocs, getDoc, doc, updateDoc, documentId } from 'firebase/firestore'
 import { db } from '../services/firebase'
 
 // ─────────────────────────────────────────────
@@ -495,8 +495,15 @@ export async function calcularCustoProducaoDebug(propriedadeId, safraId) {
     }
   }
 
-  const lavouraSnap = await buscarComDiagnostico('lavouras', query(collection(db, 'lavouras'), where('propriedadeId', '==', propriedadeId)))
-  const colheitasSnap = await buscarComDiagnostico('colheitas', query(collection(db, 'colheitas'), where('propriedadeId', '==', propriedadeId)))
+  const lavouraIds = (safra.lavouraIds || []).slice(0, 30)
+  const colheitaIds = lavouraIds.map(lavId => `${safraId}_${lavId}`)
+
+  const lavouraSnap = lavouraIds.length > 0
+    ? await buscarComDiagnostico('lavouras', query(collection(db, 'lavouras'), where(documentId(), 'in', lavouraIds)))
+    : { docs: [] }
+  const colheitasSnap = colheitaIds.length > 0
+    ? await buscarComDiagnostico('colheitas', query(collection(db, 'colheitas'), where(documentId(), 'in', colheitaIds)))
+    : { docs: [] }
   const saidasSnap = await buscarComDiagnostico('movimentacoesInsumos (saida)', query(collection(db, 'movimentacoesInsumos'), where('propriedadeId', '==', propriedadeId), where('tipoMov', '==', 'saida')))
   const entradasSnap = await buscarComDiagnostico('movimentacoesInsumos (entrada)', query(collection(db, 'movimentacoesInsumos'), where('propriedadeId', '==', propriedadeId), where('tipoMov', '==', 'entrada')))
   const despesasSnap = await buscarComDiagnostico('financeiro', query(collection(db, 'financeiro'), where('propriedadeId', '==', propriedadeId), where('tipo', '==', 'despesa')))
