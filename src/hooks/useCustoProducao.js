@@ -496,14 +496,11 @@ export async function calcularCustoProducaoDebug(propriedadeId, safraId) {
   }
 
   const lavouraSnap = await buscarComDiagnostico('lavouras (por uid)', query(collection(db, 'lavouras'), where('uid', '==', safra.uid)))
-  const colheitaIds = (safra.lavouraIds || []).slice(0, 30).map(lavId => `${safraId}_${lavId}`)
-  const colheitasSnap = colheitaIds.length > 0
-    ? await buscarComDiagnostico('colheitas', query(collection(db, 'colheitas'), where(documentId(), 'in', colheitaIds)))
-    : { docs: [] }
-  const saidasSnap = await buscarComDiagnostico('movimentacoesInsumos (saida)', query(collection(db, 'movimentacoesInsumos'), where('propriedadeId', '==', propriedadeId), where('tipoMov', '==', 'saida')))
-  const entradasSnap = await buscarComDiagnostico('movimentacoesInsumos (entrada)', query(collection(db, 'movimentacoesInsumos'), where('propriedadeId', '==', propriedadeId), where('tipoMov', '==', 'entrada')))
-  const despesasSnap = await buscarComDiagnostico('financeiro', query(collection(db, 'financeiro'), where('propriedadeId', '==', propriedadeId), where('tipo', '==', 'despesa')))
-  const patrimoniosSnap = await buscarComDiagnostico('patrimonios', query(collection(db, 'patrimonios'), where('propriedadeIds', 'array-contains', propriedadeId)))
+  const colheitasSnap = await buscarComDiagnostico('colheitas (por uid)', query(collection(db, 'colheitas'), where('uid', '==', safra.uid)))
+  const saidasSnap = await buscarComDiagnostico('movimentacoesInsumos saida (por uid)', query(collection(db, 'movimentacoesInsumos'), where('uid', '==', safra.uid), where('tipoMov', '==', 'saida')))
+  const entradasSnap = await buscarComDiagnostico('movimentacoesInsumos entrada (por uid)', query(collection(db, 'movimentacoesInsumos'), where('uid', '==', safra.uid), where('tipoMov', '==', 'entrada')))
+  const despesasSnap = await buscarComDiagnostico('financeiro (por uid)', query(collection(db, 'financeiro'), where('uid', '==', safra.uid), where('tipo', '==', 'despesa')))
+  const patrimoniosSnap = await buscarComDiagnostico('patrimonios (por uid)', query(collection(db, 'patrimonios'), where('uid', '==', safra.uid)))
 
   const lavouras    = lavouraSnap.docs.map(d => ({ id: d.id, ...d.data() }))
   const colheitas   = colheitasSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => !d.cancelado)
