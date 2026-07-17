@@ -495,12 +495,8 @@ export async function calcularCustoProducaoDebug(propriedadeId, safraId) {
     }
   }
 
-  const lavouraIds = (safra.lavouraIds || []).slice(0, 30)
-  const colheitaIds = lavouraIds.map(lavId => `${safraId}_${lavId}`)
-
-  const lavouraSnap = lavouraIds.length > 0
-    ? await buscarComDiagnostico('lavouras', query(collection(db, 'lavouras'), where(documentId(), 'in', lavouraIds)))
-    : { docs: [] }
+  const lavouraSnap = await buscarComDiagnostico('lavouras (por uid)', query(collection(db, 'lavouras'), where('uid', '==', safra.uid)))
+  const colheitaIds = (safra.lavouraIds || []).slice(0, 30).map(lavId => `${safraId}_${lavId}`)
   const colheitasSnap = colheitaIds.length > 0
     ? await buscarComDiagnostico('colheitas', query(collection(db, 'colheitas'), where(documentId(), 'in', colheitaIds)))
     : { docs: [] }
